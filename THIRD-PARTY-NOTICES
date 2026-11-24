@@ -11,7 +11,10 @@ test fixtures), the hashline tool description, and crates/eukhe-tokens (the
 utok tokenizers, their embedded vocabulary data and test fixtures; the
 model-to-tokenizer, image token and thinking replay rules of omp's catalog,
 its identity taxonomy data and the agreement fixtures generated from it; the
-message counter).
+message counter), and crates/eukhe-desktop (the desktop computer-use core of
+omp's crates/natives/src/desktop: the ref registry, tree walk and text format,
+screenshot frames, key chords, menus, applications, text ranges, input lease,
+cancellation and user-intervention watch, and the backend seam).
 
 MIT License
 
