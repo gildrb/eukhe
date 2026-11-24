@@ -66,6 +66,9 @@ mod run;
 // failed daemon start shown in the frame, or the fatal return).
 mod open_failure;
 
+// The terminal status reports' edge (OSC 7501, OSC 9;4).
+mod status;
+
 pub use run::{run_interactive, run_interactive_with};
 
 /// The daemon an interactive run attaches to.
@@ -343,6 +346,9 @@ pub struct InteractiveOutcome {
     /// OSC 52 clipboard sequences emitted during the run (headless capture
     /// only; terminal runs write them to stdout directly).
     pub clipboard_emissions: Vec<String>,
+    /// The terminal status reports (OSC 7501, OSC 9;4) written during the
+    /// run (headless capture only; terminal runs write them to stdout).
+    pub status_reports: Vec<String>,
     /// `/resume` requested the agents view next (return-to-session flow).
     pub return_to_agents_view: bool,
     /// The subagent summary line opened the agents view scoped to this

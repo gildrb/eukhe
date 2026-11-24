@@ -134,6 +134,7 @@ impl SessionUi {
             anchor,
             anchor_ms,
         );
+        self.family_generation = self.family_generation.wrapping_add(1);
         let dock = self.activity_dock_state();
         // A focused selection must stay on a rendered group: a group
         // whose lane went away leaves the row, and the selection steps

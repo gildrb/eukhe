@@ -45,6 +45,13 @@ impl ConfirmPanel {
         }
     }
 
+    /// The question the panel asks: its message's first line, else its
+    /// title.
+    #[must_use]
+    pub fn question(&self) -> &str {
+        self.message.first().unwrap_or(&self.title)
+    }
+
     /// One key id (TS `handleInput`: up/down move, confirm selects, escape
     /// and ctrl+c cancel).
     pub fn handle_key(&mut self, kb: &KeybindingsManager, id: &str) -> ConfirmAction {

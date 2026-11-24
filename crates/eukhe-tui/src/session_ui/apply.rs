@@ -1022,6 +1022,14 @@ impl SessionUi {
                 }
             }
             TurnUpdate::Idle => {
+                // Read before the resets below: whether a run ended, and
+                // whether this client stopped it.
+                let ran = self.run_open || self.turn_active;
+                let stop = if self.run_interrupted {
+                    super::terminal::RunStop::Interrupted
+                } else {
+                    super::terminal::RunStop::Ended
+                };
                 self.end_open_message(view);
                 // A run that made no model request (stopped while it
                 // prepared or waited) never sends the `turn_end` its
@@ -1071,6 +1079,9 @@ impl SessionUi {
                     // `compaction_end` settles it.
                     if !compaction_runs(view) {
                         Self::stop_loader(view);
+                    }
+                    if ran {
+                        self.record_run_end(stop, view);
                     }
                 }
             }

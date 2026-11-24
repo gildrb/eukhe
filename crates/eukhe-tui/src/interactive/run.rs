@@ -671,9 +671,12 @@ async fn run_interactive_surface(
     // session client after the open, so the watch names the connection
     // the loop actually serves.
     let mut reader_dead = session.client.reader_dead();
-    if headless {
+    let mut status = if headless {
         session.osc_sink = crate::clipboard::OscSink::Buffer(Vec::new());
-    }
+        super::status::StatusLink::new(crate::clipboard::OscSink::Buffer(Vec::new()))
+    } else {
+        super::status::StatusLink::new(crate::clipboard::OscSink::Stdout)
+    };
     // The tray's context usage came in with the attach snapshot, so the
     // open path does not block on a stats fetch.
     // The startup catalog fetch (TS `updateAvailableProviderCount` ->
@@ -773,6 +776,7 @@ async fn run_interactive_surface(
         }
         session.dirty = false;
     }
+    status.sync(&session, &view)?;
 
     // `pending` rides in from the opening phase: typed-ahead inputs
     // queued behind the open dispatch first, in order.
@@ -989,6 +993,12 @@ async fn run_interactive_surface(
                 }
             } else if let Some(input) = pending.pop_front() {
                 session.dirty = true;
+                if matches!(
+                    input,
+                    UiInput::Key(_) | UiInput::Paste(_) | UiInput::Submit(_)
+                ) {
+                    status.user_acted(&session);
+                }
                 match input {
                     // The text selection sees the key first: the copy key
                     // over a shown selection copies it again, and an Esc
@@ -1174,6 +1184,7 @@ async fn run_interactive_surface(
                 inputs_pending = false;
             }
         }
+        status.sync(&session, &view)?;
         // The headless exit gate: the plan completed, and the run ends
         // once every settle member drains (an inline auth flow in flight
         // holds the run open like an active turn -- the headless harness
@@ -2016,6 +2027,7 @@ async fn run_interactive_surface(
         // with the pre-sleep value and the corrected tray would never get
         // another paint.
         view.chrome.tray_override = session.tray_override(&view);
+        status.sync(&session, &view)?;
 
         // The frame gate (TS `scheduleRender`: at most one render per
         // MIN_RENDER_INTERVAL_MS): every state change inside the window
@@ -2073,6 +2085,13 @@ async fn run_interactive_surface(
     // stalled; forced exit.", the live report), so the deadline covers
     // only the leaves that end this process.
     let handing_off = session.open_agents_view || session.pending_selection.is_some();
+    let status_reports = status.leave(if handing_off {
+        crate::terminal_status::Leave::Handoff
+    } else {
+        crate::terminal_status::Leave::Process {
+            last_run: session.last_run_end(),
+        }
+    })?;
     if renderer.is_terminal() && !handing_off {
         exit_guard.arm_for_exit();
     }
@@ -2127,6 +2146,7 @@ async fn run_interactive_surface(
         // The headless OSC 52 capture (terminal runs wrote the sequences
         // to stdout as they happened).
         clipboard_emissions: session.take_osc_emissions(),
+        status_reports,
         return_to_agents_view: session.open_agents_view,
         agents_view_scope: session.scoped_agents_view.take(),
         selection_request: session.pending_selection,

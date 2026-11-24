@@ -136,6 +136,17 @@ impl SessionUi {
             pending_tools: HashSet::default(),
             aborted_tools: HashSet::default(),
             last_assistant_text: None,
+            run_ends: 0,
+            last_run_end: None,
+            family_generation: 0,
+            terminal_progress: options.client_settings.as_ref().map_or(
+                crate::terminal_status::TerminalProgress::Off,
+                |settings| {
+                    crate::terminal_status::TerminalProgress::of_setting(
+                        settings.show_terminal_progress(),
+                    )
+                },
+            ),
             osc_sink: crate::clipboard::OscSink::Stdout,
             pending_confirm: None,
             provider_auth: options.provider_auth.clone(),

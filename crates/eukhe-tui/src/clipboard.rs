@@ -6,15 +6,16 @@ use std::io::{Read, Write};
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
-/// The OSC 52 payload channel: stdout in the terminal, a captured buffer in
-/// headless verification runs.
+/// An escape-sequence channel (OSC 52 clipboard writes, the terminal
+/// status reports): stdout in the terminal, a captured buffer in headless
+/// verification runs.
 pub(crate) enum OscSink {
     Stdout,
     Buffer(Vec<u8>),
 }
 
 impl OscSink {
-    fn write_sequence(&mut self, sequence: &str) -> std::io::Result<()> {
+    pub(crate) fn write_sequence(&mut self, sequence: &str) -> std::io::Result<()> {
         match self {
             OscSink::Stdout => {
                 let mut out = std::io::stdout();
@@ -25,6 +26,14 @@ impl OscSink {
                 buffer.extend_from_slice(sequence.as_bytes());
                 Ok(())
             }
+        }
+    }
+
+    /// What a headless buffer captured (stdout captures nothing).
+    pub(crate) fn captured(self) -> Vec<String> {
+        match self {
+            OscSink::Buffer(buffer) => vec![String::from_utf8_lossy(&buffer).into_owned()],
+            OscSink::Stdout => Vec::new(),
         }
     }
 }

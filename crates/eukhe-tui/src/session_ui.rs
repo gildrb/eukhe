@@ -31,6 +31,7 @@ mod scoped_models;
 mod sessions_fork;
 mod settings;
 mod stream;
+mod terminal;
 mod workers;
 mod workflows;
 
@@ -377,6 +378,17 @@ pub(crate) struct SessionUi {
     /// reused id with a fresh card, the way TS's fresh component does).
     aborted_tools: std::collections::HashSet<String>,
     pub(crate) last_assistant_text: Option<String>,
+    /// Runs this view saw end (the terminal status report reads an end
+    /// newer than the user's last key as unread).
+    run_ends: u64,
+    /// How the latest run this view saw ended.
+    last_run_end: Option<crate::terminal_status::RunEnd>,
+    /// Bumped on each rebuild of the pinned agents block: the terminal
+    /// status report re-reads the running subagents only then.
+    family_generation: u64,
+    /// `terminal.showTerminalProgress`: OSC 9;4 progress while a turn
+    /// runs.
+    terminal_progress: crate::terminal_status::TerminalProgress,
     /// The OSC 52 channel for clipboard writes (TS `process.stdout`):
     /// stdout in the terminal, a captured buffer in headless runs.
     pub(crate) osc_sink: crate::clipboard::OscSink,
