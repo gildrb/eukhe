@@ -1449,28 +1449,23 @@ fn a_terminated_stream_spends_the_stream_budget_and_names_the_cuts() {
         &json!({ "type": "prompt_and_wait", "activeSessionId": session_id, "message": "hi" }),
     );
     let done = client.request("t1");
-    assert_eq!(done["success"], true, "prompt failed: {done}");
+    // The turn fails past the budgets: prompt_and_wait answers with the
+    // honest failure line as the error.
+    assert_eq!(done["success"], false, "the turn failed: {done}");
+    let error = done["error"].as_str().expect("the failed turn's error");
     // Every cut of the turn: two stream retries and the failing one. No
     // retry.maxRetries retry happened (it is 0): the stream budget spent.
     assert_eq!(mock.count(), 3, "request count");
-    client.send_command(
-        "g1",
-        &json!({ "type": "get_messages", "activeSessionId": session_id }),
-    );
-    let messages = client.request("g1");
-    let list = messages["data"]["messages"].as_array().expect("messages");
-    let last_error = list
-        .iter()
-        .rev()
-        .find(|message| message["role"] == "assistant" && message["stopReason"] == "error")
-        .and_then(|message| message["errorMessage"].as_str())
-        .expect("the failed turn's error");
     assert!(
-        last_error.contains("mock-1's stream was cut 3 times"),
-        "the cuts named: {last_error}"
+        error.contains("mock-1's stream was cut 3 times"),
+        "the cuts named: {error}"
     );
     assert!(
-        last_error.contains("Set model.backups to let another model take the turn."),
-        "the backups pointer: {last_error}"
+        error.contains("last failure: Stream ended without finish_reason"),
+        "the last cause named: {error}"
+    );
+    assert!(
+        error.contains("Set model.backups to let another model take the turn."),
+        "the backups pointer: {error}"
     );
 }
