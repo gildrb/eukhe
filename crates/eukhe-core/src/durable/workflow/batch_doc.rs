@@ -11,7 +11,7 @@ use eukhe_durable::types::{ConversationId, LatestFork};
 use eukhe_types::pi_ai::IndexMap;
 use serde::{Deserialize, Serialize};
 
-use super::batch::{plan, Batch, BatchRefusal, Outcome};
+use super::batch::{plan, wave, Batch, BatchRefusal, Outcome, Wave};
 use super::tree::Facts;
 
 /// The batches of one conversation, by key.
@@ -70,8 +70,16 @@ pub(crate) async fn tx_put_batch(
 }
 
 impl Batches {
+    /// The batches that did not settle.
+    fn running(&self) -> Vec<&Batch> {
+        self.batches
+            .values()
+            .filter(|batch| !batch.settled())
+            .collect()
+    }
+
     /// Plan the batch of `agents` (ordinal and scope, in call order) in
-    /// the session's `facts`, beside every running batch.
+    /// the session's `facts`, all or none, beside every running batch.
     ///
     /// # Errors
     ///
@@ -81,12 +89,26 @@ impl Batches {
         facts: &Facts,
         agents: &[(u32, Vec<String>)],
     ) -> Result<Batch, BatchRefusal> {
-        let running: Vec<&Batch> = self
-            .batches
-            .values()
-            .filter(|batch| !batch.settled())
-            .collect();
-        plan(facts.room.clone(), &facts.write_scope, &running, agents)
+        plan(
+            facts.room.clone(),
+            &facts.write_scope,
+            &self.running(),
+            agents,
+        )
+    }
+
+    /// The next wave of the writing group `agents` (ordinal and scope, in
+    /// call order) in the session's `facts`, beside every running batch.
+    ///
+    /// # Errors
+    ///
+    /// The group's refusal.
+    pub(crate) fn wave(
+        &self,
+        facts: &Facts,
+        agents: &[(u32, Vec<String>)],
+    ) -> Result<Wave, BatchRefusal> {
+        wave(&facts.room, &facts.write_scope, &self.running(), agents)
     }
 }
 

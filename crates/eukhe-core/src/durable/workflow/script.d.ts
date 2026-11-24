@@ -5,11 +5,12 @@
 /** The run's `args` text (empty when the call gave none). */
 declare const args: string;
 
-/** The run's limits, from its record. */
+/** The run's limits, from its record; `writers`: the most writing agents one batch holds (0: this session writes none). */
 declare const __wfLimits: Readonly<{
   size: "small" | "medium" | "large";
   concurrency: number;
   maxAgents: number;
+  writers: number;
 }>;
 
 /** The options of one agent; the host refuses other keys and empty strings (`agent_options`). */
@@ -47,10 +48,17 @@ type AgentWriter = {
 };
 
 declare const wf: Readonly<{
-  /** Admits the writing agents called together as one batch of the agent tree, all or none. */
-  batch(request: { agents: AgentRequest[] }): Promise<null>;
+  /**
+   * Checks the writing agents called together as one group (files, scopes, `maxAgents`), all or none,
+   * then starts the longest first run of them one batch of the agent tree holds. `writing`: the run's
+   * writing agents still running (none: a tree without room refuses the group). `deferred`: the
+   * ordinals that wait for a later wave (empty: every agent started or has its answer).
+   */
+  batch(request: { agents: AgentRequest[]; writing: number }): Promise<{ deferred: number[] }>;
   /** Runs (or serves from an earlier run) the agent of the `ordinal`th call. */
   agent(request: AgentRequest): Promise<AgentAnswer>;
   phase(update: { title: string }): Promise<undefined>;
   log(update: { message: string }): Promise<undefined>;
+  /** Records why part of the run became `null` or threw: the run's log and its report's problems. */
+  problem(update: { message: string }): Promise<undefined>;
 }>;

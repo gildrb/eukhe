@@ -96,6 +96,15 @@ pub(crate) struct RunRecord {
     /// Agents by ordinal.
     pub(crate) agents: BTreeMap<u32, AgentRow>,
     pub(crate) logs: Vec<String>,
+    /// Why parts of the run gave the script `null` or threw, one line
+    /// each, the first [`PROBLEM_LINES`] distinct ones: failed agents,
+    /// refusals and errors `parallel()` and `pipeline()` caught. The
+    /// report carries them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(crate) problems: Vec<String>,
+    /// Problems past the first [`PROBLEM_LINES`].
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub(crate) more_problems: u32,
     /// The task id of the `workflow` tool call that started the run: a
     /// rerun of that call finds the run instead of starting another.
     #[serde(default)]
@@ -116,6 +125,15 @@ pub(crate) struct RunRecord {
 
 fn settled_before_background_runs() -> bool {
     true
+}
+
+/// The problems a record keeps (and its report lists) by line.
+const PROBLEM_LINES: usize = 20;
+
+// serde's `skip_serializing_if` passes the field by reference.
+#[allow(clippy::trivially_copy_pass_by_ref)]
+fn is_zero(count: &u32) -> bool {
+    *count == 0
 }
 
 impl RunRecord {
@@ -139,6 +157,8 @@ impl RunRecord {
             active_phase: None,
             agents: BTreeMap::new(),
             logs: Vec::new(),
+            problems: Vec::new(),
+            more_problems: 0,
             call_task,
             settled: false,
             reporter: None,
@@ -219,6 +239,52 @@ impl RunRecord {
         self.logs.push(line);
         let excess = self.logs.len().saturating_sub(WORKFLOW_LOG_TAIL);
         self.logs.drain(..excess);
+    }
+
+    /// Record the problem `line`: in the log, and once in the problems.
+    pub(crate) fn push_problem(&mut self, line: String) {
+        self.push_log(line.clone());
+        if self.problems.contains(&line) {
+            return;
+        }
+        if self.problems.len() < PROBLEM_LINES {
+            self.problems.push(line);
+        } else {
+            self.more_problems = self.more_problems.saturating_add(1);
+        }
+    }
+
+    /// The report's problems section: a heading, then one line per
+    /// problem; empty without problems.
+    pub(crate) fn problem_report(&self) -> String {
+        if self.problems.is_empty() {
+            return String::new();
+        }
+        let mut text = String::from("Problems (why results are null):");
+        for line in &self.problems {
+            text.push_str("\n- ");
+            text.push_str(line);
+        }
+        if self.more_problems > 0 {
+            text.push_str("\n- ");
+            text.push_str(&self.more_problems.to_string());
+            text.push_str(" more (see /workflows)");
+        }
+        text
+    }
+
+    /// The agents whose answers a run resuming this one reuses.
+    pub(crate) fn reusable(&self) -> usize {
+        self.agents
+            .values()
+            .filter(|agent| match agent.status {
+                WorkflowAgentStatus::Done | WorkflowAgentStatus::Cached => true,
+                WorkflowAgentStatus::Queued
+                | WorkflowAgentStatus::Running
+                | WorkflowAgentStatus::Failed
+                | WorkflowAgentStatus::Cancelled => false,
+            })
+            .count()
     }
 
     /// The view of the run.

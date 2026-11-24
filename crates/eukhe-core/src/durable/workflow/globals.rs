@@ -1,9 +1,10 @@
-//! The `wf.*` host globals behind the script API: `wf.batch` (admit the
-//! writing agents a script starts together as one batch on the agent
-//! tree, [`super::tree`]), `wf.agent` (admit, spawn a silent child
-//! through `rlm.run`: a read-only help leaf, or a writing batch's leaf;
-//! wait through `rlm.collect`, read the answer through `rlm.answer`),
-//! `wf.phase`, and `wf.log`. Each result is journaled by code mode, so a
+//! The `wf.*` host globals behind the script API: `wf.batch` (check the
+//! writing agents a script starts together as one group and start its
+//! next wave as one batch on the agent tree, [`super::tree`]), `wf.agent`
+//! (admit, spawn a silent child through `rlm.run`: a read-only help leaf,
+//! or a writing batch's leaf; wait through `rlm.collect`, read the answer
+//! through `rlm.answer`), `wf.phase`, `wf.log`, and `wf.problem` (why a
+//! part of the run came back `null`). Each result is journaled by code mode, so a
 //! replay never calls one twice; a global cut off by a restart runs again
 //! and finds its batch, its agent row and its child by name.
 
@@ -23,11 +24,11 @@ use futures::FutureExt;
 use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
 
-use super::batch::{crown as batch_crown, place, Outcome, NEEDS_FILES};
-use super::batch_doc::{tx_batches, tx_end, tx_put_batch, tx_remove_batch};
+use super::batch::{crown as batch_crown, place, Batch, BatchRefusal, Outcome, Wave, NEEDS_FILES};
+use super::batch_doc::{tx_batches, tx_end, tx_put_batch, tx_remove_batch, Batches};
 use super::run_doc::{tx_put_run, tx_run, tx_runs, AgentRow, RunRecord};
 use super::schema::{extract_json, validate, SchemaMismatch};
-use super::tree::{self, Written};
+use super::tree::{self, Facts, Written};
 use crate::durable::deps::{HostCall, HostRequestRegistry};
 
 /// What the globals need from the session.
@@ -100,6 +101,18 @@ pub(super) fn globals(services: &Arc<WorkflowServices>) -> Vec<CodemodeGlobal> {
                 async move {
                     let message = string_field(args.as_ref(), "message")?;
                     update_run(&api, &cx, move |run| run.push_log(message)).await?;
+                    Ok(None)
+                }
+                .boxed()
+            }),
+        },
+        CodemodeGlobal {
+            name: "wf.problem".to_owned(),
+            spread: false,
+            execute: Arc::new(|args, api, cx| {
+                async move {
+                    let message = string_field(args.as_ref(), "message")?;
+                    update_run(&api, &cx, move |run| run.push_problem(message)).await?;
                     Ok(None)
                 }
                 .boxed()
@@ -500,10 +513,132 @@ fn no_record(run_id: &str) -> SessionError {
     SessionError::error(format!("workflow run {run_id} has no record"))
 }
 
-/// `wf.batch({agents})`: admit the writing agents a script started
-/// together as one batch of the agent tree, all or none: plan the
-/// balanced tree over the agents that run (an earlier run's answers serve
-/// the rest), then lend the batch its nodes. `null`; a refusal throws.
+/// What the start of a writing group decided.
+#[derive(Debug, Clone, PartialEq)]
+pub(super) enum GroupStart {
+    /// The agents of `batch` start now (none: every agent of the group
+    /// has its answer, or none fits the tree until a batch of the run
+    /// settles); the agents of `deferred` wait for a later wave, their
+    /// rows reserved against `max_agents`.
+    Wave {
+        batch: Option<Batch>,
+        deferred: Vec<u32>,
+    },
+    /// The whole group is refused before any of its agents starts.
+    Refused(String),
+}
+
+/// Whether a writing agent of the run has yet to settle, as the script
+/// sees it: its settlement (after its batch returned its nodes) wakes a
+/// group that waits for room in the tree.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Writing {
+    Running,
+    Idle,
+}
+
+/// Where a writing group starts: its batch key, the cache the run takes
+/// answers from, the session's tree facts, the conversation's batches,
+/// and whether a writing agent of the run is running.
+pub(super) struct GroupSite<'a> {
+    /// The key of the batch the group's next wave forms: the ordinal of
+    /// the request's first agent.
+    pub(super) key: u32,
+    pub(super) cache: Resumed<'a>,
+    pub(super) facts: &'a Facts,
+    pub(super) batches: &'a Batches,
+    pub(super) writing: Writing,
+}
+
+/// Whether `row` waits for a later wave: queued, in no batch.
+fn reserved(row: &AgentRow) -> bool {
+    row.batch.is_none() && row.status == WorkflowAgentStatus::Queued
+}
+
+/// `run` without the rows of `ordinals` reserved for a later wave.
+fn released(run: &RunRecord, ordinals: &[u32]) -> RunRecord {
+    let mut kept = run.clone();
+    kept.agents
+        .retain(|ordinal, row| !ordinals.contains(ordinal) || !reserved(row));
+    kept
+}
+
+/// The agents of `ordinals` that wait for a later wave.
+fn waiting(run: &RunRecord, ordinals: &[u32]) -> Vec<u32> {
+    ordinals
+        .iter()
+        .copied()
+        .filter(|ordinal| run.agents.get(ordinal).is_some_and(reserved))
+        .collect()
+}
+
+/// Start the next wave of the writing group `writers` (fresh row and
+/// scope, in call order) of `run` at `site`: the run's record after it,
+/// and what started. The whole group is admitted against `max_agents`
+/// and checked (files, scopes, running batches) before its first wave;
+/// a refusal releases the rows an earlier wave reserved.
+pub(super) fn start_group(
+    run: &RunRecord,
+    site: &GroupSite<'_>,
+    writers: Vec<(AgentRow, Vec<String>)>,
+) -> (RunRecord, GroupStart) {
+    let ordinals: Vec<u32> = writers.iter().map(|(row, _)| row.ordinal).collect();
+    let refused = |reason: String| (released(run, &ordinals), GroupStart::Refused(reason));
+    let mut trial = run.clone();
+    let mut agents = Vec::new();
+    for (row, scope) in writers {
+        let ordinal = row.ordinal;
+        match admit(&mut trial, site.cache, ordinal, row) {
+            Admission::Exhausted(max_agents) => return refused(exhausted(max_agents)),
+            Admission::Run(_) => agents.push((ordinal, scope)),
+            Admission::Cached(_) | Admission::Ended(_) => {}
+        }
+    }
+    let running: Vec<u32> = agents.iter().map(|(ordinal, _)| *ordinal).collect();
+    if running.is_empty() {
+        let none = GroupStart::Wave {
+            batch: None,
+            deferred: Vec::new(),
+        };
+        return (trial, none);
+    }
+    match (site.batches.wave(site.facts, &agents), site.writing) {
+        (Err(refusal), _) => refused(refusal.to_string()),
+        (Ok(Wave::Full), Writing::Running) => {
+            let wait = GroupStart::Wave {
+                batch: None,
+                deferred: running,
+            };
+            (trial, wait)
+        }
+        (Ok(Wave::Full), Writing::Idle) => refused(BatchRefusal::NoRoom.to_string()),
+        (Ok(Wave::Batch(batch)), _) => {
+            for leaf in &batch.leaves {
+                if let Some(row) = trial.agents.get_mut(&leaf.ordinal) {
+                    row.batch = Some(site.key);
+                }
+            }
+            let deferred = running
+                .into_iter()
+                .filter(|ordinal| batch.leaves.iter().all(|leaf| leaf.ordinal != *ordinal))
+                .collect();
+            let wave = GroupStart::Wave {
+                batch: Some(batch),
+                deferred,
+            };
+            (trial, wave)
+        }
+    }
+}
+
+/// `wf.batch({agents, writing})`: start the writing agents a script
+/// started together as a group on the agent tree: check the whole group,
+/// then admit the longest first run of the agents that run (an earlier
+/// run's answers serve the rest) one batch holds, and lend it its nodes.
+/// `writing`: the run's writing agents the script still waits for; with
+/// none, a tree without room refuses the group instead of deferring it.
+/// `{deferred}`: the ordinals that wait for a later wave; a refusal
+/// throws.
 async fn batch(
     services: &WorkflowServices,
     args: Option<JsonValue>,
@@ -523,6 +658,16 @@ async fn batch(
         }
     };
     let key = calls[0].ordinal;
+    let ordinals: Vec<u32> = calls.iter().map(|call| call.ordinal).collect();
+    let writing = match args.get("writing").and_then(Value::as_u64) {
+        Some(0) => Writing::Idle,
+        Some(_) => Writing::Running,
+        None => {
+            return Err(SessionError::type_error(
+                "wf.batch: writing must be a whole number",
+            ))
+        }
+    };
     let run_id = api.task_id().to_string();
     let conversation_id = api.conversation_id();
     let mut writers = Vec::with_capacity(calls.len());
@@ -538,83 +683,86 @@ async fn batch(
         .and_then(|reply| {
             tree::facts(&reply).map_err(|error| SessionError::error(error.to_string()))
         })?;
-    let planned = {
+    let started = {
         let run_id = run_id.clone();
+        let ordinals = ordinals.clone();
         api.commit(
             move |tx| async move {
                 let runs = tx_runs(&tx, conversation_id).await?;
                 let batches = tx_batches(&tx, conversation_id).await?;
                 let run = runs.runs.get(&run_id).ok_or_else(|| no_record(&run_id))?;
                 let lent = tree::lend_key(&run_id, key);
+                // A rerun of a call a restart cut off: its wave stands.
                 if let Some(batch) = batches.batches.get(&lent) {
-                    return Ok(Ok(Some(tree::nodes(batch.leaves.len()))));
+                    let nodes = Some(tree::nodes(batch.leaves.len()));
+                    return Ok(Ok((nodes, waiting(run, &ordinals))));
                 }
-                let resumed = run
+                let cache = match run
                     .resume_from
                     .as_ref()
-                    .and_then(|from| runs.runs.get(from));
-                let cache = match resumed {
+                    .and_then(|from| runs.runs.get(from))
+                {
                     Some(earlier) => Resumed::From(earlier),
                     None => Resumed::Fresh,
                 };
-                let mut trial = run.clone();
-                let mut agents = Vec::new();
-                for (row, scope) in writers {
-                    let ordinal = row.ordinal;
-                    match admit(&mut trial, cache, ordinal, row) {
-                        Admission::Exhausted(max_agents) => return Ok(Err(exhausted(max_agents))),
-                        Admission::Run(_) => agents.push((ordinal, scope)),
-                        Admission::Cached(_) | Admission::Ended(_) => {}
+                let site = GroupSite {
+                    key,
+                    cache,
+                    facts: &facts,
+                    batches: &batches,
+                    writing,
+                };
+                let (mut record, start) = start_group(run, &site, writers);
+                let reply = match start {
+                    GroupStart::Refused(reason) => Err(reason),
+                    GroupStart::Wave { batch, deferred } => {
+                        let nodes = match &batch {
+                            Some(batch) => {
+                                tx_put_batch(&tx, conversation_id, &lent, batch).await?;
+                                Some(tree::nodes(batch.leaves.len()))
+                            }
+                            None => None,
+                        };
+                        Ok((nodes, deferred))
                     }
-                }
-                if !agents.is_empty() {
-                    let batch = match batches.admit(&facts, &agents) {
-                        Ok(batch) => batch,
-                        Err(refusal) => return Ok(Err(refusal.to_string())),
-                    };
-                    for (ordinal, _) in &agents {
-                        if let Some(row) = trial.agents.get_mut(ordinal) {
-                            row.batch = Some(key);
-                        }
-                    }
-                    tx_put_batch(&tx, conversation_id, &lent, &batch).await?;
-                }
-                tx_put_run(&tx, conversation_id, &run_id, &mut trial).await?;
-                Ok(Ok((!agents.is_empty()).then(|| tree::nodes(agents.len()))))
+                };
+                tx_put_run(&tx, conversation_id, &run_id, &mut record).await?;
+                Ok(reply)
             },
             &cx,
         )
         .await?
     };
-    let nodes = match planned {
-        Err(refusal) => return Err(SessionError::error(refusal)),
-        Ok(None) => return Ok(None),
-        Ok(Some(nodes)) => nodes,
-    };
-    let lent = tree::lend_key(&run_id, key);
-    let lent_reply = host_call(
-        services,
-        &api,
-        "rlm.tree_lend",
-        json!({ "key": lent, "nodes": nodes }),
-    )
-    .await;
-    if let Err(error) = lent_reply {
-        api.commit(
-            move |tx| async move {
-                tx_remove_batch(&tx, conversation_id, &lent).await?;
-                let mut run = tx_run(&tx, conversation_id, &run_id)
-                    .await?
-                    .ok_or_else(|| no_record(&run_id))?;
-                run.agents.retain(|_, row| row.batch != Some(key));
-                tx_put_run(&tx, conversation_id, &run_id, &mut run).await
-            },
-            &cx,
+    let (nodes, deferred) = started.map_err(SessionError::error)?;
+    if let Some(nodes) = nodes {
+        let lent = tree::lend_key(&run_id, key);
+        let lent_reply = host_call(
+            services,
+            &api,
+            "rlm.tree_lend",
+            json!({ "key": lent, "nodes": nodes }),
         )
-        .await?;
-        return Err(SessionError::error(format!("{error:#}")));
+        .await;
+        if let Err(error) = lent_reply {
+            api.commit(
+                move |tx| async move {
+                    tx_remove_batch(&tx, conversation_id, &lent).await?;
+                    let run = tx_run(&tx, conversation_id, &run_id)
+                        .await?
+                        .ok_or_else(|| no_record(&run_id))?;
+                    let mut run = released(&run, &ordinals);
+                    run.agents.retain(|_, row| row.batch != Some(key));
+                    tx_put_run(&tx, conversation_id, &run_id, &mut run).await
+                },
+                &cx,
+            )
+            .await?;
+            return Err(SessionError::error(format!("{error:#}")));
+        }
     }
-    Ok(None)
+    serde_json::from_value(json!({ "deferred": deferred }))
+        .map(Some)
+        .map_err(|error| SessionError::error(error.to_string()))
 }
 
 /// How an agent's child spawns.
@@ -815,12 +963,23 @@ async fn run_agent(
             };
             (WorkflowAgentStatus::Done, Some(result), note)
         }
-        // The row's note is where the failure becomes text.
+        // The row's note is where the failure becomes text; the run's
+        // problems carry it to the report.
         Err(error) => (
             WorkflowAgentStatus::Failed,
             None,
             note_of(&error.to_string()),
         ),
+    };
+    let problem = match status {
+        WorkflowAgentStatus::Failed => {
+            Some(format!("agent {ordinal} ({}) failed: {note}", row.label))
+        }
+        WorkflowAgentStatus::Queued
+        | WorkflowAgentStatus::Running
+        | WorkflowAgentStatus::Done
+        | WorkflowAgentStatus::Cancelled
+        | WorkflowAgentStatus::Cached => None,
     };
     let end = match spawn {
         Spawn::Help => None,
@@ -849,6 +1008,9 @@ async fn run_agent(
                     agent.status = status;
                     agent.result = stored;
                     agent.note = Some(note);
+                }
+                if let Some(line) = problem {
+                    run.push_problem(line);
                 }
                 tx_put_run(&tx, conversation_id, &run_id, &mut run).await?;
                 match end {

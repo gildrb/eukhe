@@ -7,11 +7,13 @@
 //! a `[job-settled job:workflow-<id> ...]` report that wakes the model. The
 //! script's `agent()` calls are nodes of the session's agent tree
 //! (`eukhe.children`): a read-only agent is a help leaf; the writing agents
-//! a script starts together form one batch ([`batch`]), a balanced binary
-//! tree whose integrators the harness runs. At most the run size's
+//! a script starts together form a group that starts in batches
+//! ([`batch`]), each a balanced binary tree whose integrators the harness
+//! runs, as many at once as the tree has room for. At most the run size's
 //! concurrency read-only agents run at once and its `max_agents` agents in
 //! total; each run's progress lives in the `eukhe.workflow.runs` document
-//! the `/workflows` view reads.
+//! the `/workflows` view reads, and its report lists why any part of the
+//! run came back `null`.
 
 pub(crate) mod batch;
 mod batch_doc;
@@ -43,12 +45,14 @@ use eukhe_durable::harness::types::{
 use eukhe_durable::harness::Harness;
 use eukhe_durable::session::{SessionError, SessionResult};
 use eukhe_durable::types::{ConversationId, TaskOptions, TaskOwnership};
+use eukhe_types::daemon::agent_tree::TreePlace;
 use eukhe_types::pi_ai::{JsonValue as PiJsonValue, TextContent, UserContentBlock};
 use eukhe_types::workflow::{WorkflowRunState, WorkflowSize};
 
 pub use run_doc::{snapshots, unsettled_run_tasks, unsettled_runs, UnsettledRuns};
 pub use size::effective_limits;
 
+use super::children::place_of;
 use super::deps::{HarnessCell, HostCall, HostDeps, HostRequestRegistry, SessionClosing};
 use super::settings::EukheSettings;
 use globals::WorkflowServices;
@@ -62,8 +66,9 @@ pub const EXTENSION_NAME: &str = "eukhe.workflow";
 pub const WORKFLOW_TOOL_NAME: &str = "workflow";
 /// Version of the script the tool builds (prelude and header) and of the
 /// run's contract: a run started by another version is not replayed by
-/// this one. Version 2 runs in a background task.
-pub const WORKFLOW_MODULE_VERSION: u32 = 2;
+/// this one. Version 2 runs in a background task; version 3 starts a
+/// writing group in waves and states the writers in `budget`.
+pub const WORKFLOW_MODULE_VERSION: u32 = 3;
 
 const WORKFLOW_DESCRIPTION: &str = include_str!("../../prompts/layers/workflow.md");
 /// The workflow API the script runs on. Generated from `prelude.ts` by
@@ -76,6 +81,7 @@ const NO_RUNTIME: &str =
 struct Shared {
     settings: Arc<EukheSettings>,
     has_runtime: bool,
+    writers: u64,
     task: RunTask,
 }
 
@@ -88,7 +94,18 @@ pub fn extension(deps: &Arc<HostDeps>) -> Arc<Extension> {
         harness: deps.harness.clone(),
         settings: Arc::clone(&deps.settings),
         has_runtime: deps.children.is_some(),
+        writers: writers(place_of(&deps.role, deps.shape).as_ref()),
         closing: deps.closing.clone(),
+    })
+}
+
+/// The most writing agents one batch of a session at `place` holds (its
+/// batches' root sits one level below it, beside the session's own
+/// node); `0` outside the agent tree, where no agent writes.
+fn writers(place: Option<&TreePlace>) -> u64 {
+    place.map_or(0, |place| {
+        let depth = u64::try_from(place.path.len()).unwrap_or(u64::MAX);
+        batch::width(depth.saturating_add(1), place.allowance.saturating_sub(1))
     })
 }
 
@@ -100,6 +117,8 @@ pub(crate) struct WorkflowConfig {
     pub(crate) settings: Arc<EukheSettings>,
     /// Whether the session has a real subagent runtime (a daemon host).
     pub(crate) has_runtime: bool,
+    /// The most writing agents one batch holds (`budget.writers`).
+    pub(crate) writers: u64,
     /// The session's closing gate: a closing conversation admits no report.
     pub(crate) closing: SessionClosing,
 }
@@ -127,6 +146,7 @@ pub(crate) fn install(config: &WorkflowConfig) -> Arc<Extension> {
     let shared = Arc::new(Shared {
         settings: Arc::clone(&config.settings),
         has_runtime: config.has_runtime,
+        writers: config.writers,
         task,
     });
     define_extension(Extension {
@@ -204,13 +224,13 @@ fn now_ms() -> f64 {
 }
 
 /// The source the code mode sandbox runs: the header (`args`, the
-/// limits), the prelude, then the script's body in its own async
-/// function, whose result returns once every `phase()` and `log()` update
-/// landed.
-fn source(record: &RunRecord, request: &str, body: &str) -> String {
+/// limits, `writers` writing agents per batch), the prelude, then the
+/// script's body in its own async function, whose result returns once
+/// every `phase()` and `log()` update landed.
+fn source(record: &RunRecord, writers: u64, request: &str, body: &str) -> String {
     let request = serde_json::Value::String(request.to_owned());
     format!(
-        "// eukhe workflow v{WORKFLOW_MODULE_VERSION}\nconst args = {request};\nconst __wfLimits = Object.freeze({{ size: \"{size}\", concurrency: {concurrency}, maxAgents: {max_agents} }});\n{PRELUDE}\nconst __wfResult = await (async () => {{\n{body}\n}})();\nawait __wfSettled();\nreturn __wfResult;",
+        "// eukhe workflow v{WORKFLOW_MODULE_VERSION}\nconst args = {request};\nconst __wfLimits = Object.freeze({{ size: \"{size}\", concurrency: {concurrency}, maxAgents: {max_agents}, writers: {writers} }});\n{PRELUDE}\nconst __wfResult = await (async () => {{\n{body}\n}})();\nawait __wfSettled();\nreturn __wfResult;",
         size = record.size.as_str(),
         concurrency = record.concurrency.max(1),
         max_agents = record.max_agents,
@@ -267,6 +287,7 @@ async fn execute(
     let call_task = api.task_id().to_string();
     let conversation_id = api.conversation_id();
     let definition = shared.task.as_definition_ref();
+    let writers = shared.writers;
     let (run_id, record) = api
         .commit(
             move |tx| async move {
@@ -283,7 +304,7 @@ async fn execute(
                 let mut record =
                     RunRecord::start(parsed.meta, size, limits, now_ms(), resume, call_task);
                 let input = RunTaskInput::Run {
-                    code: source(&record, &request, &parsed.body),
+                    code: source(&record, writers, &request, &parsed.body),
                 };
                 let run = tx
                     .create_task(
