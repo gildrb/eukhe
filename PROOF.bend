@@ -894,7 +894,6 @@ import ./proof/run/run_ffi_left_over_spelled.bend as PRunFfiLeftOverSpelled
 import ./proof/run/run_ffi_unknown_ask.bend as PRunFfiUnknownAsk
 import ./proof/run/run_ffi_reads_only_requests.bend as PRunFfiReadsOnlyRequests
 import ./proof/run/run_ffi_malformed_unless_request.bend as PRunFfiMalformedUnlessRequest
-import ./proof/run/run_ffi_tags_example.bend as PRunFfiTagsExample
 import ./proof/run/run_ffi_errors_example.bend as PRunFfiErrorsExample
 import ./proof/run/run_ffi_limits_example.bend as PRunFfiLimitsExample
 import ./proof/run/run_entry_example.bend as PRunEntryExample

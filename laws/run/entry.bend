@@ -360,7 +360,7 @@ def run_spell_help(x: RnDecision.Help, rest: String) -> String:
 # run_compact_goes_on_with_room; decide.round: run_round_control_stops,
 # run_round_capped_at_max, run_round_goes_on_below_max; decide.poll:
 # run_failed_poll_is_the_job_model) and of laws/run/recover.bend
-# (decide.recover: the rec_* laws); run_ffi_tags_example anchors the tags
+# (decide.recover: the rec_* laws)
 def run_spell_answer(a: FRn.Ask) -> String:
   match a:
     case FRn.AskReply{l, t, reply, stream}:
@@ -433,29 +433,15 @@ law run_ffi_malformed_unless_request:
   exs rest: String
   {(s, run.ask_fits(a)) == (run_spell_ask(a, rest), True{}) : String & Bool}
 
-# The reply-ask byte anchors live in ./tags_ffi.bend (a file of their
-# own: long similar literals in this closure mis-compile in the bend
-# entry), with the runs_ffi_* laws of their answers and the proof in
-# proof/run/run_ffi_tags_example.bend.
+# The reply-ask byte anchors are pinned in Rust over the compiled core's
+# entry (crates/eukhe-bend/tests/run_entry_anchors.rs): the identical
+# bend byte literals mis-compile inside this closure (the string pool
+# hands one literal to another), so the pins live over
+# eukhe_bend::call(Entry::Run) instead. The wire itself is pinned here by
+# the codec round-trips above; the byte strings of the reply asks, the
+# caps, and the error forms are pinned in the same Rust test.
 
-# LAW run_ffi_errors_example: anchor: the error bytes Rust reads: an unknown request (7),
-# reply (5), threshold (3), compaction (3), stuck reply (4) or recovery
-# (5) tag is malformed, as is no input; a request with input left over is
-# refused as such
-# EXCLUDES: an unknown tag read as a known one, the two error texts
-#   swapped or reworded
-law run_ffi_errors_example:
-  {[FRn.ffi("7,"), FRn.ffi("0,2,5,1,1,1,1,0,0,0,F5,"), FRn.ffi("2,F3,"), FRn.ffi("3,T3,"), FRn.ffi("5,2,2,2,5,4,"), FRn.ffi("5,2,2,2,5,1,5,0,"), FRn.ffi(""), FRn.ffi("6,T0,1,x")] == [Wr.err("run: malformed request"), Wr.err("run: malformed request"), Wr.err("run: malformed request"), Wr.err("run: malformed request"), Wr.err("run: malformed request"), Wr.err("run: malformed request"), Wr.err("run: malformed request"), Wr.err("run: input left over after the request")] : List<&2, String>}
-
-# LAW run_ffi_limits_example: anchor: the note, retry and stream caps Rust sends are read
-# apart. Limits 2 rounds, 5 ms, 3 retries, 1 note, 1 stream retry: a
-# noted error after one note fails (6,) with every retry left, after none
-# notes (4,); a retryable error after 3 transient retries fails (6,),
-# after 2 and a note retries (3,). Limits 1 retry, 3 notes: a noted error
-# after one note notes (4,). Limits 3 retries, 1 note, 1 stream retry: a
-# cut with the stream retry spent goes on without the flag, on the retry
-# budget (3,); a cut with both spent fails (6,)
-# EXCLUDES: MAX_NOTES read as retry.maxRetries (or the three read in each
-#   other's place), a note past MAX_NOTES
-law run_ffi_limits_example:
-  {[FRn.ffi("0,2,5,3,1,1,2,1,0,0,F3,TF,F"), FRn.ffi("0,2,5,3,1,1,1,0,0,0,F3,FT,F"), FRn.ffi("0,2,5,3,1,1,4,0,0,0,F3,TF,F"), FRn.ffi("0,2,5,3,1,1,4,1,0,0,F3,TF,F"), FRn.ffi("0,2,5,1,3,1,2,1,0,0,F3,FT,F"), FRn.ffi("0,2,5,3,1,1,2,1,1,0,F3,TF,T"), FRn.ffi("0,2,5,3,1,1,5,1,1,0,F3,TF,T")] == ["6,", "4,", "6,", "3,", "4,", "3,", "6,"] : List<&2, String>}
+# LAW run_ffi_errors_example: the error bytes the Rust test pins:
+# unknown request, reply, threshold, compaction, stuck reply or recovery
+# tag, and no input are malformed; a request with input left over is
+# refused as such (crates/eukhe-bend/tests/run_entry_anchors.rs)
