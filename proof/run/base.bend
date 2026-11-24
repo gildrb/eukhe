@@ -251,9 +251,9 @@ def rk.r_over(compacts: Bool) -> RnDecision.Then:
 
 def rk.r_reply(l: RnDecision.Lim, t: RnDecision.At, reply: RnState.Reply) -> RnDecision.Then:
   match l:
-    case RnDecision.Lim{rounds, wait, retries, most}:
+    case RnDecision.Lim{rounds, wait, retries, most, streams}:
       match t:
-        case RnDecision.At{attempt, +notes, waited, compacted}:
+        case RnDecision.At{attempt, +notes, spent, waited, compacted}:
           match reply:
             case RnState.Plain{}:
               RnDecision.DoAnswer{}
@@ -321,11 +321,11 @@ def rk.over(+cfg: RnState.Cfg, +r: Nat, +a: Nat, +n: Nat, +p: Nat, +compacted: B
     case False{} False{}:
       {==}
 
-def rk.reply_rule(+l: RnDecision.Lim, +t: RnDecision.At, +reply: RnState.Reply) -> {RnDecision.decide.reply(l, t, reply) == rk.r_reply(l, t, reply) : RnDecision.Then}:
+def rk.reply_base(+l: RnDecision.Lim, +t: RnDecision.At, +reply: RnState.Reply) -> {RnDecision.Then.ph(RnDecision.Reply.noted(reply), RnState.St.ph(RnStep.call(RnDecision.Lim.cfg(l), reply, 0n, RnDecision.At.c(t), RnDecision.At.a(l, t), RnDecision.At.n(l, t), RnDecision.At.p(l, t)))) == rk.r_reply(l, t, reply) : RnDecision.Then}:
   match l:
-    case RnDecision.Lim{+rounds, +wait, +retries, +most}:
+    case RnDecision.Lim{+rounds, +wait, +retries, +most, +streams}:
       match t:
-        case RnDecision.At{+attempt, +notes, +waited, +compacted}:
+        case RnDecision.At{+attempt, +notes, +spent, +waited, +compacted}:
           match reply:
             case RnState.Plain{}:
               {==}
@@ -343,6 +343,31 @@ def rk.reply_rule(+l: RnDecision.Lim, +t: RnDecision.At, +reply: RnState.Reply) 
                   {==}
             case RnState.Overflow{cut}:
               rk.over(RnState.Cfg{rounds, wait, retries, most}, 0n, Nat.sub(retries, Nat.sub(Nat.sub(attempt, 1n), notes)), Nat.sub(most, notes), Nat.sub(wait, waited), compacted, cut)
+
+# the step through on_stream reads the base step through it: a match on
+# cut then the budget left, so a congruence over the base step recurses
+# on the budget counts until one side is a literal
+def rk.on_stream_cong(+base1: RnDecision.Then, +base2: RnDecision.Then, +cut: Bool, +streams: Nat, +spent: Nat, +e: {base1 == base2 : RnDecision.Then}) -> {RnDecision.Then.on_stream(base1, cut, streams, spent) == RnDecision.Then.on_stream(base2, cut, streams, spent) : RnDecision.Then}:
+  match cut streams spent:
+    case False{} y x:
+      e
+    case True{} 0n x:
+      e
+    case True{} 1n+m 0n:
+      {==}
+    case True{} 1n+m 1n+y:
+      rk.on_stream_cong(base1, base2, cut, m, y, e)
+
+def rk.reply_rule(+l: RnDecision.Lim, +t: RnDecision.At, +reply: RnState.Reply) -> {RnDecision.decide.reply(l, t, reply, False{}) == rk.r_reply(l, t, reply) : RnDecision.Then}:
+  rk.on_stream_cong(RnDecision.Then.ph(RnDecision.Reply.noted(reply), RnState.St.ph(RnStep.call(RnDecision.Lim.cfg(l), reply, 0n, RnDecision.At.c(t), RnDecision.At.a(l, t), RnDecision.At.n(l, t), RnDecision.At.p(l, t)))), rk.r_reply(l, t, reply), False{}, RnDecision.Lim.streams(l), RnDecision.At.streams(t), rk.reply_base(l, t, reply))
+
+# the step of a reply under the stream flag: the base step through
+# on_stream over the reply's cut and the stream budget left
+def rk.r_stream(l: RnDecision.Lim, t: RnDecision.At, reply: RnState.Reply, stream: Bool) -> RnDecision.Then:
+  RnDecision.Then.on_stream(rk.r_reply(l, t, reply), Bool.and(stream, RnDecision.Reply.cut(reply)), RnDecision.Lim.streams(l), RnDecision.At.streams(t))
+
+def rk.stream_rule(+l: RnDecision.Lim, +t: RnDecision.At, +reply: RnState.Reply, +stream: Bool) -> {RnDecision.decide.reply(l, t, reply, stream) == rk.r_stream(l, t, reply, stream) : RnDecision.Then}:
+  rk.on_stream_cong(RnDecision.Then.ph(RnDecision.Reply.noted(reply), RnState.St.ph(RnStep.call(RnDecision.Lim.cfg(l), reply, 0n, RnDecision.At.c(t), RnDecision.At.a(l, t), RnDecision.At.n(l, t), RnDecision.At.p(l, t)))), rk.r_reply(l, t, reply), Bool.and(stream, RnDecision.Reply.cut(reply)), RnDecision.Lim.streams(l), RnDecision.At.streams(t), rk.reply_base(l, t, reply))
 
 # the rules read as the laws' then_if
 def rk.retry_if(+b: Bool) -> {rk.r_retry(b) == Run.then_if(b, RnDecision.DoRetry{}, RnDecision.DoFail{}) : RnDecision.Then}:
@@ -368,12 +393,12 @@ def rk.wait_if(+b: Bool) -> {rk.r_wait(b) == Run.then_if(b, RnDecision.DoPoll{},
 
 # a noted reply notes while the notes last (run_note_budget,
 # run_message_reply, rec_redo_retries_with_a_note)
-def rk.note_budget(+l: RnDecision.Lim, +t: RnDecision.At, +retryable: Bool) -> {RnDecision.decide.reply(l, t, RnState.Error{retryable, True{}}) == Run.then_if(Nat.is_lt(RnDecision.At.notes(t), RnDecision.Lim.notes(l)), RnDecision.DoNote{}, RnDecision.DoFail{}) : RnDecision.Then}:
+def rk.note_budget(+l: RnDecision.Lim, +t: RnDecision.At, +retryable: Bool) -> {RnDecision.decide.reply(l, t, RnState.Error{retryable, True{}}, False{}) == Run.then_if(Nat.is_lt(RnDecision.At.notes(t), RnDecision.Lim.notes(l)), RnDecision.DoNote{}, RnDecision.DoFail{}) : RnDecision.Then}:
   match l:
-    case RnDecision.Lim{+rounds, +wait, +retries, +most}:
+    case RnDecision.Lim{+rounds, +wait, +retries, +most, +streams}:
       match t:
-        case RnDecision.At{+attempt, +notes, +waited, +compacted}:
-          Equal.trans(RnDecision.Then, RnDecision.decide.reply(RnDecision.Lim{rounds, wait, retries, most}, RnDecision.At{attempt, notes, waited, compacted}, RnState.Error{retryable, True{}}), rk.r_reply(RnDecision.Lim{rounds, wait, retries, most}, RnDecision.At{attempt, notes, waited, compacted}, RnState.Error{retryable, True{}}), Run.then_if(Nat.is_lt(notes, most), RnDecision.DoNote{}, RnDecision.DoFail{}), rk.reply_rule(RnDecision.Lim{rounds, wait, retries, most}, RnDecision.At{attempt, notes, waited, compacted}, RnState.Error{retryable, True{}}), rk.noted_if(Nat.is_lt(notes, most)))
+        case RnDecision.At{+attempt, +notes, +spent, +waited, +compacted}:
+          Equal.trans(RnDecision.Then, RnDecision.decide.reply(RnDecision.Lim{rounds, wait, retries, most, streams}, RnDecision.At{attempt, notes, spent, waited, compacted}, RnState.Error{retryable, True{}}, False{}), rk.r_reply(RnDecision.Lim{rounds, wait, retries, most, streams}, RnDecision.At{attempt, notes, spent, waited, compacted}, RnState.Error{retryable, True{}}), Run.then_if(Nat.is_lt(notes, most), RnDecision.DoNote{}, RnDecision.DoFail{}), rk.reply_rule(RnDecision.Lim{rounds, wait, retries, most, streams}, RnDecision.At{attempt, notes, spent, waited, compacted}, RnState.Error{retryable, True{}}), rk.noted_if(Nat.is_lt(notes, most)))
 
 # How a round ends
 # ----------------
@@ -394,7 +419,7 @@ def rk.r_next(goes: Bool, reset: Bool, count: Nat) -> RnDecision.End:
 
 def rk.r_round(l: RnDecision.Lim, +count: Nat, stops: Bool, reset: Bool) -> RnDecision.End:
   match l:
-    case RnDecision.Lim{rounds, wait, retries, most}:
+    case RnDecision.Lim{rounds, wait, retries, most, streams}:
       match stops:
         case True{}:
           RnDecision.EndStop{}
@@ -440,7 +465,7 @@ def rk.round_f(+cfg: RnState.Cfg, +c: Nat, +a: Nat, +n: Nat, +p: Nat, +k: Nat, +
 
 def rk.round_rule(+l: RnDecision.Lim, +count: Nat, +stops: Bool, +reset: Bool) -> {RnDecision.decide.round(l, count, stops, reset) == rk.r_round(l, count, stops, reset) : RnDecision.End}:
   match l:
-    case RnDecision.Lim{+rounds, +wait, +retries, +most}:
+    case RnDecision.Lim{+rounds, +wait, +retries, +most, +streams}:
       match stops reset:
         case True{} reset:
           {==}
@@ -559,30 +584,36 @@ def rk.lt_s(+v: Nat, +x: Nat) -> {Nat.is_le(x, v) == Nat.is_lt(x, 1n+v) : Bool}:
 
 def rk.rt_lim(x: RnDecision.Lim, +rest: String, +h: {RunEntry.run.lim_fits(x) == True{} : Bool}) -> {FRn.get_lim(FRn.put_lim(x, rest)) == Wr.Got{x, rest} : Wr.Dec<RnDecision.Lim>}:
   match x:
-    case RnDecision.Lim{+rounds, +wait, +retries, +notes}:
-      +hl0 = rk.and_l(LawsBase.wire_fits(rounds), Bool.and(LawsBase.wire_fits(wait), Bool.and(LawsBase.wire_fits(retries), LawsBase.wire_fits(notes))), h)
-      +hr0 = rk.and_r(LawsBase.wire_fits(rounds), Bool.and(LawsBase.wire_fits(wait), Bool.and(LawsBase.wire_fits(retries), LawsBase.wire_fits(notes))), h)
-      +hl1 = rk.and_l(LawsBase.wire_fits(wait), Bool.and(LawsBase.wire_fits(retries), LawsBase.wire_fits(notes)), hr0)
-      +hr1 = rk.and_r(LawsBase.wire_fits(wait), Bool.and(LawsBase.wire_fits(retries), LawsBase.wire_fits(notes)), hr0)
-      +hl2 = rk.and_l(LawsBase.wire_fits(retries), LawsBase.wire_fits(notes), hr1)
-      +hr2 = rk.and_r(LawsBase.wire_fits(retries), LawsBase.wire_fits(notes), hr1)
-      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(rounds, Wr.put_nat(wait, Wr.put_nat(retries, Wr.put_nat(notes, rest))))), Wr.Got{rounds, Wr.put_nat(wait, Wr.put_nat(retries, Wr.put_nat(notes, rest)))}, Wire.wire_nat_round_trip(rounds, Wr.put_nat(wait, Wr.put_nat(retries, Wr.put_nat(notes, rest))), hl0)) : {FRn.get_lim.f0(_) == Wr.Got{RnDecision.Lim{rounds, wait, retries, notes}, rest} : Wr.Dec<RnDecision.Lim>}
-      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(wait, Wr.put_nat(retries, Wr.put_nat(notes, rest)))), Wr.Got{wait, Wr.put_nat(retries, Wr.put_nat(notes, rest))}, Wire.wire_nat_round_trip(wait, Wr.put_nat(retries, Wr.put_nat(notes, rest)), hl1)) : {FRn.get_lim.f1(rounds, _) == Wr.Got{RnDecision.Lim{rounds, wait, retries, notes}, rest} : Wr.Dec<RnDecision.Lim>}
-      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(retries, Wr.put_nat(notes, rest))), Wr.Got{retries, Wr.put_nat(notes, rest)}, Wire.wire_nat_round_trip(retries, Wr.put_nat(notes, rest), hl2)) : {FRn.get_lim.f2(rounds, wait, _) == Wr.Got{RnDecision.Lim{rounds, wait, retries, notes}, rest} : Wr.Dec<RnDecision.Lim>}
-      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(notes, rest)), Wr.Got{notes, rest}, Wire.wire_nat_round_trip(notes, rest, hr2)) : {FRn.get_lim.f3(rounds, wait, retries, _) == Wr.Got{RnDecision.Lim{rounds, wait, retries, notes}, rest} : Wr.Dec<RnDecision.Lim>}
+    case RnDecision.Lim{+rounds, +wait, +retries, +notes, +streams}:
+      +hl0 = rk.and_l(LawsBase.wire_fits(rounds), Bool.and(LawsBase.wire_fits(wait), Bool.and(LawsBase.wire_fits(retries), Bool.and(LawsBase.wire_fits(notes), LawsBase.wire_fits(streams)))), h)
+      +hr0 = rk.and_r(LawsBase.wire_fits(rounds), Bool.and(LawsBase.wire_fits(wait), Bool.and(LawsBase.wire_fits(retries), Bool.and(LawsBase.wire_fits(notes), LawsBase.wire_fits(streams)))), h)
+      +hl1 = rk.and_l(LawsBase.wire_fits(wait), Bool.and(LawsBase.wire_fits(retries), Bool.and(LawsBase.wire_fits(notes), LawsBase.wire_fits(streams))), hr0)
+      +hr1 = rk.and_r(LawsBase.wire_fits(wait), Bool.and(LawsBase.wire_fits(retries), Bool.and(LawsBase.wire_fits(notes), LawsBase.wire_fits(streams))), hr0)
+      +hl2 = rk.and_l(LawsBase.wire_fits(retries), Bool.and(LawsBase.wire_fits(notes), LawsBase.wire_fits(streams)), hr1)
+      +hr2 = rk.and_r(LawsBase.wire_fits(retries), Bool.and(LawsBase.wire_fits(notes), LawsBase.wire_fits(streams)), hr1)
+      +hl3 = rk.and_l(LawsBase.wire_fits(notes), LawsBase.wire_fits(streams), hr2)
+      +hr3 = rk.and_r(LawsBase.wire_fits(notes), LawsBase.wire_fits(streams), hr2)
+      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(rounds, Wr.put_nat(wait, Wr.put_nat(retries, Wr.put_nat(notes, Wr.put_nat(streams, rest)))))), Wr.Got{rounds, Wr.put_nat(wait, Wr.put_nat(retries, Wr.put_nat(notes, Wr.put_nat(streams, rest))))}, Wire.wire_nat_round_trip(rounds, Wr.put_nat(wait, Wr.put_nat(retries, Wr.put_nat(notes, Wr.put_nat(streams, rest)))), hl0)) : {FRn.get_lim.f0(_) == Wr.Got{RnDecision.Lim{rounds, wait, retries, notes, streams}, rest} : Wr.Dec<RnDecision.Lim>}
+      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(wait, Wr.put_nat(retries, Wr.put_nat(notes, Wr.put_nat(streams, rest))))), Wr.Got{wait, Wr.put_nat(retries, Wr.put_nat(notes, Wr.put_nat(streams, rest)))}, Wire.wire_nat_round_trip(wait, Wr.put_nat(retries, Wr.put_nat(notes, Wr.put_nat(streams, rest))), hl1)) : {FRn.get_lim.f1(rounds, _) == Wr.Got{RnDecision.Lim{rounds, wait, retries, notes, streams}, rest} : Wr.Dec<RnDecision.Lim>}
+      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(retries, Wr.put_nat(notes, Wr.put_nat(streams, rest)))), Wr.Got{retries, Wr.put_nat(notes, Wr.put_nat(streams, rest))}, Wire.wire_nat_round_trip(retries, Wr.put_nat(notes, Wr.put_nat(streams, rest)), hl2)) : {FRn.get_lim.f2(rounds, wait, _) == Wr.Got{RnDecision.Lim{rounds, wait, retries, notes, streams}, rest} : Wr.Dec<RnDecision.Lim>}
+      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(notes, Wr.put_nat(streams, rest))), Wr.Got{notes, Wr.put_nat(streams, rest)}, Wire.wire_nat_round_trip(notes, Wr.put_nat(streams, rest), hl3)) : {FRn.get_lim.f3(rounds, wait, retries, _) == Wr.Got{RnDecision.Lim{rounds, wait, retries, notes, streams}, rest} : Wr.Dec<RnDecision.Lim>}
+      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(streams, rest)), Wr.Got{streams, rest}, Wire.wire_nat_round_trip(streams, rest, hr3)) : {FRn.get_lim.f4(rounds, wait, retries, notes, _) == Wr.Got{RnDecision.Lim{rounds, wait, retries, notes, streams}, rest} : Wr.Dec<RnDecision.Lim>}
       {==}
 
 def rk.rt_at(x: RnDecision.At, +rest: String, +h: {RunEntry.run.at_fits(x) == True{} : Bool}) -> {FRn.get_at(FRn.put_at(x, rest)) == Wr.Got{x, rest} : Wr.Dec<RnDecision.At>}:
   match x:
-    case RnDecision.At{+attempt, +notes, +waited, +compacted}:
-      +hl0 = rk.and_l(LawsBase.wire_fits(attempt), Bool.and(LawsBase.wire_fits(notes), LawsBase.wire_fits(waited)), h)
-      +hr0 = rk.and_r(LawsBase.wire_fits(attempt), Bool.and(LawsBase.wire_fits(notes), LawsBase.wire_fits(waited)), h)
-      +hl1 = rk.and_l(LawsBase.wire_fits(notes), LawsBase.wire_fits(waited), hr0)
-      +hr1 = rk.and_r(LawsBase.wire_fits(notes), LawsBase.wire_fits(waited), hr0)
-      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(attempt, Wr.put_nat(notes, Wr.put_nat(waited, Wr.put_bool(compacted, rest))))), Wr.Got{attempt, Wr.put_nat(notes, Wr.put_nat(waited, Wr.put_bool(compacted, rest)))}, Wire.wire_nat_round_trip(attempt, Wr.put_nat(notes, Wr.put_nat(waited, Wr.put_bool(compacted, rest))), hl0)) : {FRn.get_at.f0(_) == Wr.Got{RnDecision.At{attempt, notes, waited, compacted}, rest} : Wr.Dec<RnDecision.At>}
-      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(notes, Wr.put_nat(waited, Wr.put_bool(compacted, rest)))), Wr.Got{notes, Wr.put_nat(waited, Wr.put_bool(compacted, rest))}, Wire.wire_nat_round_trip(notes, Wr.put_nat(waited, Wr.put_bool(compacted, rest)), hl1)) : {FRn.get_at.f1(attempt, _) == Wr.Got{RnDecision.At{attempt, notes, waited, compacted}, rest} : Wr.Dec<RnDecision.At>}
-      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(waited, Wr.put_bool(compacted, rest))), Wr.Got{waited, Wr.put_bool(compacted, rest)}, Wire.wire_nat_round_trip(waited, Wr.put_bool(compacted, rest), hr1)) : {FRn.get_at.f2(attempt, notes, _) == Wr.Got{RnDecision.At{attempt, notes, waited, compacted}, rest} : Wr.Dec<RnDecision.At>}
-      %Equal.sym(Wr.Dec<Bool>, Wr.get_bool(Wr.put_bool(compacted, rest)), Wr.Got{compacted, rest}, Wire.wire_bool_round_trip(compacted, rest)) : {FRn.get_at.f3(attempt, notes, waited, _) == Wr.Got{RnDecision.At{attempt, notes, waited, compacted}, rest} : Wr.Dec<RnDecision.At>}
+    case RnDecision.At{+attempt, +notes, +streams, +waited, +compacted}:
+      +hl0 = rk.and_l(LawsBase.wire_fits(attempt), Bool.and(LawsBase.wire_fits(notes), Bool.and(LawsBase.wire_fits(streams), LawsBase.wire_fits(waited))), h)
+      +hr0 = rk.and_r(LawsBase.wire_fits(attempt), Bool.and(LawsBase.wire_fits(notes), Bool.and(LawsBase.wire_fits(streams), LawsBase.wire_fits(waited))), h)
+      +hl1 = rk.and_l(LawsBase.wire_fits(notes), Bool.and(LawsBase.wire_fits(streams), LawsBase.wire_fits(waited)), hr0)
+      +hr1 = rk.and_r(LawsBase.wire_fits(notes), Bool.and(LawsBase.wire_fits(streams), LawsBase.wire_fits(waited)), hr0)
+      +hl2 = rk.and_l(LawsBase.wire_fits(streams), LawsBase.wire_fits(waited), hr1)
+      +hr2 = rk.and_r(LawsBase.wire_fits(streams), LawsBase.wire_fits(waited), hr1)
+      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(attempt, Wr.put_nat(notes, Wr.put_nat(streams, Wr.put_nat(waited, Wr.put_bool(compacted, rest)))))), Wr.Got{attempt, Wr.put_nat(notes, Wr.put_nat(streams, Wr.put_nat(waited, Wr.put_bool(compacted, rest))))}, Wire.wire_nat_round_trip(attempt, Wr.put_nat(notes, Wr.put_nat(streams, Wr.put_nat(waited, Wr.put_bool(compacted, rest)))), hl0)) : {FRn.get_at.f0(_) == Wr.Got{RnDecision.At{attempt, notes, streams, waited, compacted}, rest} : Wr.Dec<RnDecision.At>}
+      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(notes, Wr.put_nat(streams, Wr.put_nat(waited, Wr.put_bool(compacted, rest))))), Wr.Got{notes, Wr.put_nat(streams, Wr.put_nat(waited, Wr.put_bool(compacted, rest)))}, Wire.wire_nat_round_trip(notes, Wr.put_nat(streams, Wr.put_nat(waited, Wr.put_bool(compacted, rest))), hl1)) : {FRn.get_at.f1(attempt, _) == Wr.Got{RnDecision.At{attempt, notes, streams, waited, compacted}, rest} : Wr.Dec<RnDecision.At>}
+      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(streams, Wr.put_nat(waited, Wr.put_bool(compacted, rest)))), Wr.Got{streams, Wr.put_nat(waited, Wr.put_bool(compacted, rest))}, Wire.wire_nat_round_trip(streams, Wr.put_nat(waited, Wr.put_bool(compacted, rest)), hl2)) : {FRn.get_at.f2(attempt, notes, _) == Wr.Got{RnDecision.At{attempt, notes, streams, waited, compacted}, rest} : Wr.Dec<RnDecision.At>}
+      %Equal.sym(Wr.Dec<Nat>, Wr.get_nat(Wr.put_nat(waited, Wr.put_bool(compacted, rest))), Wr.Got{waited, Wr.put_bool(compacted, rest)}, Wire.wire_nat_round_trip(waited, Wr.put_bool(compacted, rest), hr2)) : {FRn.get_at.f3(attempt, notes, streams, _) == Wr.Got{RnDecision.At{attempt, notes, streams, waited, compacted}, rest} : Wr.Dec<RnDecision.At>}
+      %Equal.sym(Wr.Dec<Bool>, Wr.get_bool(Wr.put_bool(compacted, rest)), Wr.Got{compacted, rest}, Wire.wire_bool_round_trip(compacted, rest)) : {FRn.get_at.f4(attempt, notes, streams, waited, _) == Wr.Got{RnDecision.At{attempt, notes, streams, waited, compacted}, rest} : Wr.Dec<RnDecision.At>}
       {==}
 
 def rk.rt_reply(x: RnState.Reply, +rest: String) -> {FRn.get_reply(FRn.put_reply(x, rest)) == Wr.Got{x, rest} : Wr.Dec<RnState.Reply>}:
@@ -686,12 +717,13 @@ def rk.rt_rk(x: RnRecovery.Rk, +rest: String) -> {FRn.get_rk(FRn.put_rk(x, rest)
 
 def rk.rt_ask(x: FRn.Ask, +rest: String, +h: {RunEntry.run.ask_fits(x) == True{} : Bool}) -> {FRn.get_ask(FRn.put_ask(x, rest)) == Wr.Got{x, rest} : Wr.Dec<FRn.Ask>}:
   match x:
-    case FRn.AskReply{+l, +t, +reply}:
+    case FRn.AskReply{+l, +t, +reply, +stream}:
       +hl0 = rk.and_l(RunEntry.run.lim_fits(l), RunEntry.run.at_fits(t), h)
       +hr0 = rk.and_r(RunEntry.run.lim_fits(l), RunEntry.run.at_fits(t), h)
-      %Equal.sym(Wr.Dec<RnDecision.Lim>, FRn.get_lim(FRn.put_lim(l, FRn.put_at(t, FRn.put_reply(reply, rest)))), Wr.Got{l, FRn.put_at(t, FRn.put_reply(reply, rest))}, rk.rt_lim(l, FRn.put_at(t, FRn.put_reply(reply, rest)), hl0)) : {FRn.get_ask.c0.f0(_) == Wr.Got{FRn.AskReply{l, t, reply}, rest} : Wr.Dec<FRn.Ask>}
-      %Equal.sym(Wr.Dec<RnDecision.At>, FRn.get_at(FRn.put_at(t, FRn.put_reply(reply, rest))), Wr.Got{t, FRn.put_reply(reply, rest)}, rk.rt_at(t, FRn.put_reply(reply, rest), hr0)) : {FRn.get_ask.c0.f1(l, _) == Wr.Got{FRn.AskReply{l, t, reply}, rest} : Wr.Dec<FRn.Ask>}
-      %Equal.sym(Wr.Dec<RnState.Reply>, FRn.get_reply(FRn.put_reply(reply, rest)), Wr.Got{reply, rest}, rk.rt_reply(reply, rest)) : {FRn.get_ask.c0.f2(l, t, _) == Wr.Got{FRn.AskReply{l, t, reply}, rest} : Wr.Dec<FRn.Ask>}
+      %Equal.sym(Wr.Dec<RnDecision.Lim>, FRn.get_lim(FRn.put_lim(l, FRn.put_at(t, FRn.put_reply(reply, Wr.put_bool(stream, rest))))), Wr.Got{l, FRn.put_at(t, FRn.put_reply(reply, Wr.put_bool(stream, rest)))}, rk.rt_lim(l, FRn.put_at(t, FRn.put_reply(reply, Wr.put_bool(stream, rest))), hl0)) : {FRn.get_ask.c0.f0(_) == Wr.Got{FRn.AskReply{l, t, reply, stream}, rest} : Wr.Dec<FRn.Ask>}
+      %Equal.sym(Wr.Dec<RnDecision.At>, FRn.get_at(FRn.put_at(t, FRn.put_reply(reply, Wr.put_bool(stream, rest)))), Wr.Got{t, FRn.put_reply(reply, Wr.put_bool(stream, rest))}, rk.rt_at(t, FRn.put_reply(reply, Wr.put_bool(stream, rest)), hr0)) : {FRn.get_ask.c0.f1(l, _) == Wr.Got{FRn.AskReply{l, t, reply, stream}, rest} : Wr.Dec<FRn.Ask>}
+      %Equal.sym(Wr.Dec<RnState.Reply>, FRn.get_reply(FRn.put_reply(reply, Wr.put_bool(stream, rest))), Wr.Got{reply, Wr.put_bool(stream, rest)}, rk.rt_reply(reply, Wr.put_bool(stream, rest))) : {FRn.get_ask.c0.f2(l, t, _) == Wr.Got{FRn.AskReply{l, t, reply, stream}, rest} : Wr.Dec<FRn.Ask>}
+      %Equal.sym(Wr.Dec<Bool>, Wr.get_bool(Wr.put_bool(stream, rest)), Wr.Got{stream, rest}, Wire.wire_bool_round_trip(stream, rest)) : {FRn.get_ask.c0.f3(l, t, reply, _) == Wr.Got{FRn.AskReply{l, t, reply, stream}, rest} : Wr.Dec<FRn.Ask>}
       {==}
     case FRn.AskEnded{+m}:
       %Equal.sym(Wr.Dec<RnState.Ended>, FRn.get_ended(FRn.put_ended(m, rest)), Wr.Got{m, rest}, rk.rt_ended(m, rest)) : {FRn.get_ask.c1.f0(_) == Wr.Got{FRn.AskEnded{m}, rest} : Wr.Dec<FRn.Ask>}

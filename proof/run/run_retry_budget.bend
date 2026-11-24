@@ -13,10 +13,10 @@ def retry.spent(+i: Nat, +j: Nat, +retries: Nat) -> {LA.rk.r_retry(Nat.is_lt(Nat
   %LA.rk.addsub(j, i) : {LA.rk.r_retry(Nat.is_lt(_, retries)) == Run.then_if(Nat.is_lt(i, retries), RnDecision.DoRetry{}, RnDecision.DoFail{}) : RnDecision.Then}
   LA.rk.retry_if(Nat.is_lt(i, retries))
 
-def Run.run_retry_budget(l, i, j, w, c):
+def Run.run_retry_budget(l, i, j, k, w, c):
   match l:
-    case RnDecision.Lim{+rounds, +wait, +retries, +most}:
-      +lim = {RnDecision.Lim{rounds, wait, retries, most} : RnDecision.Lim}
-      +at = {RnDecision.At{1n+Nat.add(j, i), j, w, c} : RnDecision.At}
+    case RnDecision.Lim{+rounds, +wait, +retries, +most, +streams}:
+      +lim = {RnDecision.Lim{rounds, wait, retries, most, streams} : RnDecision.Lim}
+      +at = {RnDecision.At{1n+Nat.add(j, i), j, k, w, c} : RnDecision.At}
       +goal = {Run.then_if(Nat.is_lt(i, retries), RnDecision.DoRetry{}, RnDecision.DoFail{}) : RnDecision.Then}
-      Equal.trans(RnDecision.Then, RnDecision.decide.reply(lim, at, RnState.Error{True{}, False{}}), LA.rk.r_reply(lim, at, RnState.Error{True{}, False{}}), goal, LA.rk.reply_rule(lim, at, RnState.Error{True{}, False{}}), retry.spent(i, j, retries))
+      Equal.trans(RnDecision.Then, RnDecision.decide.reply(lim, at, RnState.Error{True{}, False{}}, False{}), LA.rk.r_reply(lim, at, RnState.Error{True{}, False{}}), goal, LA.rk.reply_rule(lim, at, RnState.Error{True{}, False{}}), retry.spent(i, j, retries))

@@ -30,11 +30,11 @@ def rk.job(+retryable: Bool, +b1: Bool, +b2: Bool, +failed: Nat, +left: Nat, +ga
     case False{} b1 b2:
       {==}
 
-def rk.run_failed_poll_is_the_job_model(+l: RnDecision.Lim, +t: RnDecision.At, +retryable: Bool, +failed: Nat, +budget: Nat, +gap: Nat) -> {Run.rust.job(RnDecision.decide.poll(retryable, failed, RnDecision.Lim.retries(l)), RnDecision.decide.reply(l, t, RnState.Deferred{})) == R.Step.act(R.step(RnDecision.Lim.retries(l), budget, R.Live{failed, RnDecision.At.p(l, t)}, R.Broke{retryable, gap})) : R.Act}:
+def rk.run_failed_poll_is_the_job_model(+l: RnDecision.Lim, +t: RnDecision.At, +retryable: Bool, +failed: Nat, +budget: Nat, +gap: Nat) -> {Run.rust.job(RnDecision.decide.poll(retryable, failed, RnDecision.Lim.retries(l)), RnDecision.decide.reply(l, t, RnState.Deferred{}, False{})) == R.Step.act(R.step(RnDecision.Lim.retries(l), budget, R.Live{failed, RnDecision.At.p(l, t)}, R.Broke{retryable, gap})) : R.Act}:
   match l:
-    case RnDecision.Lim{+rounds, +wait, +retries, +most}:
+    case RnDecision.Lim{+rounds, +wait, +retries, +most, +streams}:
       match t:
-        case RnDecision.At{+attempt, +notes, +waited, +compacted}:
+        case RnDecision.At{+attempt, +notes, +spent, +waited, +compacted}:
           +cfg = {RnState.Cfg{rounds, wait, retries, most} : RnState.Cfg}
           +c = RnDecision.c.of(compacted)
           +a = Nat.sub(retries, Nat.sub(Nat.sub(attempt, 1n), notes))

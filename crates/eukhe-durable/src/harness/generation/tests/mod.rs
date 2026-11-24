@@ -10,4 +10,5 @@ mod recovery;
 mod retry_note;
 mod run_bounds;
 mod stops;
+mod stream_budget;
 mod stream_stall;

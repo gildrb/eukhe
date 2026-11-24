@@ -13,6 +13,6 @@ def goes.rule(+rounds: Nat, +count: Nat, +reset: Bool, below: {Nat.is_lt(1n+coun
 
 def Run.run_round_goes_on_below_max(l, count, below):
   match l:
-    case RnDecision.Lim{+rounds, +wait, +retries, +most}:
-      +lim = {RnDecision.Lim{rounds, wait, retries, most} : RnDecision.Lim}
+    case RnDecision.Lim{+rounds, +wait, +retries, +most, +streams}:
+      +lim = {RnDecision.Lim{rounds, wait, retries, most, streams} : RnDecision.Lim}
       (Equal.trans(RnDecision.End, RnDecision.decide.round(lim, count, False{}, False{}), LA.rk.r_round(lim, count, False{}, False{}), RnDecision.EndNext{1n+count}, LA.rk.round_rule(lim, count, False{}, False{}), goes.rule(rounds, count, False{}, below)), Equal.trans(RnDecision.End, RnDecision.decide.round(lim, count, False{}, True{}), LA.rk.r_round(lim, count, False{}, True{}), RnDecision.EndReset{}, LA.rk.round_rule(lim, count, False{}, True{}), goes.rule(rounds, count, True{}, below)))

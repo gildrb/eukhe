@@ -5,5 +5,5 @@
 import Base
 import ../../laws/run/model.bend as Run
 
-def Run.run_counts_terms_exact(a, n, w, c):
-  ({==}, {==}, {==}, {==})
+def Run.run_counts_terms_exact(a, n, k, w, c):
+  ({==}, {==}, {==}, {==}, {==})

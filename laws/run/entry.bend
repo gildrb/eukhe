@@ -22,13 +22,13 @@ import ../base.bend as LawsBase
 # its u64 counts at eukhe_bend::wire::NAT_MAX and its u32s fit)
 def run.lim_fits(l: RnDecision.Lim) -> Bool:
   match l:
-    case RnDecision.Lim{rounds, wait, retries, notes}:
-      Bool.and(LawsBase.wire_fits(rounds), Bool.and(LawsBase.wire_fits(wait), Bool.and(LawsBase.wire_fits(retries), LawsBase.wire_fits(notes))))
+    case RnDecision.Lim{rounds, wait, retries, notes, streams}:
+      Bool.and(LawsBase.wire_fits(rounds), Bool.and(LawsBase.wire_fits(wait), Bool.and(LawsBase.wire_fits(retries), Bool.and(LawsBase.wire_fits(notes), LawsBase.wire_fits(streams)))))
 
 def run.at_fits(t: RnDecision.At) -> Bool:
   match t:
-    case RnDecision.At{attempt, notes, waited, compacted}:
-      Bool.and(LawsBase.wire_fits(attempt), Bool.and(LawsBase.wire_fits(notes), LawsBase.wire_fits(waited)))
+    case RnDecision.At{attempt, notes, streams, waited, compacted}:
+      Bool.and(LawsBase.wire_fits(attempt), Bool.and(LawsBase.wire_fits(notes), Bool.and(LawsBase.wire_fits(streams), LawsBase.wire_fits(waited))))
 
 def run.rcfg_fits(c: RnRecovery.RCfg) -> Bool:
   match c:
@@ -48,7 +48,7 @@ def run.stuck_fits(s: RnDecision.Stuck) -> Bool:
 
 def run.ask_fits(a: FRn.Ask) -> Bool:
   match a:
-    case FRn.AskReply{l, t, reply}:
+    case FRn.AskReply{l, t, reply, stream}:
       Bool.and(run.lim_fits(l), run.at_fits(t))
     case FRn.AskEnded{m}:
       True{}
@@ -182,18 +182,18 @@ law run_ffi_answer_fits_witness:
 # made of the wire primitives only (bend/wire.bend, laws/wire.bend)
 
 # the limits (`write_limits`): max rounds, the job's ms, max retries, max
-# notes
+# notes, the stream retries
 def run_spell_lim(l: RnDecision.Lim, rest: String) -> String:
   match l:
-    case RnDecision.Lim{rounds, wait, retries, notes}:
-      Wr.put_nat(rounds, Wr.put_nat(wait, Wr.put_nat(retries, Wr.put_nat(notes, rest))))
+    case RnDecision.Lim{rounds, wait, retries, notes, streams}:
+      Wr.put_nat(rounds, Wr.put_nat(wait, Wr.put_nat(retries, Wr.put_nat(notes, Wr.put_nat(streams, rest)))))
 
-# the counts of a request: attempt, notes, ms waited, then T when the
-# generation compacted
+# the counts of a request: attempt, notes, the stream retries spent, ms
+# waited, then T when the generation compacted
 def run_spell_at(t: RnDecision.At, rest: String) -> String:
   match t:
-    case RnDecision.At{attempt, notes, waited, compacted}:
-      Wr.put_nat(attempt, Wr.put_nat(notes, Wr.put_nat(waited, Wr.put_bool(compacted, rest))))
+    case RnDecision.At{attempt, notes, streams, waited, compacted}:
+      Wr.put_nat(attempt, Wr.put_nat(notes, Wr.put_nat(streams, Wr.put_nat(waited, Wr.put_bool(compacted, rest)))))
 
 # a reply: text 0, calls 1, deferred 2, error 3 then retryable and noted,
 # overflow 4 then cut
@@ -274,8 +274,8 @@ def run_spell_rk(x: RnRecovery.Rk, rest: String) -> String:
 # prepare 2, compact 3, round 4, recover 5, poll 6), then its inputs
 def run_spell_ask(a: FRn.Ask, rest: String) -> String:
   match a:
-    case FRn.AskReply{l, t, reply}:
-      Wr.put_nat(0n, run_spell_lim(l, run_spell_at(t, run_spell_reply(reply, rest))))
+    case FRn.AskReply{l, t, reply, stream}:
+      Wr.put_nat(0n, run_spell_lim(l, run_spell_at(t, run_spell_reply(reply, Wr.put_bool(stream, rest)))))
     case FRn.AskEnded{m}:
       Wr.put_nat(1n, run_spell_ended(m, rest))
     case FRn.AskPrepare{compacted, th}:
@@ -348,10 +348,10 @@ def run_spell_help(x: RnDecision.Help, rest: String) -> String:
       Wr.put_nat(4n, Wr.put_nat(row, rest))
 
 # the spelled answer to request a: the value of its decision in the model
-# (bend/run/decision.bend, bend/run/state.bend). The decisions'
-# requirements are laws of laws/run/model.bend (decide.reply:
-# run_reply_answers_or_runs_tools, run_retry_budget,
-# run_unretryable_error_fails, run_note_budget,
+# (bend/run/decision.bend, bend/run/state.bend). The requirements are
+# laws of laws/run/model.bend (decide.reply:
+# run_reply_answers_or_runs_tools, run_retry_budget, run_stream_budget,
+# run_stream_flag_ignored, run_unretryable_error_fails, run_note_budget,
 # run_deferred_polls_until_deadline, run_overflow_compacts_once;
 # Ended.reply: run_message_reply, run_no_answer_is_an_error,
 # run_calls_never_answer; decide.prepare:
@@ -363,8 +363,8 @@ def run_spell_help(x: RnDecision.Help, rest: String) -> String:
 # (decide.recover: the rec_* laws); run_ffi_tags_example anchors the tags
 def run_spell_answer(a: FRn.Ask) -> String:
   match a:
-    case FRn.AskReply{l, t, reply}:
-      run_spell_then(RnDecision.decide.reply(l, t, reply), "")
+    case FRn.AskReply{l, t, reply, stream}:
+      run_spell_then(RnDecision.decide.reply(l, t, reply, stream), "")
     case FRn.AskEnded{m}:
       run_spell_reply(RnState.Ended.reply(m), "")
     case FRn.AskPrepare{compacted, th}:
@@ -434,14 +434,17 @@ law run_ffi_malformed_unless_request:
   {(s, run.ask_fits(a)) == (run_spell_ask(a, rest), True{}) : String & Bool}
 
 # LAW run_ffi_tags_example: anchor: the bytes Rust sends and reads. Limits 2 rounds, 5 ms,
-# 1 retry, 1 note; a first attempt, nothing waited, not compacted: text
-# answers (0,), calls run tools (1,), deferred polls (2,), a retryable
-# error retries (3,), a noted one notes (4,), an overflow with a cut
-# compacts (5,), without one fails (6,), deferred at 5 ms is late (7,). A
-# message with text and no call is text (0,), with a call calls (1,),
-# with neither a noted error (3,FT). Not compacted over a blocking
-# threshold waits (0,), over a background one sends with a background
-# compaction (1,T); compacted, sends alone (1,F). An overflow's
+# 1 retry, 1 note, 1 stream retry; a first attempt, nothing waited, not
+# compacted, no stream retry spent: text answers (0,), calls run tools
+# (1,), deferred polls (2,), a retryable error retries (3,), a noted one
+# notes (4,), an overflow with a cut compacts (5,), without one fails
+# (6,), deferred at 5 ms is late (7,). The stream flag retries a cut on
+# the stream budget (3,) and a cut past it goes on without it: at attempt
+# 4 with a note and the stream retry spent, the retry budget spent, it
+# fails (6,). A message with text and no call is text (0,), with a call
+# calls (1,), with neither a noted error (3,FT). Not compacted over a
+# blocking threshold waits (0,), over a background one sends with a
+# background compaction (1,T); compacted, sends alone (1,F). An overflow's
 # compaction goes on after an entry (T), not after nothing (F); a
 # threshold one after nothing (T), not after a failure (F). A round after
 # 0 of 2 goes on with 1 (3,1,), after 1 is capped (2,), a control stops
@@ -453,7 +456,7 @@ law run_ffi_malformed_unless_request:
 # EXCLUDES: a tag table both sides of the Bend entry agree on but Rust
 #   does not, a reversed flag, a field read in another order
 law run_ffi_tags_example:
-  {[FRn.ffi("0,2,5,1,1,1,0,0,F0,"), FRn.ffi("0,2,5,1,1,1,0,0,F1,"), FRn.ffi("0,2,5,1,1,1,0,0,F2,"), FRn.ffi("0,2,5,1,1,1,0,0,F3,TF"), FRn.ffi("0,2,5,1,1,1,0,0,F3,FT"), FRn.ffi("0,2,5,1,1,1,0,0,F4,T"), FRn.ffi("0,2,5,1,1,1,0,0,F4,F"), FRn.ffi("0,2,5,1,1,1,0,5,F2,"), FRn.ffi("1,TF"), FRn.ffi("1,FT"), FRn.ffi("1,FF"), FRn.ffi("2,F2,"), FRn.ffi("2,F1,"), FRn.ffi("2,T2,"), FRn.ffi("3,T0,"), FRn.ffi("3,T1,"), FRn.ffi("3,F1,"), FRn.ffi("3,F2,"), FRn.ffi("4,2,5,1,1,0,FF"), FRn.ffi("4,2,5,1,1,1,FF"), FRn.ffi("4,2,5,1,1,0,TF"), FRn.ffi("4,2,5,1,1,0,FT"), FRn.ffi("5,2,2,2,5,0,0,0,0,0,FF0,0,"), FRn.ffi("5,2,2,2,5,1,2,2,"), FRn.ffi("5,2,2,2,5,2,0,0,0,"), FRn.ffi("5,2,2,2,5,0,0,0,0,0,FF1,2,"), FRn.ffi("6,T0,1,"), FRn.ffi("6,T1,1,")] == ["0,", "1,", "2,", "3,", "4,", "5,", "6,", "7,", "0,", "1,", "3,FT", "0,", "1,T", "1,F", "T", "F", "T", "F", "3,1,", "2,", "0,", "1,", "1,1,", "2,", "0,", "2,", "T", "F"] : List<&2, String>}
+  {[FRn.ffi("0,2,5,1,1,1,1,0,0,0,F0,F,"), FRn.ffi("0,2,5,1,1,1,1,0,0,0,F1,F,"), FRn.ffi("0,2,5,1,1,1,1,0,0,0,F2,F,"), FRn.ffi("0,2,5,1,1,1,1,0,0,0,F3,TF,F,"), FRn.ffi("0,2,5,1,1,1,1,0,0,0,F3,FT,F,"), FRn.ffi("0,2,5,1,1,1,1,0,0,0,F4,T,F,"), FRn.ffi("0,2,5,1,1,1,1,0,0,0,F4,F,F,"), FRn.ffi("0,2,5,1,1,1,1,0,0,5,F2,F,"), FRn.ffi("0,2,5,1,1,5,2,1,0,0,F3,TF,T,"), FRn.ffi("0,2,5,1,1,1,4,1,1,0,F3,FT,T,"), FRn.ffi("1,TF"), FRn.ffi("1,FT"), FRn.ffi("1,FF"), FRn.ffi("2,F2,"), FRn.ffi("2,F1,"), FRn.ffi("2,T2,"), FRn.ffi("3,T0,"), FRn.ffi("3,T1,"), FRn.ffi("3,F1,"), FRn.ffi("3,F2,"), FRn.ffi("4,2,5,1,1,1,0,FF"), FRn.ffi("4,2,5,1,1,1,1,FF"), FRn.ffi("4,2,5,1,1,1,0,TF"), FRn.ffi("4,2,5,1,1,1,0,FT"), FRn.ffi("5,2,2,2,5,0,0,0,0,0,FF0,0,"), FRn.ffi("5,2,2,2,5,1,2,2,"), FRn.ffi("5,2,2,2,5,2,0,0,0,"), FRn.ffi("5,2,2,2,5,0,0,0,0,0,FF1,2,"), FRn.ffi("6,T0,1,"), FRn.ffi("6,T1,1,")] == ["0,", "1,", "2,", "3,", "4,", "5,", "6,", "7,", "3,", "6,", "0,", "1,", "3,FT", "0,", "1,T", "1,F", "T", "F", "T", "F", "3,1,", "2,", "0,", "1,", "1,1,", "2,", "0,", "2,", "T", "F"] : List<&2, String>}
 
 # LAW run_ffi_errors_example: anchor: the error bytes Rust reads: an unknown request (7),
 # reply (5), threshold (3), compaction (3), stuck reply (4) or recovery
@@ -462,14 +465,17 @@ law run_ffi_tags_example:
 # EXCLUDES: an unknown tag read as a known one, the two error texts
 #   swapped or reworded
 law run_ffi_errors_example:
-  {[FRn.ffi("7,"), FRn.ffi("0,2,5,1,1,1,0,0,F5,"), FRn.ffi("2,F3,"), FRn.ffi("3,T3,"), FRn.ffi("5,2,2,2,5,4,"), FRn.ffi("5,2,2,2,5,1,5,0,"), FRn.ffi(""), FRn.ffi("6,T0,1,x")] == [Wr.err("run: malformed request"), Wr.err("run: malformed request"), Wr.err("run: malformed request"), Wr.err("run: malformed request"), Wr.err("run: malformed request"), Wr.err("run: malformed request"), Wr.err("run: malformed request"), Wr.err("run: input left over after the request")] : List<&2, String>}
+  {[FRn.ffi("7,"), FRn.ffi("0,2,5,1,1,1,1,0,0,0,F5,"), FRn.ffi("2,F3,"), FRn.ffi("3,T3,"), FRn.ffi("5,2,2,2,5,4,"), FRn.ffi("5,2,2,2,5,1,5,0,"), FRn.ffi(""), FRn.ffi("6,T0,1,x")] == [Wr.err("run: malformed request"), Wr.err("run: malformed request"), Wr.err("run: malformed request"), Wr.err("run: malformed request"), Wr.err("run: malformed request"), Wr.err("run: malformed request"), Wr.err("run: malformed request"), Wr.err("run: input left over after the request")] : List<&2, String>}
 
-# LAW run_ffi_limits_example: anchor: the note and retry caps Rust sends are read apart. Limits
-# 2 rounds, 5 ms, 3 retries, 1 note: a noted error after one note fails
-# (6,) with every retry left, after none notes (4,); a retryable error
-# after 3 transient retries fails (6,), after 2 and a note retries (3,).
-# Limits 1 retry, 3 notes: a noted error after one note notes (4,)
-# EXCLUDES: MAX_NOTES read as retry.maxRetries or the two read in each
-#   other's place, a note past MAX_NOTES
+# LAW run_ffi_limits_example: anchor: the note, retry and stream caps Rust sends are read
+# apart. Limits 2 rounds, 5 ms, 3 retries, 1 note, 1 stream retry: a
+# noted error after one note fails (6,) with every retry left, after none
+# notes (4,); a retryable error after 3 transient retries fails (6,),
+# after 2 and a note retries (3,). Limits 1 retry, 3 notes: a noted error
+# after one note notes (4,). Limits 3 retries, 1 note, 1 stream retry: a
+# cut with the stream retry spent goes on without the flag, on the retry
+# budget (3,); a cut with both spent fails (6,)
+# EXCLUDES: MAX_NOTES read as retry.maxRetries (or the three read in each
+#   other's place), a note past MAX_NOTES
 law run_ffi_limits_example:
-  {[FRn.ffi("0,2,5,3,1,2,1,0,F3,FT"), FRn.ffi("0,2,5,3,1,1,0,0,F3,FT"), FRn.ffi("0,2,5,3,1,4,0,0,F3,TF"), FRn.ffi("0,2,5,3,1,4,1,0,F3,TF"), FRn.ffi("0,2,5,1,3,2,1,0,F3,FT")] == ["6,", "4,", "6,", "3,", "4,"] : List<&2, String>}
+  {[FRn.ffi("0,2,5,3,1,1,2,1,0,0,F3,TF,F,"), FRn.ffi("0,2,5,3,1,1,1,0,0,0,F3,FT,F,"), FRn.ffi("0,2,5,3,1,1,4,0,0,0,F3,TF,F,"), FRn.ffi("0,2,5,3,1,1,4,1,0,0,F3,TF,F,"), FRn.ffi("0,2,5,1,3,1,2,1,0,0,F3,FT,F,"), FRn.ffi("0,2,5,3,1,1,2,1,1,0,F3,TF,T,"), FRn.ffi("0,2,5,3,1,1,5,1,1,0,F3,TF,T,")] == ["6,", "4,", "6,", "3,", "4,", "3,", "6,"] : List<&2, String>}

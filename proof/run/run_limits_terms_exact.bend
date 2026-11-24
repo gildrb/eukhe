@@ -5,5 +5,5 @@
 import Base
 import ../../laws/run/model.bend as Run
 
-def Run.run_limits_terms_exact(r, w, a, n):
-  ({==}, {==}, {==}, {==})
+def Run.run_limits_terms_exact(r, w, a, n, s):
+  ({==}, {==}, {==}, {==}, {==})

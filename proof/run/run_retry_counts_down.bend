@@ -34,9 +34,9 @@ def rk.ra(+retries: Nat, +b: Nat, +notes: Nat, +e: {Nat.is_le(notes, b) == True{
 
 def rk.run_retry_counts_down(+l: RnDecision.Lim, +t: RnDecision.At, +e: {Nat.is_le(1n+RnDecision.At.notes(t), RnDecision.At.attempt(t)) == True{} : Bool}, +r: Nat, +c: Nat, +p: Nat) -> {RnState.St.a(RnStep.retry(RnDecision.Lim.cfg(l), True{}, r, c, RnDecision.At.a(l, t), RnDecision.At.n(l, t), p)) == RnDecision.At.a(l, Run.rust.retried_next(t)) : Nat}:
   match l:
-    case RnDecision.Lim{+rounds, +wait, +retries, +most}:
+    case RnDecision.Lim{+rounds, +wait, +retries, +most, +streams}:
       match t:
-        case RnDecision.At{+attempt, +notes, +waited, +compacted}:
+        case RnDecision.At{+attempt, +notes, +spent, +waited, +compacted}:
           match attempt:
             case 0n:
               LA.rk.absurd({RnState.St.a(RnStep.retry(RnState.Cfg{rounds, wait, retries, most}, True{}, r, c, Nat.sub(retries, Nat.sub(Nat.sub(0n, 1n), notes)), Nat.sub(most, notes), p)) == Nat.sub(retries, Nat.sub(Nat.sub(1n, 1n), notes)) : Nat}, e)

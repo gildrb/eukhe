@@ -560,7 +560,8 @@ fn load(
 /// table holds the defaults, equal to the Harness's own):
 /// - `retry.{enabled, maxRetries, baseDelayMs}` -> the generation retry
 ///   policy; `retry.provider.maxRetryDelayMs` caps a server-requested delay
-///   (`maxAgentDelayMs`).
+///   (`maxAgentDelayMs`). `model.streamRetries` -> the same-model stream
+///   retries one turn may spend on a transient cut of its provider stream.
 /// - `retry.provider.timeoutMs` -> the request timeout;
 ///   `retry.provider.streamIdleTimeoutMs` -> the stream-idle deadline;
 ///   `retry.provider.streamRepeatLimit` -> the repetition guard (unset or
@@ -599,6 +600,7 @@ pub fn harness_settings(manager: &SettingsManager) -> HarnessSettings {
             base_delay_ms: Some(u64_to_f64(manager.get_retry_base_delay_ms())),
             max_agent_delay_ms: Some(u64_to_f64(manager.get_max_retry_delay_ms())),
         }),
+        stream_retries: Some(manager.get_model_stream_retries()),
         compaction: Some(PartialCompactionPolicy {
             enabled: Some(manager.get_compaction_enabled()),
             reserve_tokens: Some(u64_to_f64(manager.get_compaction_reserve_tokens())),

@@ -3,6 +3,7 @@
 import Base
 import ../../bend/run/decision.bend as RnDecision
 import ../../bend/run/state.bend as RnState
+import ../../bend/run/step.bend as RnStep
 import ../../laws/run/model.bend as Run
 import ./base.bend as LA
 
@@ -63,9 +64,9 @@ def rk.lt_le1(+c: Nat, +x: Nat, +e: {Nat.is_lt(x, c) == True{} : Bool}) -> {Nat.
 
 def rk.sat_attempt(+l: RnDecision.Lim, +t: RnDecision.At, +reply: RnState.Reply, +cap: Nat, +e: {Nat.is_lt(Nat.add(RnDecision.At.notes(t), RnDecision.Lim.retries(l)), cap) == True{} : Bool}) -> {LA.rk.r_reply(l, Run.rust.sat_attempt(t, cap), reply) == LA.rk.r_reply(l, t, reply) : RnDecision.Then}:
   match l:
-    case RnDecision.Lim{+rounds, +wait, +retries, +most}:
+    case RnDecision.Lim{+rounds, +wait, +retries, +most, +streams}:
       match t:
-        case RnDecision.At{+attempt, +notes, +waited, +compacted}:
+        case RnDecision.At{+attempt, +notes, +spent, +waited, +compacted}:
           match reply:
             case RnState.Plain{}:
               {==}
@@ -88,9 +89,9 @@ def rk.sat_attempt(+l: RnDecision.Lim, +t: RnDecision.At, +reply: RnState.Reply,
             case RnState.Overflow{cut}:
               {==}
 
-def rk.run_reply_saturates_the_attempt(+l: RnDecision.Lim, +t: RnDecision.At, +reply: RnState.Reply, +cap: Nat, +e: {Nat.is_lt(Nat.add(RnDecision.At.notes(t), RnDecision.Lim.retries(l)), cap) == True{} : Bool}) -> {RnDecision.decide.reply(l, Run.rust.sat_attempt(t, cap), reply) == RnDecision.decide.reply(l, t, reply) : RnDecision.Then}:
+def rk.run_reply_saturates_the_attempt(+l: RnDecision.Lim, +t: RnDecision.At, +reply: RnState.Reply, +stream: Bool, +cap: Nat, +e: {Nat.is_lt(Nat.add(RnDecision.At.notes(t), RnDecision.Lim.retries(l)), cap) == True{} : Bool}) -> {RnDecision.decide.reply(l, Run.rust.sat_attempt(t, cap), reply, stream) == RnDecision.decide.reply(l, t, reply, stream) : RnDecision.Then}:
   +t2 = Run.rust.sat_attempt(t, cap)
-  Equal.trans(RnDecision.Then, RnDecision.decide.reply(l, t2, reply), LA.rk.r_reply(l, t2, reply), RnDecision.decide.reply(l, t, reply), LA.rk.reply_rule(l, t2, reply), Equal.trans(RnDecision.Then, LA.rk.r_reply(l, t2, reply), LA.rk.r_reply(l, t, reply), RnDecision.decide.reply(l, t, reply), rk.sat_attempt(l, t, reply, cap, e), Equal.sym(RnDecision.Then, RnDecision.decide.reply(l, t, reply), LA.rk.r_reply(l, t, reply), LA.rk.reply_rule(l, t, reply))))
+  rk.on_stream_cong(RnDecision.Then.ph(RnDecision.Reply.noted(reply), RnState.St.ph(RnStep.call(RnDecision.Lim.cfg(l), reply, 0n, RnDecision.At.c(t2), RnDecision.At.a(l, t2), RnDecision.At.n(l, t2), RnDecision.At.p(l, t2)))), RnDecision.Then.ph(RnDecision.Reply.noted(reply), RnState.St.ph(RnStep.call(RnDecision.Lim.cfg(l), reply, 0n, RnDecision.At.c(t), RnDecision.At.a(l, t), RnDecision.At.n(l, t), RnDecision.At.p(l, t)))), Bool.and(stream, RnDecision.Reply.cut(reply)), RnDecision.Lim.streams(l), RnDecision.At.streams(t2), Equal.trans(RnDecision.Then, RnDecision.decide.reply(l, t2, reply, False{}), LA.rk.r_reply(l, t2, reply), LA.rk.r_reply(l, t, reply), RnDecision.decide.reply(l, t, reply, False{}), LA.rk.reply_rule(l, t2, reply), Equal.trans(RnDecision.Then, LA.rk.r_reply(l, t2, reply), LA.rk.r_reply(l, t, reply), RnDecision.decide.reply(l, t, reply, False{}), rk.sat_attempt(l, t, reply, cap, e), Equal.sym(RnDecision.Then, RnDecision.decide.reply(l, t, reply, False{}), LA.rk.r_reply(l, t, reply), LA.rk.reply_rule(l, t, reply)))))
 
-def Run.run_reply_saturates_the_attempt(l, t, reply, cap, e):
-  rk.run_reply_saturates_the_attempt(l, t, reply, cap, e)
+def Run.run_reply_saturates_the_attempt(l, t, reply, stream, cap, e):
+  rk.run_reply_saturates_the_attempt(l, t, reply, stream, cap, e)

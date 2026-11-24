@@ -162,7 +162,7 @@ law rec_redo_retries_with_a_note:
   for -pass: RnState.Reply
   for +l: RnDecision.Lim
   for +t: RnDecision.At
-  {RnDecision.decide.reply(l, t, RnRecovery.Act.reply(RnRecovery.Redo{}, pass)) == RunModel.then_if(Nat.is_lt(RnDecision.At.notes(t), RnDecision.Lim.notes(l)), RnDecision.DoNote{}, RnDecision.DoFail{}) : RnDecision.Then}
+  {RnDecision.decide.reply(l, t, RnRecovery.Act.reply(RnRecovery.Redo{}, pass), False{}) == RunModel.then_if(Nat.is_lt(RnDecision.At.notes(t), RnDecision.Lim.notes(l)), RnDecision.DoNote{}, RnDecision.DoFail{}) : RnDecision.Then}
 
 # The recoveries' model (Rec)
 # ---------------------------

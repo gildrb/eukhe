@@ -33,8 +33,8 @@ use eukhe_ai::types::{
 use eukhe_ai::utils::context_tokens::model_tokenizer;
 use eukhe_ai::utils::overflow::is_context_overflow;
 use eukhe_ai::utils::retry::{
-    is_retryable_assistant_error, repeated_lines, retry_wait, stalled_idle_ms, RetryDelay,
-    RetryWait,
+    is_retryable_assistant_error, is_stream_cut, repeated_lines, retry_wait, stalled_idle_ms,
+    RetryDelay, RetryWait,
 };
 use eukhe_ai::utils::stream_failure::RepeatedLines;
 use eukhe_ai::utils::transcript::get_current_tools;
@@ -53,9 +53,9 @@ use eukhe_types::platform::kill_point::kill_point;
 use serde::{Deserialize, Serialize};
 
 use self::decide::{
-    after_compaction, after_reply, before_request, recover, retry_note, Act, Compacted, Compaction,
-    Counts, Ended, Failure, Limits, Prepared, Reply, Rounds, Step, Stuck, Threshold, CAPS,
-    LEAK_NOTES, LENGTH_NOTES, MAX_NOTES, REDIRECT_NOTES,
+    after_compaction, after_reply, before_request, recover, retry_note, spends_stream, Act,
+    Compacted, Compaction, Counts, Ended, Failure, Limits, Prepared, Reply, Rounds, Step, Stuck,
+    Threshold, CAPS, LEAK_NOTES, LENGTH_NOTES, MAX_NOTES, REDIRECT_NOTES,
 };
 use self::deferred::{idle_after_stall, FailedPoll, PollFailure};
 use self::force::{soft_prompt, Forcing};
@@ -134,6 +134,10 @@ pub enum GenerationCheckpoint {
         /// The note the request ends with (H4.7), after a noted reply.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         note: Option<RetryNote>,
+        /// The stream retries the generation spent so far
+        /// (`model.streamRetries`).
+        #[serde(default, skip_serializing_if = "is_zero")]
+        streams: u32,
     },
     #[serde(rename_all = "camelCase")]
     Request {
@@ -151,6 +155,10 @@ pub enum GenerationCheckpoint {
         forced: u32,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         note: Option<RetryNote>,
+        /// The stream retries the generation spent so far
+        /// (`model.streamRetries`).
+        #[serde(default, skip_serializing_if = "is_zero")]
+        streams: u32,
         /// The times the request went out before (the starts on record of
         /// its effect, spec O1): each time a restart found it sent and
         /// unanswered.
@@ -174,6 +182,10 @@ pub enum GenerationCheckpoint {
         /// The note the retry's request ends with ([`retry_note`]).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         note: Option<RetryNote>,
+        /// The stream retries the generation spent so far, this one
+        /// included when it spent one (`model.streamRetries`).
+        #[serde(default, skip_serializing_if = "is_zero")]
+        streams: u32,
     },
     #[serde(rename_all = "camelCase")]
     Poll {
@@ -203,6 +215,10 @@ pub enum GenerationCheckpoint {
         /// The note of the request this polls for, pinned with it.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         note: Option<RetryNote>,
+        /// The stream retries the generation spent so far
+        /// (`model.streamRetries`).
+        #[serde(default, skip_serializing_if = "is_zero")]
+        streams: u32,
     },
     /// Waiting on the round's tool tasks, which the generation owns (spec
     /// §8.5).
@@ -267,6 +283,9 @@ pub(crate) struct Request {
     force: Option<Forcing>,
     /// The note the request ended with.
     note: Option<RetryNote>,
+    /// The stream retries the generation spent so far
+    /// (`model.streamRetries`).
+    streams: u32,
 }
 
 /// The poll of a deferred job that gave a message.
@@ -298,6 +317,7 @@ pub static GENERATION_TASK: LazyLock<GenerationTask> = LazyLock::new(|| {
                     threshold: false,
                     forced: 0,
                     note: None,
+                    streams: 0,
                 })
             },
             abort,
@@ -357,6 +377,7 @@ async fn prepare(task: Current, runtime: Runtime, cx: Context) -> SessionResult<
         threshold: blocked,
         forced,
         note,
+        streams,
     } = task.checkpoint
     else {
         return Err(phase_mismatch("prepare"));
@@ -492,6 +513,7 @@ async fn prepare(task: Current, runtime: Runtime, cx: Context) -> SessionResult<
     let at = Counts {
         attempt,
         notes: note.as_ref().map_or(0, |note| note.spent),
+        streams,
         waited: 0,
         compacted: compacted.is_some(),
     };
@@ -560,6 +582,7 @@ async fn prepare(task: Current, runtime: Runtime, cx: Context) -> SessionResult<
                         threshold: true,
                         forced,
                         note,
+                        streams,
                     };
                     Ok(Some(Next::Waiting {
                         checkpoint,
@@ -633,6 +656,7 @@ async fn prepare(task: Current, runtime: Runtime, cx: Context) -> SessionResult<
                         cutoff,
                         forced,
                         note,
+                        streams,
                         sends: 0,
                         key: None,
                     },
@@ -664,6 +688,7 @@ async fn request(task: Current, runtime: Runtime, cx: Context) -> SessionResult<
         cutoff,
         forced,
         note,
+        streams,
         sends,
         key,
     } = task.checkpoint
@@ -707,6 +732,7 @@ async fn request(task: Current, runtime: Runtime, cx: Context) -> SessionResult<
                 threshold: false,
                 forced,
                 note: None,
+                streams,
             };
             return resend::go_on_interrupted(
                 &runtime,
@@ -886,6 +912,7 @@ async fn request(task: Current, runtime: Runtime, cx: Context) -> SessionResult<
         forced,
         force,
         note,
+        streams,
     };
     classify(&runtime, request, message, &cx).await?;
     kill_point("request", "finished");
@@ -899,6 +926,7 @@ async fn retry(task: Current, runtime: Runtime, cx: Context) -> SessionResult<()
         until,
         forced,
         note,
+        streams,
     } = task.checkpoint
     else {
         return Err(phase_mismatch("retry"));
@@ -918,6 +946,7 @@ async fn retry(task: Current, runtime: Runtime, cx: Context) -> SessionResult<()
                         threshold: false,
                         forced,
                         note,
+                        streams,
                     },
                 }))
             },
@@ -940,6 +969,7 @@ async fn poll(task: Current, runtime: Runtime, cx: Context) -> SessionResult<()>
         forced,
         force,
         note,
+        streams,
     } = task.checkpoint
     else {
         return Err(phase_mismatch("poll"));
@@ -979,6 +1009,7 @@ async fn poll(task: Current, runtime: Runtime, cx: Context) -> SessionResult<()>
         forced,
         force,
         note,
+        streams,
     };
     classify(&runtime, request, message, &cx).await
 }
@@ -1353,6 +1384,7 @@ fn limits(settings: &Settings, max_wait: u64) -> Limits {
         max_rounds: settings.max_tool_rounds,
         max_wait,
         max_retries: settings.retry.max_retries,
+        max_stream_retries: settings.stream_retries,
         max_notes: MAX_NOTES,
     }
 }
@@ -1932,9 +1964,15 @@ async fn classify(
         .and_then(|handle| handle.expires_at)
         .map_or(request.deadline, ms_f64);
     let sent_at = request.sent_at;
+    // A transient cut of the provider stream ("terminated", a reset): its
+    // own same-model budget (`model.streamRetries`) retries it with the
+    // retry policy's backoff before the turn-failure path of
+    // `retry.maxRetries` takes it.
+    let stream_cut = is_stream_cut(&message);
     let at = Counts {
         attempt,
         notes: request.note.as_ref().map_or(0, |note| note.spent),
+        streams: request.streams,
         waited: ms_u64(runtime.now()? - sent_at),
         compacted: compacted.is_some(),
     };
@@ -2007,6 +2045,7 @@ async fn classify(
                                         // The kept answer grows the context:
                                         // the next request is a new one.
                                         note: None,
+                                        streams: request.streams,
                                     },
                                 }));
                             };
@@ -2029,7 +2068,10 @@ async fn classify(
             }
         }
     }
-    match after_reply(at, reply, &limits(&settings, ms_u64(deadline - sent_at))) {
+    let reply_limits = limits(&settings, ms_u64(deadline - sent_at));
+    let streams = at.streams;
+    let stream_retry = spends_stream(&reply, stream_cut, at, &reply_limits);
+    match after_reply(at, reply, stream_cut, &reply_limits) {
         Step::Poll(handle) => {
             let handle = handle.clone();
             let wait = repoll_wait
@@ -2072,6 +2114,7 @@ async fn classify(
                                 forced,
                                 force,
                                 note,
+                                streams,
                             },
                         }))
                     },
@@ -2124,6 +2167,7 @@ async fn classify(
                                 threshold: false,
                                 forced,
                                 note,
+                                streams,
                             },
                             on: vec![child.erase()],
                             policy: JoinPolicy::AllSettled,
@@ -2136,6 +2180,27 @@ async fn classify(
         step @ (Step::Retry | Step::Note | Step::Fail(Failure::Model)) => {
             let policy = settings.retry;
             let note = retry_note(at, cause, request.note);
+            // A turn that dies on a stream cut past its budgets fails with
+            // the cuts and their cause, not the bare transport word: the
+            // model, how often its stream was cut this turn, the last
+            // failure, and the setting that lets another model take the
+            // turn.
+            if matches!(step, Step::Fail(Failure::Model)) && stream_cut {
+                let cuts = streams.saturating_add(1);
+                let cause = message
+                    .error_message
+                    .as_deref()
+                    .filter(|cause| !cause.is_empty())
+                    .unwrap_or("unknown");
+                message.error_message = Some(format!(
+                    "{}'s stream was cut {cuts} times; last failure: {cause}. Set \
+                     model.backups to let another model take the turn.",
+                    request.model.model_id
+                ));
+            }
+            // The stream retries the retry's generation will have spent:
+            // one more when this cut is retried on the stream budget.
+            let streams = streams.saturating_add(u32::from(stream_retry));
             // A noted retry is a new request, due at once (R2): nothing is
             // overloaded. A transient retry's wait is drawn once and
             // committed with the retry checkpoint, so a replay resumes at
@@ -2201,6 +2266,7 @@ async fn classify(
                                     until,
                                     forced,
                                     note,
+                                    streams,
                                 },
                             }));
                         };

@@ -51,6 +51,12 @@ pub const DEFAULT_MAX_TOOL_ROUNDS: NonZeroU32 = match NonZeroU32::new(250) {
 /// lasting deduplication; then it is interrupted.
 pub const DEFAULT_REQUEST_RESENDS: u32 = 2;
 
+/// Default `settings.stream_retries` (`model.streamRetries`): the
+/// same-model stream retries one turn may spend on a transient cut of its
+/// provider stream, with the retry policy's backoff; `0` keeps the cut on
+/// the `retry.maxRetries` path.
+pub const DEFAULT_STREAM_RETRIES: u32 = 5;
+
 /// The reserved section key of the agent's `instructions`.
 pub const INSTRUCTIONS_KEY: &str = "instructions";
 
@@ -154,6 +160,9 @@ pub fn resolve_settings(settings: Option<&HarnessSettings>) -> Settings {
         request_resends: settings
             .and_then(|settings| settings.request_resends)
             .unwrap_or(DEFAULT_REQUEST_RESENDS),
+        stream_retries: settings
+            .and_then(|settings| settings.stream_retries)
+            .unwrap_or(DEFAULT_STREAM_RETRIES),
     }
 }
 

@@ -25,6 +25,6 @@ def cap.rule(+rounds: Nat, +count: Nat, +reset: Bool, at: {Nat.is_le(rounds, 1n+
 
 def Run.run_round_capped_at_max(l, count, reset, at):
   match l:
-    case RnDecision.Lim{+rounds, +wait, +retries, +most}:
-      +lim = {RnDecision.Lim{rounds, wait, retries, most} : RnDecision.Lim}
+    case RnDecision.Lim{+rounds, +wait, +retries, +most, +streams}:
+      +lim = {RnDecision.Lim{rounds, wait, retries, most, streams} : RnDecision.Lim}
       Equal.trans(RnDecision.End, RnDecision.decide.round(lim, count, False{}, reset), LA.rk.r_round(lim, count, False{}, reset), RnDecision.EndCapped{}, LA.rk.round_rule(lim, count, False{}, reset), cap.rule(rounds, count, reset, at))

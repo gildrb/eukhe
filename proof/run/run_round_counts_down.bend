@@ -27,7 +27,7 @@ def rk.rpred_f(+cfg: RnState.Cfg, +c: Nat, +a: Nat, +n: Nat, +p: Nat, +m: Nat, +
 
 def rk.run_round_counts_down(+l: RnDecision.Lim, +count: Nat, +reset: Bool, +c: Nat, +a: Nat, +n: Nat, +p: Nat) -> {RnState.St.r(RnStep.tools(RnDecision.Lim.cfg(l), RnDecision.fin.of(False{}, reset), RnDecision.Lim.r(l, count), c, a, n, p)) == RnDecision.Lim.r(l, 1n+count) : Nat}:
   match l:
-    case RnDecision.Lim{+rounds, +wait, +retries, +most}:
+    case RnDecision.Lim{+rounds, +wait, +retries, +most, +streams}:
       match reset:
         case True{}:
           rk.rpred_t(RnState.Cfg{rounds, wait, retries, most}, c, a, n, p, Nat.sub(rounds, 1n), count)

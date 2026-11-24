@@ -581,6 +581,13 @@ impl SettingsManager {
         saturating_u32(self.cvars().nat(&table::RETRY_MAX_RESENDS))
     }
 
+    /// `model.streamRetries`: the same-model stream retries one turn may
+    /// spend on a transient cut of its provider stream.
+    #[must_use]
+    pub fn get_model_stream_retries(&self) -> u32 {
+        saturating_u32(self.cvars().nat(&table::MODEL_STREAM_RETRIES))
+    }
+
     /// `retry.baseDelayMs`.
     #[must_use]
     pub fn get_retry_base_delay_ms(&self) -> u64 {

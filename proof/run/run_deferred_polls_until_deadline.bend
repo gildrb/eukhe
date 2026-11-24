@@ -10,7 +10,7 @@ import ./base.bend as LA
 
 def Run.run_deferred_polls_until_deadline(l, t):
   match l:
-    case RnDecision.Lim{+rounds, +wait, +retries, +most}:
+    case RnDecision.Lim{+rounds, +wait, +retries, +most, +streams}:
       match t:
-        case RnDecision.At{+attempt, +notes, +waited, +compacted}:
-          Equal.trans(RnDecision.Then, RnDecision.decide.reply(RnDecision.Lim{rounds, wait, retries, most}, RnDecision.At{attempt, notes, waited, compacted}, RnState.Deferred{}), LA.rk.r_reply(RnDecision.Lim{rounds, wait, retries, most}, RnDecision.At{attempt, notes, waited, compacted}, RnState.Deferred{}), Run.then_if(Nat.is_lt(waited, wait), RnDecision.DoPoll{}, RnDecision.DoLate{}), LA.rk.reply_rule(RnDecision.Lim{rounds, wait, retries, most}, RnDecision.At{attempt, notes, waited, compacted}, RnState.Deferred{}), LA.rk.wait_if(Nat.is_lt(waited, wait)))
+        case RnDecision.At{+attempt, +notes, +spent, +waited, +compacted}:
+          Equal.trans(RnDecision.Then, RnDecision.decide.reply(RnDecision.Lim{rounds, wait, retries, most, streams}, RnDecision.At{attempt, notes, spent, waited, compacted}, RnState.Deferred{}, False{}), LA.rk.r_reply(RnDecision.Lim{rounds, wait, retries, most, streams}, RnDecision.At{attempt, notes, spent, waited, compacted}, RnState.Deferred{}), Run.then_if(Nat.is_lt(waited, wait), RnDecision.DoPoll{}, RnDecision.DoLate{}), LA.rk.reply_rule(RnDecision.Lim{rounds, wait, retries, most, streams}, RnDecision.At{attempt, notes, spent, waited, compacted}, RnState.Deferred{}), LA.rk.wait_if(Nat.is_lt(waited, wait)))

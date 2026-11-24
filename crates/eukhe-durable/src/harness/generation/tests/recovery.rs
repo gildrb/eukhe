@@ -512,7 +512,7 @@ async fn resumes_a_retry_backoff_after_reopen() {
     assert!((1_000.0..=61_000.0).contains(&at), "retry at {at}");
     assert_eq!(
         checkpoint,
-        serde_json::json!({ "phase": "retry", "attempt": 1, "until": until })
+        serde_json::json!({ "phase": "retry", "attempt": 1, "until": until, "streams": 1 })
     );
     assert_eq!(
         live(&opened.harness, &opened).await,
@@ -743,6 +743,7 @@ fn encodes_the_threshold_marker_like_ts_and_decodes_checkpoints_without_it() {
         threshold: true,
         forced: 0,
         note: None,
+        streams: 0,
     };
     assert_eq!(
         to_json(&blocking).unwrap().to_string(),
@@ -760,6 +761,7 @@ fn encodes_the_threshold_marker_like_ts_and_decodes_checkpoints_without_it() {
             threshold: false,
             forced: 0,
             note: None,
+            streams: 0,
         }
     );
 }
