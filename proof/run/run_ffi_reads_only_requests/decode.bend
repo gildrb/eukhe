@@ -30,6 +30,9 @@ def dk.and3(-a: Bool, -b: Bool, -c: Bool, ha: {a == True{} : Bool}, hb: {b == Tr
 def dk.and4(-a: Bool, -b: Bool, -c: Bool, -d: Bool, ha: {a == True{} : Bool}, hb: {b == True{} : Bool}, hc: {c == True{} : Bool}, hd: {d == True{} : Bool}) -> {Bool.and(a, Bool.and(b, Bool.and(c, d))) == True{} : Bool}:
   LAWireSpell.ws_and_tt(a, Bool.and(b, Bool.and(c, d)), ha, dk.and3(b, c, d, hb, hc, hd))
 
+def dk.and5(-a: Bool, -b: Bool, -c: Bool, -d: Bool, -e: Bool, ha: {a == True{} : Bool}, hb: {b == True{} : Bool}, hc: {c == True{} : Bool}, hd: {d == True{} : Bool}, he: {e == True{} : Bool}) -> {Bool.and(a, Bool.and(b, Bool.and(c, Bool.and(d, e)))) == True{} : Bool}:
+  LAWireSpell.ws_and_tt(a, Bool.and(b, Bool.and(c, Bool.and(d, e))), ha, dk.and4(b, c, d, e, hb, hc, hd, he))
+
 # The limits
 # ----------
 
@@ -40,11 +43,19 @@ def dk.Lim(s: String, d: Wr.Dec<RnDecision.Lim>) -> Type:
     case Wr.Bad{}:
       Unit
 
+def dk.lim.f4(+s: String, +a: Nat, +b: Nat, +c: Nat, +n: Nat, +s3: String, pre: {s == Wr.put_nat(a, Wr.put_nat(b, Wr.put_nat(c, Wr.put_nat(n, s3)))) : String}, fa: {LawsBase.wire_fits(a) == True{} : Bool}, fb: {LawsBase.wire_fits(b) == True{} : Bool}, fc: {LawsBase.wire_fits(c) == True{} : Bool}, fn: {LawsBase.wire_fits(n) == True{} : Bool}, d: Wr.Dec<Nat>, ed: {Wr.get_nat(s3) == d : Wr.Dec<Nat>}) -> dk.Lim(s, FRn.get_lim.f4(a, b, c, n, d)):
+  match d:
+    case Wr.Got{+x, +s4}:
+      +ee = ed
+      (dk.step(z => Wr.put_nat(a, Wr.put_nat(b, Wr.put_nat(c, Wr.put_nat(n, z)))), s, s3, Wr.put_nat(x, s4), pre, Wire.wire_nat_exact(s3, x, s4, ee)), dk.and5(LawsBase.wire_fits(a), LawsBase.wire_fits(b), LawsBase.wire_fits(c), LawsBase.wire_fits(n), LawsBase.wire_fits(x), fa, fb, fc, fn, Wire.wire_nat_decoded_fits(s3, x, s4, ee)))
+    case Wr.Bad{}:
+      Unit{}
+
 def dk.lim.f3(+s: String, +a: Nat, +b: Nat, +c: Nat, +s3: String, pre: {s == Wr.put_nat(a, Wr.put_nat(b, Wr.put_nat(c, s3))) : String}, fa: {LawsBase.wire_fits(a) == True{} : Bool}, fb: {LawsBase.wire_fits(b) == True{} : Bool}, fc: {LawsBase.wire_fits(c) == True{} : Bool}, d: Wr.Dec<Nat>, ed: {Wr.get_nat(s3) == d : Wr.Dec<Nat>}) -> dk.Lim(s, FRn.get_lim.f3(a, b, c, d)):
   match d:
     case Wr.Got{+x, +s4}:
       +ee = ed
-      (dk.step(z => Wr.put_nat(a, Wr.put_nat(b, Wr.put_nat(c, z))), s, s3, Wr.put_nat(x, s4), pre, Wire.wire_nat_exact(s3, x, s4, ee)), dk.and4(LawsBase.wire_fits(a), LawsBase.wire_fits(b), LawsBase.wire_fits(c), LawsBase.wire_fits(x), fa, fb, fc, Wire.wire_nat_decoded_fits(s3, x, s4, ee)))
+      dk.lim.f4(s, a, b, c, x, s4, dk.step(z => Wr.put_nat(a, Wr.put_nat(b, Wr.put_nat(c, z))), s, s3, Wr.put_nat(x, s4), pre, Wire.wire_nat_exact(s3, x, s4, ee)), fa, fb, fc, Wire.wire_nat_decoded_fits(s3, x, s4, ee), Wr.get_nat(s4), {==})
     case Wr.Bad{}:
       Unit{}
 
@@ -85,10 +96,18 @@ def dk.At(s: String, d: Wr.Dec<RnDecision.At>) -> Type:
     case Wr.Bad{}:
       Unit
 
-def dk.at.f3(+s: String, +a: Nat, +b: Nat, +c: Nat, +s3: String, pre: {s == Wr.put_nat(a, Wr.put_nat(b, Wr.put_nat(c, s3))) : String}, fa: {LawsBase.wire_fits(a) == True{} : Bool}, fb: {LawsBase.wire_fits(b) == True{} : Bool}, fc: {LawsBase.wire_fits(c) == True{} : Bool}, d: Wr.Dec<Bool>, ed: {Wr.get_bool(s3) == d : Wr.Dec<Bool>}) -> dk.At(s, FRn.get_at.f3(a, b, c, d)):
+def dk.at.f4(+s: String, +a: Nat, +b: Nat, +c: Nat, +w: Nat, +s3: String, pre: {s == Wr.put_nat(a, Wr.put_nat(b, Wr.put_nat(c, Wr.put_nat(w, s3)))) : String}, fa: {LawsBase.wire_fits(a) == True{} : Bool}, fb: {LawsBase.wire_fits(b) == True{} : Bool}, fc: {LawsBase.wire_fits(c) == True{} : Bool}, fw: {LawsBase.wire_fits(w) == True{} : Bool}, d: Wr.Dec<Bool>, ed: {Wr.get_bool(s3) == d : Wr.Dec<Bool>}) -> dk.At(s, FRn.get_at.f4(a, b, c, w, d)):
   match d:
     case Wr.Got{+x, +s4}:
-      (dk.step(z => Wr.put_nat(a, Wr.put_nat(b, Wr.put_nat(c, z))), s, s3, Wr.put_bool(x, s4), pre, Wire.wire_bool_exact(s3, x, s4, ed)), dk.and3(LawsBase.wire_fits(a), LawsBase.wire_fits(b), LawsBase.wire_fits(c), fa, fb, fc))
+      (dk.step(z => Wr.put_nat(a, Wr.put_nat(b, Wr.put_nat(c, Wr.put_nat(w, z)))), s, s3, Wr.put_bool(x, s4), pre, Wire.wire_bool_exact(s3, x, s4, ed)), dk.and4(LawsBase.wire_fits(a), LawsBase.wire_fits(b), LawsBase.wire_fits(c), LawsBase.wire_fits(w), fa, fb, fc, fw))
+    case Wr.Bad{}:
+      Unit{}
+
+def dk.at.f3(+s: String, +a: Nat, +b: Nat, +c: Nat, +s3: String, pre: {s == Wr.put_nat(a, Wr.put_nat(b, Wr.put_nat(c, s3))) : String}, fa: {LawsBase.wire_fits(a) == True{} : Bool}, fb: {LawsBase.wire_fits(b) == True{} : Bool}, fc: {LawsBase.wire_fits(c) == True{} : Bool}, d: Wr.Dec<Nat>, ed: {Wr.get_nat(s3) == d : Wr.Dec<Nat>}) -> dk.At(s, FRn.get_at.f3(a, b, c, d)):
+  match d:
+    case Wr.Got{+x, +s4}:
+      +ee = ed
+      dk.at.f4(s, a, b, c, x, s4, dk.step(z => Wr.put_nat(a, Wr.put_nat(b, Wr.put_nat(c, z))), s, s3, Wr.put_nat(x, s4), pre, Wire.wire_nat_exact(s3, x, s4, ee)), fa, fb, fc, Wire.wire_nat_decoded_fits(s3, x, s4, ee), Wr.get_bool(s4), {==})
     case Wr.Bad{}:
       Unit{}
 
@@ -96,7 +115,7 @@ def dk.at.f2(+s: String, +a: Nat, +b: Nat, +s2: String, pre: {s == Wr.put_nat(a,
   match d:
     case Wr.Got{+c, +s3}:
       +ee = ed
-      dk.at.f3(s, a, b, c, s3, dk.step(z => Wr.put_nat(a, Wr.put_nat(b, z)), s, s2, Wr.put_nat(c, s3), pre, Wire.wire_nat_exact(s2, c, s3, ee)), fa, fb, Wire.wire_nat_decoded_fits(s2, c, s3, ee), Wr.get_bool(s3), {==})
+      dk.at.f3(s, a, b, c, s3, dk.step(z => Wr.put_nat(a, Wr.put_nat(b, z)), s, s2, Wr.put_nat(c, s3), pre, Wire.wire_nat_exact(s2, c, s3, ee)), fa, fb, Wire.wire_nat_decoded_fits(s2, c, s3, ee), Wr.get_nat(s3), {==})
     case Wr.Bad{}:
       Unit{}
 
@@ -421,10 +440,18 @@ def dk.Ask(s: String, d: Wr.Dec<FRn.Ask>) -> Type:
       Unit
 
 # a reply: the limits, the counts, the reply
+# the stream flag: the last field of a reply ask
+def dk.c0.f3(+s: String, +l: RnDecision.Lim, +t: RnDecision.At, +reply: RnState.Reply, +s3: String, pre: {s == Wr.put_nat(0n, Run.run_spell_lim(l, Run.run_spell_at(t, Run.run_spell_reply(reply, s3)))) : String}, fa: {Bool.and(Run.run.lim_fits(l), Run.run.at_fits(t)) == True{} : Bool}, d: Wr.Dec<Bool>, ed: {Wr.get_bool(s3) == d : Wr.Dec<Bool>}) -> dk.Ask(s, FRn.get_ask.c0.f3(l, t, reply, d)):
+  match d:
+    case Wr.Got{+stream, +s4}:
+      (dk.step(z => Wr.put_nat(0n, Run.run_spell_lim(l, Run.run_spell_at(t, Run.run_spell_reply(reply, z)))), s, s3, Wr.put_bool(stream, s4), pre, Wire.wire_bool_exact(s3, stream, s4, ed)), fa)
+    case Wr.Bad{}:
+      Unit{}
+
 def dk.c0.f2(+s: String, +l: RnDecision.Lim, +t: RnDecision.At, +s2: String, pre: {s == Wr.put_nat(0n, Run.run_spell_lim(l, Run.run_spell_at(t, s2))) : String}, fl: {Run.run.lim_fits(l) == True{} : Bool}, ft: {Run.run.at_fits(t) == True{} : Bool}, d: Wr.Dec<RnState.Reply>, xd: dk.Reply(s2, d)) -> dk.Ask(s, FRn.get_ask.c0.f2(l, t, d)):
   match d:
     case Wr.Got{+reply, +s3}:
-      (dk.step(z => Wr.put_nat(0n, Run.run_spell_lim(l, Run.run_spell_at(t, z))), s, s2, Run.run_spell_reply(reply, s3), pre, xd), LAWireSpell.ws_and_tt(Run.run.lim_fits(l), Run.run.at_fits(t), fl, ft))
+      dk.c0.f3(s, l, t, reply, s3, dk.step(z => Wr.put_nat(0n, Run.run_spell_lim(l, Run.run_spell_at(t, z))), s, s2, Run.run_spell_reply(reply, s3), pre, xd), LAWireSpell.ws_and_tt(Run.run.lim_fits(l), Run.run.at_fits(t), fl, ft), Wr.get_bool(s3), {==})
     case Wr.Bad{}:
       Unit{}
 
