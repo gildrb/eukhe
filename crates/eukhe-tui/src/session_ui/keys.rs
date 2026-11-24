@@ -22,12 +22,7 @@ impl SessionUi {
     /// The OSC 52 sequences the headless run captured (TS writes them to
     /// stdout; headless verification reads them here).
     pub(crate) fn take_osc_emissions(&mut self) -> Vec<String> {
-        match std::mem::replace(&mut self.osc_sink, crate::clipboard::OscSink::Stdout) {
-            crate::clipboard::OscSink::Buffer(buffer) => {
-                vec![String::from_utf8_lossy(&buffer).into_owned()]
-            }
-            crate::clipboard::OscSink::Stdout => Vec::new(),
-        }
+        std::mem::replace(&mut self.osc_sink, crate::clipboard::OscSink::Stdout).captured()
     }
 
     /// The armed double-Escape action, taken once inside the window (TS

@@ -441,6 +441,12 @@ impl AuthPanel {
         self.flow_cancel = Some(cancel);
     }
 
+    /// The panel's title (`Login to {provider}`, `Connect {service}`).
+    #[must_use]
+    pub fn title(&self) -> &str {
+        &self.title
+    }
+
     /// TS `showProgress`: the first line lands under the section title
     /// (the title renders only when the panel was still empty).
     /// One request-fold entry (the session's channel arm calls it).

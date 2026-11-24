@@ -126,6 +126,7 @@ pub mod subagents;
 mod suspend;
 pub mod swarm_block;
 mod terminal_image;
+mod terminal_status;
 #[cfg(test)]
 mod testing;
 mod text_shapes;

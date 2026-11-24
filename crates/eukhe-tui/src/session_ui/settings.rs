@@ -458,11 +458,15 @@ impl SessionUi {
                     crate::screen_mode::ScreenMode::from_fullscreen_setting(value == "true");
             }
             "terminal-progress" => {
-                self.persist_bool_setting(
-                    |settings, enabled| settings.set_show_terminal_progress(enabled),
-                    value,
-                    view,
-                );
+                let shown = value == "true";
+                if let Some(settings) = &self.client_settings {
+                    if let Err(error) = settings.set_show_terminal_progress(shown) {
+                        self.error_row(&format!("{error:#}"), view);
+                        return;
+                    }
+                }
+                self.terminal_progress =
+                    crate::terminal_status::TerminalProgress::of_setting(shown);
             }
             "idle-eviction-minutes" => {
                 if let Some(settings) = &self.client_settings {

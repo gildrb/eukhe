@@ -102,6 +102,18 @@ impl TreeSelector {
         self.list.current_leaf_id()
     }
 
+    /// The question the selector waits on an answer to: the summarize
+    /// choice or its custom instructions; `None` while the user browses
+    /// or edits a label.
+    #[must_use]
+    pub fn question(&self) -> Option<&'static str> {
+        match &self.mode {
+            Mode::Summarize { .. } => Some("Summarize branch?"),
+            Mode::CustomPrompt { .. } => Some("Custom summarization instructions"),
+            Mode::Tree | Mode::LabelInput { .. } => None,
+        }
+    }
+
     /// Re-open helper (TS re-shows the selector with the same selection
     /// after a cancelled branch summary): move the cursor to `entry_id`.
     pub fn set_initial_selection(&mut self, entry_id: &str) {
