@@ -1070,7 +1070,7 @@ law run_reply_saturates_the_attempt:
 # EXCLUDES: a field order other than Rust's, another answer spelling, an
 #   empty reply redone past its cap
 law run_entry_example:
-  {[FRn.ffi("5,3,2,2,5,3,4,3,"), FRn.ffi("5,3,2,2,5,3,4,2,"), FRn.ffi("0,250,600000,3,4,1,0,10,F2,"), FRn.ffi("1,FF"), FRn.ffi("2,F2,"), FRn.ffi("3,F1,"), FRn.ffi("4,250,600000,3,4,7,FF"), FRn.ffi("6,T2,3,"), FRn.ffi("5,3,2,2,5,3,4,3,x"), FRn.ffi("7,")] == ["2,", "1,3,", "2,", "3,FT", "0,", "T", "3,8,", "T", Wr.err("run: input left over after the request"), Wr.err("run: malformed request")] : List<&2, String>}
+  {[FRn.ffi("5,3,2,2,5,3,4,3,"), FRn.ffi("5,3,2,2,5,3,4,2,"), FRn.ffi("0,250,600000,3,4,1,1,0,1,10,F2,F"), FRn.ffi("1,FF"), FRn.ffi("2,F2,"), FRn.ffi("3,F1,"), FRn.ffi("4,250,600000,3,4,1,7,FF"), FRn.ffi("6,T2,3,"), FRn.ffi("5,3,2,2,5,3,4,3,x"), FRn.ffi("7,")] == ["2,", "1,3,", "2,", "3,FT", "0,", "T", "3,8,", "T", Wr.err("run: input left over after the request"), Wr.err("run: malformed request")] : List<&2, String>}
 
 # LAW rec_calls_run: tool calls that make fewer than `repeat` rounds in a row run: the
 # recoveries never stop a call that is not a repeat. The rounds in a row
