@@ -10,7 +10,17 @@ version = 2
 yanked = "deny"
 # Triaged exceptions — every entry must carry a reason and a review date;
 # a landed fix upstream means the entry is removed instead of silenced.
-ignore = []
+ignore = [
+  # eukhe-desktop's Linux backend reads AT-SPI over `atspi` 0.30, the latest
+  # upstream, which pins the zbus 5 stack. zbus 6 absorbed these crates as
+  # modules and atspi has not migrated. All three are maintenance notices,
+  # not vulnerabilities: D-Bus marshalling toward the session's own
+  # accessibility bus. They go when atspi moves to zbus 6 and the crates
+  # leave the graph; until then, retriage by the review date.
+  { id = "RUSTSEC-2026-0370", reason = "zvariant 5.x unmaintained, merged into zbus 6; retriage on the atspi zbus 6 migration, review 2027-05-24" },
+  { id = "RUSTSEC-2026-0371", reason = "zbus_names 4.x unmaintained, merged into zbus 6; retriage on the atspi zbus 6 migration, review 2027-05-24" },
+  { id = "RUSTSEC-2026-0372", reason = "zvariant_derive 5.x unmaintained, merged into zbus 6; retriage on the atspi zbus 6 migration, review 2027-05-24" },
+]
 
 [licenses]
 version = 2
