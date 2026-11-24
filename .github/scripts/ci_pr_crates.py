@@ -42,6 +42,7 @@ WORKSPACE_DEPS = {
     "eukhe-durable": {"eukhe-types", "eukhe-chord", "eukhe-ai"},
     "eukhe-models": {"eukhe-types", "eukhe-ai"},
     "eukhe-docs": set(),
+    "eukhe-desktop": set(),
     "eukhe-core": {"eukhe-types", "eukhe-chord", "eukhe-ai", "eukhe-durable",
                    "eukhe-models", "eukhe-docs"},
     "eukhe-sdk": {"eukhe-types", "eukhe-chord", "eukhe-ai", "eukhe-durable", "eukhe-core"},

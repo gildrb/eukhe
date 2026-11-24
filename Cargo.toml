@@ -13,6 +13,7 @@ members = [
     "crates/eukhe-docs",
     "crates/eukhe-budget",
     "crates/eukhe-shell",
+    "crates/eukhe-desktop",
     "crates/eukhe-tiny",
     "crates/eukhe-tiny-onnx",
     "crates/eukhe-core",
