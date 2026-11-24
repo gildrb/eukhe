@@ -87,7 +87,6 @@ impl UserInputs {
     }
 
     /// The user pressed a key or clicked at `at`, in any app.
-    #[allow(dead_code, reason = "called by the platform input monitors")]
     pub(crate) fn pressed(&self, at: Instant) {
         let mut state = self.state();
         state.presses += 1;
@@ -96,13 +95,11 @@ impl UserInputs {
 
     /// The monitor started at `at` and saw none of the user's earlier input:
     /// the system idle time `idle` stands in for their latest press.
-    #[allow(dead_code, reason = "called by the platform input monitors")]
     pub(crate) fn monitor_started(&self, at: Instant, idle: Option<Duration>) {
         self.pressed(idle.and_then(|idle| at.checked_sub(idle)).unwrap_or(at));
     }
 
     /// The user pressed a key or clicked in process `pid` at `at`.
-    #[allow(dead_code, reason = "called by the platform input monitors")]
     pub(crate) fn record(&self, pid: Pid, at: Instant) {
         let started = (self.started)(pid);
         let mut state = self.state();

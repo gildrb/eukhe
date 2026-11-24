@@ -115,7 +115,6 @@ fn capped(size: PixelSize, caps: ImageCaps) -> PixelSize {
 
 /// What a window capture shows: its pixels and the logical part of the
 /// window they cover (the whole window, or the part on the captured screen).
-#[allow(dead_code, reason = "the platform backends construct it")]
 pub(crate) struct Capture {
     pub(crate) image: Rgba,
     pub(crate) shows: GlobalRect,

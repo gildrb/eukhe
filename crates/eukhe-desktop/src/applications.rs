@@ -47,7 +47,6 @@ pub struct AppQuery {
 /// Whether an inventory entry is an app a user opens or a helper (an agent,
 /// a background-only app, an extension) that shares its name.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[allow(dead_code, reason = "the platform backends construct both variants")]
 pub(crate) enum AppKind {
     Regular,
     Helper,
@@ -96,7 +95,10 @@ pub struct Opened {
 }
 
 /// How a document opens, resolved.
-#[allow(dead_code, reason = "the platform backends read the application")]
+#[allow(
+    dead_code,
+    reason = "only the macOS backend opens documents and reads the application"
+)]
 pub(crate) enum Document<'a> {
     Default,
     In(&'a Application),

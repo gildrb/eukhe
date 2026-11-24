@@ -90,7 +90,6 @@ pub enum Selection {
 
 /// Whether the backend read every field one read of an element needs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[allow(dead_code, reason = "the platform backends construct both variants")]
 pub(crate) enum Completeness {
     Whole,
     Partial,
@@ -98,7 +97,6 @@ pub(crate) enum Completeness {
 
 /// Children an element has that a walk did not read.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[allow(dead_code, reason = "the platform backends construct both variants")]
 pub(crate) enum Unread {
     Count(u32),
     /// Their count could not be read.
@@ -123,7 +121,6 @@ impl Unread {
 
 /// One read of an element, as a backend answers it.
 #[derive(Clone, Debug, PartialEq)]
-#[allow(dead_code, reason = "the platform backends construct it")]
 pub(crate) struct AxProps {
     pub(crate) role: Role,
     /// The platform's own role name.
@@ -190,7 +187,6 @@ pub(crate) enum WalkBounds {
 
 /// Whether the element a handle was read from still exists.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[allow(dead_code, reason = "the platform backends construct both variants")]
 pub(crate) enum Liveness {
     Alive,
     Gone,
@@ -198,7 +194,6 @@ pub(crate) enum Liveness {
 
 /// Whether an element answers that its value can be written.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[allow(dead_code, reason = "the platform backends construct every variant")]
 pub(crate) enum Settable {
     Yes,
     No,

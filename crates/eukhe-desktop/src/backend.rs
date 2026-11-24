@@ -137,7 +137,6 @@ pub struct ClickCountRange(u8);
 
 /// Pointer input at a global point.
 #[derive(Clone, Copy, Debug, PartialEq)]
-#[allow(dead_code, reason = "the platform backends read every field")]
 pub(crate) enum PointerEvent {
     Click {
         at: GlobalPoint,
@@ -153,14 +152,12 @@ pub(crate) enum PointerEvent {
 
 /// Keyboard input for an element or a window.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[allow(dead_code, reason = "the platform backends read both variants")]
 pub(crate) enum Typing<'a> {
     Text(&'a str),
     Chord(Chord),
 }
 
 /// What an element's value reads right after `set_value` wrote it.
-#[allow(dead_code, reason = "the platform backends construct it")]
 pub(crate) struct ValueReadback {
     /// `None` when the value could not be read back.
     pub(crate) actual: Option<String>,
@@ -168,7 +165,6 @@ pub(crate) struct ValueReadback {
 }
 
 /// The selection an element reports right after `select_range`.
-#[allow(dead_code, reason = "the platform backends construct it")]
 pub(crate) struct SelectionReadback {
     pub(crate) range: Utf16Range,
     /// The element's value as read with the selection.

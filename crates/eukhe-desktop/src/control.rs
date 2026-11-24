@@ -72,7 +72,6 @@ pub(crate) struct EmergencyStop(Weak<CancelState>);
 impl EmergencyStop {
     /// The user's physical Escape: counted before the cancel, so whoever
     /// sees the cancelled operation sees the stop that caused it.
-    #[allow(dead_code, reason = "called by the platform Escape monitors")]
     pub(crate) fn escape(&self) {
         if let Some(state) = self.0.upgrade() {
             state.escapes.fetch_add(1, Ordering::AcqRel);
@@ -90,7 +89,6 @@ pub(crate) struct Token {
 
 /// Whether an operation has sent any input yet.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[allow(dead_code, reason = "the platform backends report both variants")]
 pub(crate) enum Sent {
     Nothing,
     Some,
