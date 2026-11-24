@@ -433,30 +433,10 @@ law run_ffi_malformed_unless_request:
   exs rest: String
   {(s, run.ask_fits(a)) == (run_spell_ask(a, rest), True{}) : String & Bool}
 
-# LAW run_ffi_tags_example: anchor: the bytes Rust sends and reads. Limits 2 rounds, 5 ms,
-# 1 retry, 1 note, 1 stream retry; a first attempt, nothing waited, not
-# compacted, no stream retry spent: text answers (0,), calls run tools
-# (1,), deferred polls (2,), a retryable error retries (3,), a noted one
-# notes (4,), an overflow with a cut compacts (5,), without one fails
-# (6,), deferred at 5 ms is late (7,). The stream flag retries a cut on
-# the stream budget (3,) and a cut past it goes on without it: at attempt
-# 4 with a note and the stream retry spent, the retry budget spent, it
-# fails (6,). A message with text and no call is text (0,), with a call
-# calls (1,), with neither a noted error (3,FT). Not compacted over a
-# blocking threshold waits (0,), over a background one sends with a
-# background compaction (1,T); compacted, sends alone (1,F). An overflow's
-# compaction goes on after an entry (T), not after nothing (F); a
-# threshold one after nothing (T), not after a failure (F). A round after
-# 0 of 2 goes on with 1 (3,1,), after 1 is capped (2,), a control stops
-# (0,), a reset resets (1,). Caps 2, 2, 2, 5: a length stop with an
-# unknown window, no compaction to make and no lower level is redone
-# (1,1,), a leak at its cap quits (2,), a first repeat runs (0,), the
-# length stop at its cap quits (2,). A retryable failed poll with 0 of 1
-# failures repolls (T), with 1 does not (F)
-# EXCLUDES: a tag table both sides of the Bend entry agree on but Rust
-#   does not, a reversed flag, a field read in another order
-law run_ffi_tags_example:
-  {[FRn.ffi("0,2,5,1,1,1,1,0,0,0,F0,F,"), FRn.ffi("0,2,5,1,1,1,1,0,0,0,F1,F,"), FRn.ffi("0,2,5,1,1,1,1,0,0,0,F2,F,"), FRn.ffi("0,2,5,1,1,1,1,0,0,0,F3,TF,F,"), FRn.ffi("0,2,5,1,1,1,1,0,0,0,F3,FT,F,"), FRn.ffi("0,2,5,1,1,1,1,0,0,0,F4,T,F,"), FRn.ffi("0,2,5,1,1,1,1,0,0,0,F4,F,F,"), FRn.ffi("0,2,5,1,1,1,1,0,0,5,F2,F,"), FRn.ffi("0,2,5,1,1,5,2,1,0,0,F3,TF,T,"), FRn.ffi("0,2,5,1,1,1,4,1,1,0,F3,FT,T,"), FRn.ffi("1,TF"), FRn.ffi("1,FT"), FRn.ffi("1,FF"), FRn.ffi("2,F2,"), FRn.ffi("2,F1,"), FRn.ffi("2,T2,"), FRn.ffi("3,T0,"), FRn.ffi("3,T1,"), FRn.ffi("3,F1,"), FRn.ffi("3,F2,"), FRn.ffi("4,2,5,1,1,1,0,FF"), FRn.ffi("4,2,5,1,1,1,1,FF"), FRn.ffi("4,2,5,1,1,1,0,TF"), FRn.ffi("4,2,5,1,1,1,0,FT"), FRn.ffi("5,2,2,2,5,0,0,0,0,0,FF0,0,"), FRn.ffi("5,2,2,2,5,1,2,2,"), FRn.ffi("5,2,2,2,5,2,0,0,0,"), FRn.ffi("5,2,2,2,5,0,0,0,0,0,FF1,2,"), FRn.ffi("6,T0,1,"), FRn.ffi("6,T1,1,")] == ["0,", "1,", "2,", "3,", "4,", "5,", "6,", "7,", "3,", "6,", "0,", "1,", "3,FT", "0,", "1,T", "1,F", "T", "F", "T", "F", "3,1,", "2,", "0,", "1,", "1,1,", "2,", "0,", "2,", "T", "F"] : List<&2, String>}
+# The reply-ask byte anchors live in ./tags_ffi.bend (a file of their
+# own: long similar literals in this closure mis-compile in the bend
+# entry), with the runs_ffi_* laws of their answers and the proof in
+# proof/run/run_ffi_tags_example.bend.
 
 # LAW run_ffi_errors_example: anchor: the error bytes Rust reads: an unknown request (7),
 # reply (5), threshold (3), compaction (3), stuck reply (4) or recovery
@@ -478,4 +458,4 @@ law run_ffi_errors_example:
 # EXCLUDES: MAX_NOTES read as retry.maxRetries (or the three read in each
 #   other's place), a note past MAX_NOTES
 law run_ffi_limits_example:
-  {[FRn.ffi("0,2,5,3,1,1,2,1,0,0,F3,TF,F,"), FRn.ffi("0,2,5,3,1,1,1,0,0,0,F3,FT,F,"), FRn.ffi("0,2,5,3,1,1,4,0,0,0,F3,TF,F,"), FRn.ffi("0,2,5,3,1,1,4,1,0,0,F3,TF,F,"), FRn.ffi("0,2,5,1,3,1,2,1,0,0,F3,FT,F,"), FRn.ffi("0,2,5,3,1,1,2,1,1,0,F3,TF,T,"), FRn.ffi("0,2,5,3,1,1,5,1,1,0,F3,TF,T,")] == ["6,", "4,", "6,", "3,", "4,", "3,", "6,"] : List<&2, String>}
+  {[FRn.ffi("0,2,5,3,1,1,2,1,0,0,F3,TF,F"), FRn.ffi("0,2,5,3,1,1,1,0,0,0,F3,FT,F"), FRn.ffi("0,2,5,3,1,1,4,0,0,0,F3,TF,F"), FRn.ffi("0,2,5,3,1,1,4,1,0,0,F3,TF,F"), FRn.ffi("0,2,5,1,3,1,2,1,0,0,F3,FT,F"), FRn.ffi("0,2,5,3,1,1,2,1,1,0,F3,TF,T"), FRn.ffi("0,2,5,3,1,1,5,1,1,0,F3,TF,T")] == ["6,", "4,", "6,", "3,", "4,", "3,", "6,"] : List<&2, String>}
