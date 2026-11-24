@@ -10,7 +10,20 @@ version = 2
 yanked = "deny"
 # Triaged exceptions — every entry must carry a reason and a review date;
 # a landed fix upstream means the entry is removed instead of silenced.
-ignore = []
+ignore = [
+  # RUSTSEC-2026-0372: unmaintained zvariant_derive via atspi 0.30/zbus 5.19;
+  # derive macro, build-time only, no advisory-known vulnerability; no upstream
+  # fix (atspi has no zbus-6 release yet). Review 2027-02-24.
+  "RUSTSEC-2026-0372",
+  # RUSTSEC-2026-0370: unmaintained zvariant via atspi 0.30/zbus 5.19; D-Bus
+  # wire-format types, build-time only, no advisory-known vulnerability; no
+  # upstream fix (atspi has no zbus-6 release yet). Review 2027-02-24.
+  "RUSTSEC-2026-0370",
+  # RUSTSEC-2026-0371: unmaintained zbus_names via atspi 0.30/zbus 5.19; D-Bus
+  # name types, build-time only, no advisory-known vulnerability; no upstream
+  # fix (atspi has no zbus-6 release yet). Review 2027-02-24.
+  "RUSTSEC-2026-0371",
+]
 
 [licenses]
 version = 2
