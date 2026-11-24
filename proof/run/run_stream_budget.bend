@@ -52,4 +52,4 @@ def Run.run_stream_budget(l, i, j, k, w, c):
           Run.then_if(Nat.is_lt(k, streams), RnDecision.DoRetry{}, cut),
           LA.rk.stream_rule(lim, at, RnState.Error{True{}, False{}}, True{}),
           stream.spend(cut, streams, k)),
-        stream.else_cong(Nat.is_lt(k, streams), RnDecision.DoRetry{}, cut, plain, Equal.sym(RnDecision.Then, cut, plain, LA.rk.reply_rule(lim, at, RnState.Error{True{}, False{}}))))
+        stream.else_cong(Nat.is_lt(k, streams), RnDecision.DoRetry{}, cut, plain, Equal.sym(RnDecision.Then, plain, cut, LA.rk.reply_rule(lim, at, RnState.Error{True{}, False{}}))))
