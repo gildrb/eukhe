@@ -343,6 +343,8 @@ pub enum Feature {
     Takeover,
     EscapeStop,
     UserInputWatch,
+    /// A Wayland session without an X server: the Linux backend drives X11.
+    Wayland,
 }
 
 impl fmt::Display for Feature {
@@ -360,6 +362,7 @@ impl fmt::Display for Feature {
             Self::Takeover => "takeover input",
             Self::EscapeStop => "the physical Escape stop",
             Self::UserInputWatch => "watching the user's input",
+            Self::Wayland => "a Wayland session without an X server (DISPLAY)",
         })
     }
 }
