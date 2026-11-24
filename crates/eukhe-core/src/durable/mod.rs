@@ -14,6 +14,7 @@ pub mod budget;
 pub mod children;
 mod codemode;
 pub mod compaction;
+mod computer;
 pub mod cvar_agent;
 mod deps;
 pub mod directors;
@@ -51,6 +52,7 @@ pub mod tool_surface;
 pub mod workflow;
 
 pub use admission_gate::AdmissionStateSink;
+pub use computer::DesktopPort;
 pub use deps::{
     EditorPermissionSink, HarnessCell, HostCall, HostCallHandler, HostDeps, HostRequestRegistry,
     JobSettledSink, LateAgentMessageSink, ModelRequest, OpenedSession, ParentLink, PromptConfig,

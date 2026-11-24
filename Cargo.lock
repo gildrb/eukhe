@@ -683,6 +683,7 @@ dependencies = [
  "eukhe-bend",
  "eukhe-budget",
  "eukhe-chord",
+ "eukhe-desktop",
  "eukhe-docs",
  "eukhe-durable",
  "eukhe-models",

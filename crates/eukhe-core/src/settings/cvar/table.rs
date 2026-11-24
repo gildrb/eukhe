@@ -56,6 +56,11 @@ pub(crate) const SESSION_SHAPES: &[&str] = &["single", "main-worker"];
 pub(crate) const MERMAID_MODES: &[&str] = &["off", "final", "streaming"];
 pub(crate) const WORKFLOW_SIZES: &[&str] = &["small", "medium", "large"];
 pub(crate) const PINNED_AGENTS_MODES: &[&str] = &["off", "collapsed", "full"];
+/// `computer.takeover`: a background-refused step stays refused, or reruns
+/// once in the foreground.
+pub(crate) const TAKEOVER_POLICIES: &[&str] = &["refuse", "fallback"];
+/// `computer.consequential`: the consequential actions a step may run.
+pub(crate) const CONSEQUENCES: &[&str] = &["send", "submit", "buy", "delete", "accept_terms"];
 
 /// Retired: no reader or writer. The key stays known, so an earlier
 /// release's settings file is no unknown key to the trust check.
@@ -1378,6 +1383,51 @@ pub const UPDATE_AUTO_DOWNLOAD: Decl = Decl {
     init: Init::Bool(true),
 };
 
+/// Desktop computer use (`computer_windows`, `computer_observe`,
+/// `computer_act`), off by default. Global: a project never turns on
+/// input to the user's desktop, and an agent never saves it.
+pub const COMPUTER_ENABLED: Decl = Decl {
+    id: "computer.enabled",
+    ty: CvarType::Bool,
+    scope: CvarScope::Global,
+    persist: false,
+    replicate: false,
+    init: Init::Bool(false),
+};
+
+/// The apps (by name, ignoring ASCII case) whose windows the computer
+/// tools may read and act on. Empty: none.
+pub const COMPUTER_APPS: Decl = Decl {
+    id: "computer.apps",
+    ty: CvarType::List,
+    scope: CvarScope::Global,
+    persist: false,
+    replicate: false,
+    init: Init::EmptyList,
+};
+
+/// Whether a step the background route refuses reruns in the foreground.
+/// The model never chooses it.
+pub const COMPUTER_TAKEOVER: Decl = Decl {
+    id: "computer.takeover",
+    ty: CvarType::Choice(TAKEOVER_POLICIES),
+    scope: CvarScope::Global,
+    persist: false,
+    replicate: false,
+    init: Init::Text("refuse"),
+};
+
+/// The consequential actions (send, submit, buy, delete, accept terms) a
+/// step may name and run. Empty: every one is refused.
+pub const COMPUTER_CONSEQUENTIAL: Decl = Decl {
+    id: "computer.consequential",
+    ty: CvarType::ChoiceList(CONSEQUENCES),
+    scope: CvarScope::Global,
+    persist: false,
+    replicate: false,
+    init: Init::EmptyList,
+};
+
 /// The settings eukhe edits as documents: each scope's `settings.json` is
 /// their one store (the package and resource commands, the MCP registry,
 /// the model switch's recent list write it, and their readers read it; the
@@ -1537,4 +1587,8 @@ pub const DECLS: &[Decl] = &[
     TTS_LOCAL_VOICE,
     STT_ENABLED,
     UPDATE_AUTO_DOWNLOAD,
+    COMPUTER_ENABLED,
+    COMPUTER_APPS,
+    COMPUTER_TAKEOVER,
+    COMPUTER_CONSEQUENTIAL,
 ];

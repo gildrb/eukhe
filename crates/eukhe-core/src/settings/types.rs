@@ -273,6 +273,34 @@ pub struct UpdateSettings {
     pub auto_download: Option<bool>,
 }
 
+/// `computer`: desktop computer use (the `computer_*` tools). Global-only:
+/// a project never turns on input to the user's desktop.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ComputerSettings {
+    /// Offer the tools (default false).
+    pub enabled: Option<bool>,
+    /// The apps whose windows the tools may read and act on, by name.
+    pub apps: Option<Vec<String>>,
+    /// Whether a step the background route refuses may rerun in the
+    /// foreground (default `refuse`).
+    pub takeover: Option<eukhe_desktop::Takeover>,
+    /// The consequential actions a step may name and run (default none).
+    pub consequential: Option<Vec<Consequence>>,
+}
+
+/// A consequential desktop action: a step that does one names it, and it
+/// runs only when `computer.consequential` lists it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Consequence {
+    Send,
+    Submit,
+    Buy,
+    Delete,
+    AcceptTerms,
+}
+
 /// `tts`: text to speech.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -634,6 +662,9 @@ pub struct Settings {
     pub privacy: Option<PrivacySettings>,
     /// `update`: the launch's release check.
     pub update: Option<UpdateSettings>,
+    /// Global-only: desktop computer use. A project-scope value is never
+    /// read (see `settings::trust`).
+    pub computer: Option<ComputerSettings>,
     /// Unknown keys survive load/save round-trips (forward compatibility).
     #[serde(flatten, skip_serializing_if = "serde_json::Map::is_empty")]
     pub extra: serde_json::Map<String, serde_json::Value>,

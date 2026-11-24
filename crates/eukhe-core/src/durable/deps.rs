@@ -330,6 +330,8 @@ pub struct SessionConfig {
     /// The kind of run the session's first effect starts when it has no
     /// budget (interactive; a `-p` run headless, an embedding sdk).
     pub run_kind: eukhe_types::budget::RunKind,
+    /// The desktop the computer tools reach (this machine's by default).
+    pub desktop: super::computer::DesktopPort,
 }
 
 impl SessionConfig {
@@ -371,6 +373,7 @@ impl SessionConfig {
             host: SessionHost::Resident,
             stored_work: StoredWork::Resume,
             run_kind: eukhe_types::budget::RunKind::Interactive,
+            desktop: super::computer::DesktopPort::System,
             #[cfg(test)]
             kernel_python: Some(kernel_runtime::kernel_python()),
             #[cfg(not(test))]
@@ -632,6 +635,8 @@ pub struct HostDeps {
     /// The workspace snapshots of `/undo` and `/diff`: a top-level session
     /// with durable storage keeps them; `None` for any other.
     pub turn_snapshots: Option<Arc<crate::undo::TurnSnapshots>>,
+    /// [`SessionConfig::desktop`].
+    pub(crate) desktop: super::computer::DesktopPort,
 }
 
 /// A barrier through a commit observer's queue.
@@ -694,6 +699,7 @@ impl HostDeps {
             prewarm_kernel: config.prewarm_kernel,
             host: config.host,
             kernel_python: config.kernel_python.clone(),
+            desktop: config.desktop.clone(),
             kernel_unavailable: services.kernel_unavailable,
             harness: harness.clone(),
             host_requests: HostRequestRegistry::default(),

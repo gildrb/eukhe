@@ -63,9 +63,10 @@ pub enum Done {
     },
 }
 
-/// Nothing was sent.
+/// Nothing was sent. Adjacently tagged: the inner errors carry their own
+/// `kind` tag, which would collide with this one in the same object.
 #[derive(Clone, Debug, PartialEq, thiserror::Error, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
+#[serde(tag = "kind", content = "data", rename_all = "snake_case")]
 pub enum Refusal {
     #[error("the desktop session is closed")]
     Closed,
@@ -264,9 +265,10 @@ impl fmt::Display for Holder {
     }
 }
 
-/// Why a window selector named no window.
+/// Why a window selector named no window. Adjacently tagged: `NotFound`
+/// holds a string, which an internal tag cannot sit beside.
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
+#[serde(tag = "kind", content = "data", rename_all = "snake_case")]
 pub enum WindowError {
     #[error("window {0} was not found; list the windows again")]
     NotFound(WindowId),
@@ -292,9 +294,10 @@ impl fmt::Display for Candidates<'_> {
     }
 }
 
-/// Why a ref's element cannot take the step.
+/// Why a ref's element cannot take the step. Adjacently tagged, like
+/// [`WindowError`].
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
+#[serde(tag = "kind", content = "data", rename_all = "snake_case")]
 pub enum ElementError {
     #[error("{0} has no clickable bounds; nothing was sent")]
     NoBounds(ElementRef),
@@ -478,3 +481,36 @@ refused_from!(
     AppError,
     ElementError
 );
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::WindowFilter;
+
+    /// A refusal that wraps a tagged error, or a string, reaches a tool's
+    /// details as JSON and reads back the same.
+    #[test]
+    fn refusals_round_trip_through_json() {
+        let reference = "e3"
+            .parse::<ElementRef>()
+            .unwrap_or_else(|error| panic!("{error:?}"));
+        let errors = [
+            Error::from(WindowError::NotFound(WindowId::new("9"))),
+            Error::from(WindowError::NoMatch(WindowFilter {
+                app: Some("Mail".to_owned()),
+                title: None,
+            })),
+            Error::from(ElementError::NoBounds(reference)),
+            Error::Refused(Refusal::Cancelled),
+        ];
+        let read: Vec<Result<Error, String>> = errors
+            .iter()
+            .map(|error| {
+                serde_json::to_string(error)
+                    .and_then(|json| serde_json::from_str(&json))
+                    .map_err(|error| error.to_string())
+            })
+            .collect();
+        assert_eq!(read, errors.map(Ok));
+    }
+}

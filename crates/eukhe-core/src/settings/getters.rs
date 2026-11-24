@@ -10,7 +10,9 @@ use serde_json::Value;
 
 use super::cvar::{table, Decl, Init};
 use super::manager::{IdleEviction, SessionArchivePolicy, SettingsManager};
-use super::types::{AutoRefineSettings, QueueModeSetting, ThinkingLevelSetting, TransportSetting};
+use super::types::{
+    AutoRefineSettings, Consequence, QueueModeSetting, ThinkingLevelSetting, TransportSetting,
+};
 
 /// The Signal gateway's launch settings (`gateway.signal`, but its model:
 /// the gateway role's, read through `crate::models::roles`).
@@ -741,6 +743,36 @@ impl SettingsManager {
     #[must_use]
     pub fn get_ssh_hosts(&self) -> Vec<String> {
         self.cvars().list(&table::SSH_HOSTS)
+    }
+
+    /// `computer.enabled`: offer the computer tools (default false).
+    #[must_use]
+    pub fn get_computer_enabled(&self) -> bool {
+        self.cvars().bool(&table::COMPUTER_ENABLED)
+    }
+
+    /// `computer.apps`: the apps the computer tools may read and act on.
+    #[must_use]
+    pub fn get_computer_apps(&self) -> Vec<String> {
+        self.cvars().list(&table::COMPUTER_APPS)
+    }
+
+    /// `computer.takeover`: the takeover policy of every `computer_act`.
+    #[must_use]
+    pub fn get_computer_takeover(&self) -> eukhe_desktop::Takeover {
+        self.choice(&table::COMPUTER_TAKEOVER)
+    }
+
+    /// `computer.consequential`: the consequential actions a step may run.
+    #[must_use]
+    pub fn get_computer_consequential(&self) -> Vec<Consequence> {
+        // The cvar admits only its options; an item that still fails to
+        // parse allows nothing.
+        self.cvars()
+            .list(&table::COMPUTER_CONSEQUENTIAL)
+            .into_iter()
+            .filter_map(|item| serde_json::from_value(Value::String(item)).ok())
+            .collect()
     }
 }
 
