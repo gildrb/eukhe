@@ -375,6 +375,14 @@ impl SettingsManager {
         (!patterns.is_empty()).then_some(patterns)
     }
 
+    /// `model.backups`: the session model's backup models
+    /// (`provider/model-id`, in the order a dead end tries them; empty:
+    /// no failover).
+    #[must_use]
+    pub fn get_model_backups(&self) -> Vec<String> {
+        self.cvars().list(&table::MODEL_BACKUPS)
+    }
+
     /// `enabledModels` setter (TS `setEnabledModels`, the
     /// `/scoped-models` save): writes the global scope; an empty list is
     /// no filter.

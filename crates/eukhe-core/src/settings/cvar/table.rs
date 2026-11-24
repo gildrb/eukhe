@@ -101,6 +101,18 @@ pub const DEFAULT_MODEL: Decl = Decl {
     init: Init::Text(""),
 };
 
+/// The backup models of the session model (`provider/model-id`, in the
+/// order a dead end tries them; empty: no failover). Entries must name
+/// catalog models; the session model's own entry is dropped.
+pub const MODEL_BACKUPS: Decl = Decl {
+    id: "model.backups",
+    ty: CvarType::List,
+    scope: CvarScope::Local,
+    persist: true,
+    replicate: true,
+    init: Init::EmptyList,
+};
+
 pub const SUBAGENT_DEFAULT_MODEL: Decl = Decl {
     id: "subagentDefaultModel",
     ty: CvarType::Text,
@@ -1451,6 +1463,7 @@ pub const DECLS: &[Decl] = &[
     ONBOARDING_COMPLETED,
     DEFAULT_PROVIDER,
     DEFAULT_MODEL,
+    MODEL_BACKUPS,
     SUBAGENT_DEFAULT_MODEL,
     WORKER_MODEL,
     SESSION_SHAPE,

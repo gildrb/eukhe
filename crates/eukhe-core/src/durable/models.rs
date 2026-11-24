@@ -74,6 +74,7 @@
 //! `bend/model_roles.bend`.
 
 pub mod accounts;
+pub mod backups;
 mod catalog;
 #[cfg(test)]
 mod chat_role_tests;
@@ -114,6 +115,57 @@ use crate::settings::SettingsManager;
 /// saved default model (display-only: the user sees it, the model does
 /// not).
 pub const DEFAULT_MODEL_NOTICE_CUSTOM_TYPE: &str = "eukhe.default_model";
+
+/// The custom type of the row that announces a `model.backups` switch
+/// (display-only: the user sees it, the model does not).
+pub const MODEL_BACKUP_SWITCH_CUSTOM_TYPE: &str = "eukhe.model_backup_switch";
+
+/// The `model.backups` selectors resolved against the catalog `all`,
+/// first occurrence wins, in the order the user listed them: each entry
+/// that names a catalog model (`provider/model-id`, an alias resolved)
+/// and is not `primary` itself. The `String` of each dropped entry is a
+/// diagnostic ("no model", "the session model", "repeats an earlier
+/// entry").
+///
+/// The runtime resolves the live setting through this at every chain
+/// build (the catalog or the primary may have changed); the session open
+/// reports the diagnostics on the settings-error row.
+#[must_use]
+pub fn resolve_model_backup_references(
+    settings: &SettingsManager,
+    all: &[Model],
+    primary: Option<(&str, &str)>,
+) -> (Vec<String>, Vec<String>) {
+    let mut references = Vec::new();
+    let mut diagnostics = Vec::new();
+    for selector in settings.get_model_backups() {
+        let (provider, id) = selector.split_once('/').unwrap_or(("", &selector));
+        let id = crate::models::resolver::model_id_alias(provider, id).unwrap_or(id);
+        let named = all
+            .iter()
+            .find(|model| model.provider == provider && model.id == id);
+        let dropped = if named.is_none() {
+            Some(format!("no model \"{selector}\" in the catalog"))
+        } else if primary.is_some_and(|primary| primary == (provider, id)) {
+            Some(format!("\"{selector}\" is the session model"))
+        } else if references.iter().any(|known: &String| {
+            known
+                .split_once('/')
+                .is_some_and(|(known_provider, known_id)| {
+                    (known_provider, known_id) == (provider, id)
+                })
+        }) {
+            Some(format!("\"{selector}\" repeats an earlier entry"))
+        } else {
+            None
+        };
+        match dropped {
+            Some(why) => diagnostics.push(format!("model.backups: {why}; entry dropped")),
+            None => references.push(format!("{provider}/{id}")),
+        }
+    }
+    (references, diagnostics)
+}
 
 /// Errors resolving a model.
 #[derive(Debug, thiserror::Error)]

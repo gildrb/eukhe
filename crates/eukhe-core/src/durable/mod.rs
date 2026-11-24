@@ -87,7 +87,7 @@ pub use models::provider::{AccountSwitch, ModelMove, ProviderRuntime, ProviderWi
 pub use models::{
     compose_models_json, create_models, join_refreshed_models, resolve_session_model, ModelsError,
     ResolvedModel, SavedSetting, SessionModels, Substitution, ThinkingRequest,
-    DEFAULT_MODEL_NOTICE_CUSTOM_TYPE,
+    DEFAULT_MODEL_NOTICE_CUSTOM_TYPE, MODEL_BACKUP_SWITCH_CUSTOM_TYPE,
 };
 pub use open::{open_session, session_artifact_dir_for_log, EukheSession, OpenError};
 pub use prompt::{CLOSING_KEYS, PROMPT_EXTENSION, SECTION_KEYS, SHARED_SECTIONS};
