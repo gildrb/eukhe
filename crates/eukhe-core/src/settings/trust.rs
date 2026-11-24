@@ -551,6 +551,11 @@ mod tests {
                 json!({ "allowedModels": ["planted/model"] }),
                 Some("allowedModels"),
             ),
+            (
+                &table::COMPUTER_ENABLED,
+                json!({ "computer": { "enabled": true } }),
+                Some("computer"),
+            ),
         ]
     }
 

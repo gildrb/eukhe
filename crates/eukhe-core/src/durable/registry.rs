@@ -3,6 +3,7 @@
 //! with durable storage), `eukhe.rlm`,
 //! `eukhe.compaction`, `eukhe.retry_outcome`, `eukhe.optchat`,
 //! `eukhe.acceptance`, `eukhe.autonomous`, `eukhe.children`, `eukhe.workflow`, `eukhe.documents`, `eukhe.shell`,
+//! `eukhe.computer` (its tools only while `computer.enabled` is on),
 //! `eukhe.dyn`, `codemode`, and last `eukhe.closing`, whose `<critical>`
 //! block ends the system prompt. Every tool
 //! schema is built with the intent `i` and a version
@@ -26,8 +27,8 @@ use eukhe_types::daemon::agent_tree::TreeRole;
 
 use super::deps::{HostDeps, SessionShape};
 use super::{
-    acceptance, autonomous, budget, children, codemode, compaction, directors, documents, optchat,
-    prompt, retry_outcome, rlm, settings, shell, tool_contract, tool_surface, workflow,
+    acceptance, autonomous, budget, children, codemode, compaction, computer, directors, documents,
+    optchat, prompt, retry_outcome, rlm, settings, shell, tool_contract, tool_surface, workflow,
 };
 
 /// A registry with every eukhe extension of the session installed and its
@@ -121,6 +122,7 @@ pub fn create_eukhe_registry(deps: &Arc<HostDeps>) -> SessionResult<Registry> {
     install(workflow::extension(deps))?;
     install(documents::extension(deps))?;
     install(shell::extension(deps))?;
+    install(computer::extension(deps))?;
     install(tool_surface::extension(deps))?;
     install(codemode::extension(deps))?;
     install(closing_extension)?;

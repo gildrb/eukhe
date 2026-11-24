@@ -4,13 +4,13 @@ use serde_json::Value;
 use super::*;
 use crate::settings::types::{
     AutoRefineSettings, BranchSummarySettings, BudgetSettings, CompactionSettings,
-    DirectorSettings, FactorySettings, FallbackChainsSettings, GatewaySettings, ImageSettings,
-    MarkdownSettings, MemorySettings, MermaidRenderingMode, ModelRolesSettings, PrivacySettings,
-    ProviderRetrySettings, ProviderWaitSettings, ProvidersSettings, QueueModeSetting,
-    RetryFailoverSettings, RetrySettings, RlmSettings, Settings, SignalGatewaySettings,
-    SshSettings, StreamPaceSettings, SttSettings, TerminalSettings, ThinkingBudgetsSettings,
-    ThinkingLevelSetting, TitleSettings, TransportSetting, TtsSettings, UndoSettings,
-    UpdateSettings, WarningSettings,
+    ComputerSettings, Consequence, DirectorSettings, FactorySettings, FallbackChainsSettings,
+    GatewaySettings, ImageSettings, MarkdownSettings, MemorySettings, MermaidRenderingMode,
+    ModelRolesSettings, PrivacySettings, ProviderRetrySettings, ProviderWaitSettings,
+    ProvidersSettings, QueueModeSetting, RetryFailoverSettings, RetrySettings, RlmSettings,
+    Settings, SignalGatewaySettings, SshSettings, StreamPaceSettings, SttSettings,
+    TerminalSettings, ThinkingBudgetsSettings, ThinkingLevelSetting, TitleSettings,
+    TransportSetting, TtsSettings, UndoSettings, UpdateSettings, WarningSettings,
 };
 
 /// Every field set; no `..`, so a new settings field does not compile
@@ -219,6 +219,12 @@ fn populated() -> Settings {
         update: Some(UpdateSettings {
             auto_download: Some(true),
         }),
+        computer: Some(ComputerSettings {
+            enabled: Some(true),
+            apps: Some(vec!["TextEdit".into()]),
+            takeover: Some(eukhe_desktop::Takeover::Refuse),
+            consequential: Some(vec![Consequence::Send]),
+        }),
         extra: serde_json::Map::new(),
     }
 }
@@ -257,10 +263,11 @@ fn every_settings_leaf_is_declared_once() {
     assert_eq!(declared, found);
 }
 
-/// Every option of `decl` reads as a value of `T` (the getters parse the
-/// cvar's text into the settings enum).
+/// Every option of `decl` (a Choice, or each item of a `ChoiceList`) reads
+/// as a value of `T` (the getters parse the cvar's text into the settings
+/// enum).
 fn options_parse<T: DeserializeOwned>(decl: &Decl) -> Vec<(&'static str, bool)> {
-    let CvarType::Choice(options) = decl.ty else {
+    let (CvarType::Choice(options) | CvarType::ChoiceList(options)) = decl.ty else {
         return Vec::new();
     };
     options
@@ -286,6 +293,8 @@ fn every_choice_option_is_a_value_of_its_enum() {
         options_parse::<eukhe_types::ai::ServiceTier>(&DEFAULT_SERVICE_TIER),
         options_parse::<MermaidRenderingMode>(&MARKDOWN_MERMAID),
         options_parse::<eukhe_types::workflow::WorkflowSize>(&WORKFLOW_SIZE),
+        options_parse::<eukhe_desktop::Takeover>(&COMPUTER_TAKEOVER),
+        options_parse::<Consequence>(&COMPUTER_CONSEQUENTIAL),
     ];
     let failed: Vec<&str> = checked
         .iter()

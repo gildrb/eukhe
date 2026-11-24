@@ -31,6 +31,8 @@ eukhe-tokens.workspace = true
 eukhe-docs = { path = "../eukhe-docs" }
 # The `bash` tool's in-process interpreter and its own-path refusal.
 eukhe-shell.workspace = true
+# The computer tools' desktop: windows, screenshots, trees, input steps.
+eukhe-desktop = { path = "../eukhe-desktop" }
 # The ledger of a session's budget: every provider request and tool call
 # reserves there before it runs and settles after (`durable::budget`).
 eukhe-budget.workspace = true
