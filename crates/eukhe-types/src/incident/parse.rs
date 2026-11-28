@@ -3,7 +3,7 @@
 //! `timestampToMs` helper).
 
 use super::rules::{IncidentRules, IncidentShape};
-use super::IncidentLogEntry;
+use super::{IncidentLogEntry, LogLevel};
 
 /// `~/.eukhe/logs/agent.jsonl` is written with `Z`-suffixed ISO
 /// timestamps (the daemon's `now_iso`); the daemon-log fallback's
@@ -169,8 +169,7 @@ pub fn parse_incident_log_line(line: &str) -> Option<IncidentLogEntry> {
         level: record
             .get("level")
             .and_then(serde_json::Value::as_str)
-            .unwrap_or("warn")
-            .to_string(),
+            .map_or(LogLevel::Warn, LogLevel::parse),
         component: record
             .get("component")
             .and_then(serde_json::Value::as_str)
@@ -226,7 +225,7 @@ pub fn parse_incident_daemon_log_line(
     }
     Some(IncidentLogEntry {
         time_ms,
-        level: "warn".to_string(),
+        level: LogLevel::Warn,
         component: if supervisor_line {
             "coding-agent.daemon-supervisor".to_string()
         } else {
@@ -299,7 +298,7 @@ mod tests {
         )
         .expect("valid line");
         assert_eq!(entry.time_ms, 1_789_070_573_374);
-        assert_eq!(entry.level, "error");
+        assert_eq!(entry.level, LogLevel::parse("error"));
         assert_eq!(entry.component, "ai.provider");
         assert_eq!(entry.pid, Some(53615));
         assert_eq!(entry.socket_path, None);
@@ -320,7 +319,7 @@ mod tests {
     fn log_line_defaults_level_and_component() {
         let entry = parse_incident_log_line(r#"{"ts":"2026-09-10T20:00:00Z","msg":"hi"}"#)
             .expect("valid line");
-        assert_eq!(entry.level, "warn");
+        assert_eq!(entry.level, LogLevel::Warn);
         assert_eq!(entry.component, "unknown");
     }
 

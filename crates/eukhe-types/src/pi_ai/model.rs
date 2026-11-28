@@ -237,7 +237,7 @@ impl TryFrom<ModelWire> for Model {
     fn try_from(wire: ModelWire) -> Result<Self, Self::Error> {
         let compat = wire
             .compat
-            .map(|value| ModelCompat::from_json(&wire.api, value))
+            .map(|value| ModelCompat::from_json(wire.api.as_str(), value))
             .transpose()?;
         Ok(Self {
             id: wire.id,
@@ -364,18 +364,18 @@ impl AnyModel {
     #[must_use]
     pub fn api(&self) -> &str {
         match self {
-            Self::Chat(model) => &model.api,
-            Self::Image(model) => &model.api,
-            Self::Classifier(model) => &model.api,
+            Self::Chat(model) => model.api.as_str(),
+            Self::Image(model) => model.api.as_str(),
+            Self::Classifier(model) => model.api.as_str(),
         }
     }
 
     #[must_use]
     pub fn provider(&self) -> &str {
         match self {
-            Self::Chat(model) => &model.provider,
-            Self::Image(model) => &model.provider,
-            Self::Classifier(model) => &model.provider,
+            Self::Chat(model) => model.provider.as_str(),
+            Self::Image(model) => model.provider.as_str(),
+            Self::Classifier(model) => model.provider.as_str(),
         }
     }
 

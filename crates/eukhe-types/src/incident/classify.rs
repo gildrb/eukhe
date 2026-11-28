@@ -3,8 +3,9 @@
 
 use super::rules::{IncidentRules, IncidentShape};
 use super::{
-    error_message, first_line, lifecycle_classes, truncate_text, IncidentCategory, IncidentEvent,
-    IncidentLogEntry, IncidentSeverity, RECOVERY_BREAKDOWN_LIMIT, SUMMARY_TRUNCATION,
+    error_message, first_line, lifecycle_classes, truncate_text, EventClass, IncidentCategory,
+    IncidentEvent, IncidentLogEntry, IncidentSeverity, LogLevel, RECOVERY_BREAKDOWN_LIMIT,
+    SUMMARY_TRUNCATION,
 };
 use std::collections::HashMap;
 
@@ -141,7 +142,7 @@ fn worker_id_for_pid(worker_pids: &WorkerPidMap, pid: Option<i64>, time_ms: i64)
 #[derive(Debug, Clone, PartialEq)]
 struct WorkerStderrEvent {
     severity: IncidentSeverity,
-    event_class: &'static str,
+    event_class: EventClass,
     subject: String,
     summary: String,
     tokens: Vec<String>,
@@ -167,7 +168,7 @@ fn event(
     entry: &IncidentLogEntry,
     severity: IncidentSeverity,
     category: IncidentCategory,
-    event_class: &str,
+    event_class: EventClass,
     subject: impl Into<String>,
     summary: impl Into<String>,
 ) -> IncidentEvent {
@@ -187,7 +188,7 @@ fn incident_event(
     entry: &IncidentLogEntry,
     severity: IncidentSeverity,
     category: IncidentCategory,
-    event_class: &str,
+    event_class: EventClass,
     subject: impl Into<String>,
     summary: impl Into<String>,
     tokens: Vec<String>,
@@ -196,7 +197,7 @@ fn incident_event(
         time_ms: entry.time_ms,
         severity,
         category,
-        event_class: event_class.to_string(),
+        event_class,
         subject: subject.into(),
         summary: summary.into(),
         tokens,
@@ -208,7 +209,7 @@ fn worker_event(
     entry: &IncidentLogEntry,
     severity: IncidentSeverity,
     category: IncidentCategory,
-    event_class: &str,
+    event_class: EventClass,
     worker: &str,
     summary: impl Into<String>,
 ) -> IncidentEvent {
@@ -239,11 +240,11 @@ const WORKER_TIMEOUT: &str = "Timed out waiting for daemon worker response";
 
 /// A failure that timed out waiting for a worker is an error `timeout`;
 /// any other is a warning `command-failure`.
-fn failure_class(err: &str) -> (IncidentSeverity, &'static str) {
+fn failure_class(err: &str) -> (IncidentSeverity, EventClass) {
     if err.contains(WORKER_TIMEOUT) {
-        (IncidentSeverity::Error, "timeout")
+        (IncidentSeverity::Error, EventClass::Timeout)
     } else {
-        (IncidentSeverity::Warn, "command-failure")
+        (IncidentSeverity::Warn, EventClass::CommandFailure)
     }
 }
 
@@ -257,7 +258,7 @@ fn error_summary(err: &str) -> String {
 /// `classifyCommandFailure`'s return shape).
 struct CommandFailure {
     severity: IncidentSeverity,
-    event_class: &'static str,
+    event_class: EventClass,
     summary: String,
     tokens: Vec<String>,
 }
@@ -284,7 +285,7 @@ fn classify_command_failure(rules: IncidentRules, command: &str, error: &str) ->
     if err.contains(WORKER_TIMEOUT) {
         return CommandFailure {
             severity: IncidentSeverity::Error,
-            event_class: "timeout",
+            event_class: EventClass::Timeout,
             summary: format!("command {command} failed: timed out waiting for worker response"),
             tokens: Vec::new(),
         };
@@ -298,7 +299,7 @@ fn classify_command_failure(rules: IncidentRules, command: &str, error: &str) ->
     if shape == Some(IncidentShape::AuthFailed) {
         return CommandFailure {
             severity: IncidentSeverity::Error,
-            event_class: "auth",
+            event_class: EventClass::Auth,
             summary: format!("command {command} failed: worker authentication failed"),
             tokens: Vec::new(),
         };
@@ -306,7 +307,7 @@ fn classify_command_failure(rules: IncidentRules, command: &str, error: &str) ->
     if err.contains("Session worker is starting") {
         return CommandFailure {
             severity: IncidentSeverity::Warn,
-            event_class: "command-failure",
+            event_class: EventClass::CommandFailure,
             summary: format!("command {command} failed: session worker is starting"),
             tokens: Vec::new(),
         };
@@ -314,7 +315,7 @@ fn classify_command_failure(rules: IncidentRules, command: &str, error: &str) ->
     if err.contains("Session worker is recovering") {
         return CommandFailure {
             severity: IncidentSeverity::Warn,
-            event_class: "command-failure",
+            event_class: EventClass::CommandFailure,
             summary: format!("command {command} failed: session worker is recovering"),
             tokens: Vec::new(),
         };
@@ -323,7 +324,7 @@ fn classify_command_failure(rules: IncidentRules, command: &str, error: &str) ->
         let session_id = captures.get(1).to_string();
         return CommandFailure {
             severity: IncidentSeverity::Warn,
-            event_class: "command-failure",
+            event_class: EventClass::CommandFailure,
             summary: format!("command {command} failed: unknown active session {session_id}"),
             tokens: vec![session_id],
         };
@@ -340,7 +341,7 @@ fn classify_command_failure(rules: IncidentRules, command: &str, error: &str) ->
         .collect();
     CommandFailure {
         severity: IncidentSeverity::Warn,
-        event_class: "command-failure",
+        event_class: EventClass::CommandFailure,
         summary: format!("command {command} failed: {}", error_summary(err)),
         tokens: quoted_names,
     }
@@ -366,7 +367,7 @@ fn classify_worker_stderr_body(
     if shape == Some(IncidentShape::WorkerListening) {
         return Some(WorkerStderrEvent {
             severity: IncidentSeverity::Info,
-            event_class: "worker-start",
+            event_class: EventClass::WorkerStart,
             subject: format!("worker {worker_id}"),
             summary: format!("worker {worker_id} started"),
             tokens,
@@ -375,7 +376,7 @@ fn classify_worker_stderr_body(
     if shape == Some(IncidentShape::CrashLine) {
         return Some(WorkerStderrEvent {
             severity: IncidentSeverity::Critical,
-            event_class: "worker-crash",
+            event_class: EventClass::WorkerCrash,
             subject: format!("worker {worker_id}"),
             summary: format!("worker {worker_id} crashed: {}", truncate_text(line, 100)),
             tokens,
@@ -386,7 +387,7 @@ fn classify_worker_stderr_body(
         let sessions = captures.get(2);
         return Some(WorkerStderrEvent {
             severity: IncidentSeverity::Info,
-            event_class: "worker-stop",
+            event_class: EventClass::WorkerStop,
             subject: format!("worker {worker_id}"),
             summary: format!(
                 "worker {worker_id} stopped (exit {exit}, {sessions} session(s) closed)"
@@ -398,7 +399,7 @@ fn classify_worker_stderr_body(
         let signal = captures.get(1);
         return Some(WorkerStderrEvent {
             severity: IncidentSeverity::Info,
-            event_class: "worker-stop",
+            event_class: EventClass::WorkerStop,
             subject: format!("worker {worker_id}"),
             summary: format!("worker {worker_id} received {signal}; shutting down"),
             tokens,
@@ -408,7 +409,7 @@ fn classify_worker_stderr_body(
         let sessions = captures.get(1);
         return Some(WorkerStderrEvent {
             severity: IncidentSeverity::Info,
-            event_class: "worker-stop",
+            event_class: EventClass::WorkerStop,
             subject: format!("worker {worker_id}"),
             summary: format!("worker {worker_id} stop requested ({sessions} active session(s))"),
             tokens,
@@ -426,7 +427,7 @@ fn classify_worker_stderr_body(
         }
         return Some(WorkerStderrEvent {
             severity: IncidentSeverity::Info,
-            event_class: "worker-passivation",
+            event_class: EventClass::WorkerPassivation,
             subject: format!("session {session_id}"),
             summary: format!("passivated idle child session {session_id} (idle {idle_minutes}m)"),
             tokens: passivated_tokens,
@@ -437,7 +438,7 @@ fn classify_worker_stderr_body(
     }
     Some(WorkerStderrEvent {
         severity: IncidentSeverity::Warn,
-        event_class: "worker-stderr",
+        event_class: EventClass::WorkerStderr,
         subject: format!("worker {worker_id}"),
         summary: format!("worker {worker_id} stderr: {}", truncate_text(line, 100)),
         tokens,
@@ -493,7 +494,7 @@ fn provider_failure_event(entry: &IncidentLogEntry, worker_pids: &WorkerPidMap) 
             entry,
             IncidentSeverity::Error,
             IncidentCategory::Anomaly,
-            "provider",
+            EventClass::Provider,
             subject,
             truncate_text(first_line(&entry.msg), SUMMARY_TRUNCATION),
         );
@@ -515,7 +516,7 @@ fn provider_failure_event(entry: &IncidentLogEntry, worker_pids: &WorkerPidMap) 
         time_ms: entry.time_ms,
         severity: IncidentSeverity::Error,
         category: IncidentCategory::Anomaly,
-        event_class: "provider".to_string(),
+        event_class: EventClass::Provider,
         summary: format!("provider stream failure ({kind}{status_text}) for {subject}"),
         tokens: worker_id.into_iter().collect(),
         subject,
@@ -546,6 +547,9 @@ pub fn classify_incident_entry(
 
 /// The event of a log line that fits `shape`, one of [`LINE_SHAPES`];
 /// `None` for any other shape.
+// The one central dispatch over every log-line shape; splitting it would
+// scatter the classification table.
+#[allow(clippy::too_many_lines)]
 fn line_event(
     rules: IncidentRules,
     entry: &IncidentLogEntry,
@@ -574,7 +578,7 @@ fn line_event(
     Some(match shape {
         IncidentShape::SupervisorListening => {
             let summary = "daemon supervisor listening".to_string();
-            on_daemon(Info, Supervisor, "supervisor-start", summary)
+            on_daemon(Info, Supervisor, EventClass::SupervisorStart, summary)
         }
         IncidentShape::StartupFailed => startup_failed_event(entry, captures.get(1)),
         IncidentShape::SupervisorCommand => {
@@ -595,51 +599,61 @@ fn line_event(
             let summary = format!(
                 "worker {worker} recovered; {count} uncertain operation{plural} not replayed ({breakdown})"
             );
-            on_worker(Warn, Recovery, "recovery-replay", summary)
+            on_worker(Warn, Recovery, EventClass::RecoveryReplay, summary)
         }
         IncidentShape::RecoveredPlain => {
             let summary = format!("worker {worker} recovered");
-            on_worker(Info, Recovery, "recovery-replay", summary)
+            on_worker(Info, Recovery, EventClass::RecoveryReplay, summary)
         }
         IncidentShape::AdoptFailed => {
             let err = error_summary(captures.get(2));
             let summary = format!("could not adopt worker {worker}: {err}");
-            on_worker(Warn, Recovery, "recovery-failure", summary)
+            on_worker(Warn, Recovery, EventClass::RecoveryFailure, summary)
         }
         IncidentShape::RecoverFailed => {
             let err = error_summary(captures.get(2));
             let summary = format!("could not recover worker {worker}: {err}");
-            on_worker(Error, Recovery, "recovery-failure", summary)
+            on_worker(Error, Recovery, EventClass::RecoveryFailure, summary)
         }
         IncidentShape::FailedAfterRetries => {
             let summary = format!("worker {worker} failed after three recovery attempts");
-            on_worker(Error, Recovery, "recovery-failure", summary)
+            on_worker(Error, Recovery, EventClass::RecoveryFailure, summary)
         }
-        IncidentShape::Unresponsive => {
-            on_worker(Error, Recovery, "recovery-failure", msg.to_string())
-        }
+        IncidentShape::Unresponsive => on_worker(
+            Error,
+            Recovery,
+            EventClass::RecoveryFailure,
+            msg.to_string(),
+        ),
         IncidentShape::Reclaimed => {
             let summary = format!("reclaimed stale registration for stopped worker {worker}");
-            on_worker(Info, Recovery, "recovery-action", summary)
+            on_worker(Info, Recovery, EventClass::RecoveryAction, summary)
         }
         IncidentShape::Migrated => {
             let jobs = captures.get(1);
             let summary = format!("migrated {jobs} scheduled jobs into session artifacts");
-            on_daemon(Info, Recovery, "recovery-action", summary)
+            on_daemon(Info, Recovery, EventClass::RecoveryAction, summary)
         }
-        IncidentShape::Replacement => on_daemon(Info, Recovery, "recovery-action", msg.to_string()),
+        IncidentShape::Replacement => {
+            on_daemon(Info, Recovery, EventClass::RecoveryAction, msg.to_string())
+        }
         // A scheduled wake is a supervisor lifecycle action, not crash
         // recovery.
-        IncidentShape::Woke => on_daemon(Info, Supervisor, "supervisor-action", msg.to_string()),
+        IncidentShape::Woke => on_daemon(
+            Info,
+            Supervisor,
+            EventClass::SupervisorAction,
+            msg.to_string(),
+        ),
         IncidentShape::EvictedIdle => {
             let (idle, sessions) = (captures.get(2), captures.get(3));
             let summary =
                 format!("evicted idle worker {worker} (idle {idle}m, {sessions} session(s))");
-            on_worker(Info, Supervisor, "worker-stop", summary)
+            on_worker(Info, Supervisor, EventClass::WorkerStop, summary)
         }
         IncidentShape::EvictedEmpty => {
             let summary = format!("evicted empty session worker {worker} on last detach");
-            on_worker(Info, Supervisor, "worker-stop", summary)
+            on_worker(Info, Supervisor, EventClass::WorkerStop, summary)
         }
         IncidentShape::WorkerSocket
         | IncidentShape::StderrForward
@@ -680,7 +694,7 @@ fn startup_failed_event(entry: &IncidentLogEntry, err: &str) -> IncidentEvent {
         entry,
         severity,
         IncidentCategory::Supervisor,
-        "supervisor-start",
+        EventClass::SupervisorStart,
         daemon_subject(entry),
         summary,
     )
@@ -756,7 +770,7 @@ fn daemon_event(
                     entry,
                     IncidentSeverity::Critical,
                     IncidentCategory::Supervisor,
-                    "worker-crash",
+                    EventClass::WorkerCrash,
                     "worker",
                     format!("worker crashed: {}", truncate_text(msg, 100)),
                 )
@@ -769,13 +783,13 @@ fn daemon_event(
     Some(own.unwrap_or_else(|| {
         event(
             entry,
-            if entry.level == "error" {
+            if entry.level == LogLevel::Error {
                 IncidentSeverity::Error
             } else {
                 IncidentSeverity::Warn
             },
             IncidentCategory::Supervisor,
-            "diagnostic",
+            EventClass::Diagnostic,
             worker_id.map_or_else(
                 || daemon_subject(entry),
                 |worker_id| format!("worker {worker_id}"),
@@ -806,7 +820,7 @@ pub fn collect_incident_events(
         // when it lands within 2s. A repeat from the SAME component is a
         // real lifecycle transition — a worker restarted on its durable
         // id within 2s — and is never a duplicate.
-        if lifecycle_classes().contains(incident.event_class.as_str()) {
+        if lifecycle_classes().contains(&incident.event_class) {
             let key = format!("{}|{}", incident.category.as_str(), incident.summary);
             let previous = last_seen.get(&key);
             if let Some((previous_time_ms, previous_component)) = previous {

@@ -32,7 +32,7 @@ impl Default for PrivateFrameLimits {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PrivateFrame {
     pub header: serde_json::Value,
     pub payload: Vec<u8>,
@@ -416,7 +416,7 @@ mod tests {
         )
         .await;
         assert!(error.is_err());
-        assert!(sink.is_empty());
+        assert_eq!(sink, Vec::<u8>::new());
     }
 
     #[test]
@@ -428,8 +428,8 @@ mod tests {
         )
         .unwrap();
         let mut decoder = PrivateFrameDecoder::new(DEFAULT_PRIVATE_FRAME_LIMITS);
-        assert!(decoder.push(&frame[..10]).unwrap().is_empty());
-        assert!(decoder.push(&frame[10..60]).unwrap().is_empty());
+        assert_eq!(decoder.push(&frame[..10]).unwrap(), Vec::new());
+        assert_eq!(decoder.push(&frame[10..60]).unwrap(), Vec::new());
         let frames = decoder.push(&frame[60..]).unwrap();
         assert_eq!(frames.len(), 1);
         assert_eq!(frames[0].payload, vec![7u8; 100]);

@@ -2,8 +2,8 @@
 //! `computeIncidentAnomalies` / `latestIncidentStallTimeoutBySubject`).
 
 use super::{
-    burst_classes, IncidentCategory, IncidentEvent, IncidentSeverity, ERROR_BURST_THRESHOLD,
-    ERROR_BURST_WINDOW_MS, STALL_GAP_MS, TIMEOUT_STALL_WINDOW_MS,
+    burst_classes, EventClass, IncidentCategory, IncidentEvent, IncidentSeverity,
+    ERROR_BURST_THRESHOLD, ERROR_BURST_WINDOW_MS, STALL_GAP_MS, TIMEOUT_STALL_WINDOW_MS,
 };
 use std::collections::HashMap;
 
@@ -85,7 +85,7 @@ pub fn compute_incident_anomalies(events: &[IncidentEvent]) -> Vec<IncidentEvent
         let timeouts: Vec<&IncidentEvent> = group
             .iter()
             .copied()
-            .filter(|incident| incident.event_class == "timeout")
+            .filter(|incident| incident.event_class == EventClass::Timeout)
             .collect();
         if timeouts.len() >= 2 {
             // Only timeouts within `TIMEOUT_STALL_WINDOW_MS` of each other
@@ -110,7 +110,7 @@ pub fn compute_incident_anomalies(events: &[IncidentEvent]) -> Vec<IncidentEvent
         let burst: Vec<&IncidentEvent> = group
             .iter()
             .copied()
-            .filter(|incident| burst_classes().contains(incident.event_class.as_str()))
+            .filter(|incident| burst_classes().contains(&incident.event_class))
             .collect();
         if burst.len() >= ERROR_BURST_THRESHOLD {
             // Only events within `ERROR_BURST_WINDOW_MS` of each other
@@ -183,7 +183,7 @@ fn anomaly(
         time_ms,
         severity,
         category: IncidentCategory::Anomaly,
-        event_class: "anomaly".to_string(),
+        event_class: EventClass::Anomaly,
         subject: subject.to_string(),
         summary,
         tokens: Vec::new(),
@@ -202,7 +202,7 @@ pub fn latest_incident_stall_timeout_by_subject(events: &[IncidentEvent]) -> Has
     let timeouts_by_subject = group_by_subject(
         events
             .iter()
-            .filter(|incident| incident.event_class == "timeout"),
+            .filter(|incident| incident.event_class == EventClass::Timeout),
     );
     let mut latest_by_subject = HashMap::new();
     for (subject, mut timeouts) in timeouts_by_subject {
@@ -227,7 +227,7 @@ mod tests {
             time_ms,
             severity: IncidentSeverity::Error,
             category: IncidentCategory::Supervisor,
-            event_class: "timeout".to_string(),
+            event_class: EventClass::Timeout,
             subject: subject.to_string(),
             summary: format!("{subject} timeout"),
             tokens: Vec::new(),
@@ -239,7 +239,7 @@ mod tests {
             time_ms,
             severity: IncidentSeverity::Warn,
             category: IncidentCategory::Supervisor,
-            event_class: "command-failure".to_string(),
+            event_class: EventClass::CommandFailure,
             subject: subject.to_string(),
             summary: format!("{subject} failure {time_ms}"),
             tokens: Vec::new(),

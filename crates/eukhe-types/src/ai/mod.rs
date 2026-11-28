@@ -13,8 +13,7 @@ use crate::{JsNumber, JsonMap};
 // APIs and providers
 // ---------------------------------------------------------------------------
 
-/// TS `Api`: the wire value is an arbitrary string.
-pub type Api = String;
+pub use crate::pi_ai::Api;
 
 /// TS `Provider`: the wire value is an arbitrary string.
 pub type Provider = String;
@@ -466,7 +465,7 @@ pub struct UserMessage {
 #[serde(rename_all = "camelCase")]
 pub struct AssistantMessageDiagnostic {
     #[serde(rename = "type")]
-    pub type_: String,
+    pub type_: crate::pi_ai::DiagnosticKind,
     pub timestamp: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<DiagnosticErrorInfo>,

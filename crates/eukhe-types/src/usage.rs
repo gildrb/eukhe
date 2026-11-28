@@ -56,17 +56,14 @@ pub fn calculate_context_tokens(usage: &Value) -> u64 {
 /// Assistant usage that is safe to read (TS `getAssistantUsage` skips
 /// aborted and error stops).
 #[must_use]
-pub fn valid_assistant_usage(message: &Value) -> Option<Value> {
+pub fn valid_assistant_usage(message: &Value) -> Option<&Value> {
     if field(message, "role") != Some(Role::Assistant) {
         return None;
     }
     if let Some(StopReason::Aborted | StopReason::Error) = field(message, "stopReason") {
         return None;
     }
-    message
-        .get("usage")
-        .cloned()
-        .filter(|usage| !usage.is_null())
+    message.get("usage").filter(|usage| !usage.is_null())
 }
 
 #[cfg(test)]
@@ -107,7 +104,7 @@ mod tests {
             ),
             None
         );
-        let usage = valid_assistant_usage(&json!({ "role": "assistant", "usage": { "input": 3 } }));
-        assert_eq!(usage, Some(json!({ "input": 3 })));
+        let message = json!({ "role": "assistant", "usage": { "input": 3 } });
+        assert_eq!(valid_assistant_usage(&message), Some(&message["usage"]));
     }
 }

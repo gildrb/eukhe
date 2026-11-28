@@ -37,10 +37,51 @@ pub type DaemonClientId = String;
 pub type DaemonCommandId = String;
 pub type DaemonEventId = String;
 pub type DaemonEventSequence = u64;
-/// Client/server capability wire strings (closed TS unions, open on the wire
+/// Client capability wire strings (a closed TS union, open on the wire
 /// for older/newer builds, so carried as raw strings).
 pub type DaemonClientCapability = String;
-pub type DaemonServerCapability = String;
+
+crate::pi_ai::open_string_enum! {
+    /// A server capability the daemon hello advertises (TS
+    /// `DaemonServerCapability`): open on the wire for older/newer
+    /// builds; a word this build does not know stays in
+    /// [`DaemonServerCapability::Other`].
+    pub enum DaemonServerCapability {
+        AttachSnapshot => "attach_snapshot",
+        EventSequence => "event_sequence",
+        SlimAttach => "slim_attach",
+        ChunkedSnapshot => "chunked_snapshot",
+        ClientOwnedSessions => "client_owned_sessions",
+        ElideSnapshotImages => "elide_snapshot_images",
+        EditorPermission => "editor_permission",
+        DeleteRlmSubagent => "delete_rlm_subagent",
+        HeartbeatCatalog => "heartbeat_catalog",
+        HeartbeatManagement => "heartbeat_management",
+        ModelCatalog => "model_catalog",
+        SideQuestionTranscript => "side_question_transcript",
+        TransientBash => "transient_bash",
+        KernelBashActivity => "kernel_bash_activity",
+        FactoryActivity => "factory_activity",
+        WorkflowActivity => "workflow_activity",
+        SessionInputAdmission => "session_input_admission",
+        PromptAdmissionCancellation => "prompt_admission_cancellation",
+        OwnedPromptCancellation => "owned_prompt_cancellation",
+        QueueMessageMutation => "queue_message_mutation",
+        AuthoritativeChildRoster => "authoritative_child_roster",
+        OwnedSessionRecoveryContext => "owned_session_recovery_context",
+        RlmQuiescenceBarrier => "rlm_quiescence_barrier",
+        SessionInputPause => "session_input_pause",
+        AcpMcpServers => "acp_mcp_servers",
+        AbortAndSendQueued => "abort_and_send_queued",
+        AgentRoster => "agent_roster",
+        DirectPeerTransport => "direct_peer_transport",
+        ChatView => "chat_view",
+        Memory => "memory",
+        MemoryTree => "memory_tree",
+        StateTree => "state_tree",
+        IdleShutdown => "idle_shutdown",
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Common frames
@@ -212,5 +253,29 @@ mod tests {
         assert_eq!(DAEMON_PROTOCOL_VERSION, 7);
         assert_eq!(DAEMON_SCHEMA_REVISION, 33);
         assert_eq!(DAEMON_SCHEMA_ID, "protocol-7-schema-33-683bc1f7dffc");
+    }
+}
+
+#[cfg(test)]
+mod capability_tests {
+    use super::DaemonServerCapability;
+
+    #[test]
+    fn server_capability_round_trips_known_and_unknown_words() {
+        let known = DaemonServerCapability::parse("idle_shutdown");
+        assert_eq!(known, DaemonServerCapability::IdleShutdown);
+        assert_eq!(
+            serde_json::to_string(&known).expect("serialize"),
+            "\"idle_shutdown\""
+        );
+        let unknown = DaemonServerCapability::parse("next_capability");
+        assert_eq!(
+            unknown,
+            DaemonServerCapability::Other("next_capability".to_owned())
+        );
+        assert_eq!(
+            serde_json::to_string(&unknown).expect("serialize"),
+            "\"next_capability\""
+        );
     }
 }

@@ -166,7 +166,7 @@ pub struct SessionSummary {
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub accounts: std::collections::BTreeMap<String, String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub runtime_kind: Option<String>,
+    pub runtime_kind: Option<super::agent_roster::RuntimeKind>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub unfinished_action_count: Option<u32>,
     /// Whether this session has already drawn the Anthropic subscription

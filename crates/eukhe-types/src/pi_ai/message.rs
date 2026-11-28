@@ -11,7 +11,7 @@ use super::content::{
     null_as_default, AssistantContentBlock, SystemContent, UserContent, UserContentBlock,
 };
 use super::settings::ModelThinkingLevel;
-use super::string_enum::string_enum;
+use super::string_enum::{open_string_enum, string_enum};
 use super::timing::ResponseTiming;
 use super::tool::{Tool, ToolReference};
 use super::usage::{StopReason, Usage};
@@ -71,12 +71,28 @@ pub struct DiagnosticErrorInfo {
     pub code: Option<DiagnosticCode>,
 }
 
+open_string_enum! {
+    /// The `type` of an [`AssistantMessageDiagnostic`]: why the
+    /// diagnostic was attached. Open on the wire: a value this build does
+    /// not know stays in [`DiagnosticKind::Other`].
+    pub enum DiagnosticKind {
+        Retry => "retry",
+        ProviderStreamFailure => "provider_stream_failure",
+        ProviderQuotaPark => "provider_quota_park",
+        ProviderQuotaResume => "provider_quota_resume",
+        ProviderTransportFailure => "provider_transport_failure",
+        AnthropicInputTransformations => "anthropic_input_transformations",
+        OidcFederation => "oidc_federation",
+        BedrockResponseFailure => "bedrock_response_failure",
+        PiMessagesRewrite => "pi_messages_rewrite",
+    }
+}
+
 /// A redacted provider/runtime diagnostic for a failure or recovery.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AssistantMessageDiagnostic {
     #[serde(rename = "type")]
-    pub kind: String,
-    pub timestamp: u64,
+    pub kind: DiagnosticKind,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<DiagnosticErrorInfo>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -384,5 +400,26 @@ impl From<AssistantMessage> for Message {
 impl From<ToolResultMessage> for Message {
     fn from(message: ToolResultMessage) -> Self {
         Self::ToolResult(message)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::DiagnosticKind;
+
+    #[test]
+    fn diagnostic_kind_round_trips_known_and_unknown_words() {
+        let known = DiagnosticKind::parse("provider_stream_failure");
+        assert_eq!(known, DiagnosticKind::ProviderStreamFailure);
+        assert_eq!(
+            serde_json::to_string(&known).expect("serialize"),
+            "\"provider_stream_failure\""
+        );
+        let unknown = DiagnosticKind::parse("new_diagnostic");
+        assert_eq!(unknown, DiagnosticKind::Other("new_diagnostic".to_owned()));
+        assert_eq!(
+            serde_json::to_string(&unknown).expect("serialize"),
+            "\"new_diagnostic\""
+        );
     }
 }

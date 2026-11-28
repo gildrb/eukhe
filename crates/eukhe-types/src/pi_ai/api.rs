@@ -21,8 +21,63 @@ string_enum! {
     }
 }
 
-/// TS `Api = KnownApi | (string & {})`.
-pub type Api = String;
+/// TS `Api = KnownApi | (string & {})`: a known API, or any other wire
+/// string kept in [`Api::Other`] so it round-trips.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum Api {
+    /// A built-in API.
+    Known(KnownApi),
+    /// Any other wire string.
+    Other(String),
+}
+
+impl Api {
+    /// The wire string.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::Known(api) => api.as_str(),
+            Self::Other(api) => api,
+        }
+    }
+
+    /// The API named by a wire string; unknown strings land in
+    /// [`Self::Other`](enum@Self::Other).
+    #[must_use]
+    pub fn parse(value: &str) -> Self {
+        KnownApi::parse(value).map_or_else(|| Self::Other(value.to_owned()), Self::Known)
+    }
+}
+
+impl std::fmt::Display for Api {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(self.as_str())
+    }
+}
+
+impl From<KnownApi> for Api {
+    fn from(api: KnownApi) -> Self {
+        Self::Known(api)
+    }
+}
+
+impl From<&str> for Api {
+    fn from(api: &str) -> Self {
+        Self::parse(api)
+    }
+}
+
+impl serde::Serialize for Api {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for Api {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        Ok(Self::parse(&String::deserialize(deserializer)?))
+    }
+}
 
 string_enum! {
     /// Image-generation APIs with a built-in implementation module.
@@ -95,5 +150,96 @@ string_enum! {
     }
 }
 
-/// TS `ProviderId = KnownProvider | string`.
-pub type ProviderId = String;
+/// TS `ProviderId = KnownProvider | string`: a known provider, or any
+/// other wire string kept in [`ProviderId::Other`] so it round-trips.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum ProviderId {
+    /// A provider with a built-in catalog.
+    Known(KnownProvider),
+    /// Any other wire string.
+    Other(String),
+}
+
+impl ProviderId {
+    /// The wire string.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::Known(provider) => provider.as_str(),
+            Self::Other(provider) => provider,
+        }
+    }
+
+    /// The provider named by a wire string; unknown strings land in
+    /// [`Self::Other`](enum@Self::Other).
+    #[must_use]
+    pub fn parse(value: &str) -> Self {
+        KnownProvider::parse(value).map_or_else(|| Self::Other(value.to_owned()), Self::Known)
+    }
+}
+
+impl std::fmt::Display for ProviderId {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(self.as_str())
+    }
+}
+
+impl From<KnownProvider> for ProviderId {
+    fn from(provider: KnownProvider) -> Self {
+        Self::Known(provider)
+    }
+}
+
+impl From<&str> for ProviderId {
+    fn from(provider: &str) -> Self {
+        Self::parse(provider)
+    }
+}
+
+impl serde::Serialize for ProviderId {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for ProviderId {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        Ok(Self::parse(&String::deserialize(deserializer)?))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Api, KnownApi, ProviderId};
+
+    #[test]
+    fn api_round_trips_known_and_unknown_words() {
+        let known: Api = serde_json::from_str("\"openai-completions\"").expect("known api");
+        assert_eq!(known, Api::Known(KnownApi::OpenAICompletions));
+        assert_eq!(
+            serde_json::to_string(&known).expect("serialize"),
+            "\"openai-completions\""
+        );
+        let unknown: Api = serde_json::from_str("\"my-proxy\"").expect("unknown api");
+        assert_eq!(unknown, Api::Other("my-proxy".to_owned()));
+        assert_eq!(
+            serde_json::to_string(&unknown).expect("serialize"),
+            "\"my-proxy\""
+        );
+    }
+
+    #[test]
+    fn provider_round_trips_known_and_unknown_words() {
+        let known: ProviderId = serde_json::from_str("\"anthropic\"").expect("known provider");
+        assert_eq!(
+            serde_json::to_string(&known).expect("serialize"),
+            "\"anthropic\""
+        );
+        let unknown: ProviderId = serde_json::from_str("\"my-gateway\"").expect("unknown provider");
+        assert_eq!(unknown, ProviderId::Other("my-gateway".to_owned()));
+        assert_eq!(
+            serde_json::to_string(&unknown).expect("serialize"),
+            "\"my-gateway\""
+        );
+    }
+}

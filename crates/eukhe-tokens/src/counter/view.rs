@@ -104,8 +104,8 @@ impl<'a> MessageParts<'a> {
             pi_ai::Message::User(user) => Self::Plain(pi_user_content(&user.content)),
             pi_ai::Message::ToolResult(result) => Self::Plain(pi_blocks(&result.content)),
             pi_ai::Message::Assistant(assistant) => Self::Assistant(AssistantTurn {
-                api: &assistant.api,
-                provider: &assistant.provider,
+                api: assistant.api.as_str(),
+                provider: assistant.provider.as_str(),
                 model: &assistant.model,
                 dropped: matches!(
                     assistant.stop_reason,
@@ -224,8 +224,8 @@ pub fn ai_blocks(blocks: &[ai::UserContentBlock]) -> Vec<Part<'_>> {
 #[must_use]
 pub fn ai_assistant(assistant: &ai::AssistantMessage) -> AssistantTurn<'_> {
     AssistantTurn {
-        api: &assistant.api,
-        provider: &assistant.provider,
+        api: assistant.api.as_str(),
+        provider: assistant.provider.as_str(),
         model: &assistant.model,
         dropped: matches!(
             assistant.stop_reason,

@@ -485,11 +485,12 @@ mod liveness_tests {
             return;
         }
         // A spawned `ps` resolves to the fake and would answer `Some("ps:...")`.
-        assert!(!std::process::Command::new("ps")
-            .output()
-            .unwrap()
-            .stdout
-            .is_empty());
+        let ps = std::process::Command::new("ps").output().unwrap();
+        assert!(
+            !ps.stdout.is_empty(),
+            "{}",
+            String::from_utf8_lossy(&ps.stdout)
+        );
         assert_eq!(process_start_id(100_000_000), None);
         assert!(process_start_id(std::process::id()).is_some());
     }
@@ -703,12 +704,10 @@ mod executable_path_tests {
         let current = std::env::current_exe().expect("current_exe");
         let resolved_name = resolved
             .file_name()
-            .map(|name| name.to_string_lossy().to_string())
-            .unwrap_or_default();
+            .map_or(String::new(), |name| name.to_string_lossy().to_string());
         let current_name = current
             .file_name()
-            .map(|name| name.to_string_lossy().to_string())
-            .unwrap_or_default();
+            .map_or(String::new(), |name| name.to_string_lossy().to_string());
         assert_eq!(
             resolved_name, current_name,
             "the own pid must resolve to the running executable ({resolved:?} vs {current:?})"

@@ -27,6 +27,8 @@ mod tool;
 mod tool_schema;
 mod usage;
 
+pub(crate) use string_enum::open_string_enum;
+
 pub use indexmap::IndexMap;
 
 pub use api::{
@@ -55,8 +57,8 @@ pub use images::{
 };
 pub use message::{
     AssistantMessage, AssistantMessageDiagnostic, DeferredHandle, DiagnosticCode,
-    DiagnosticErrorInfo, Message, NestedToolCallRecord, NestedToolCallStatus, NestedToolCalls,
-    StreamFailureKind, SystemMessage, ToolResultMessage, UserMessage,
+    DiagnosticErrorInfo, DiagnosticKind, Message, NestedToolCallRecord, NestedToolCallStatus,
+    NestedToolCalls, StreamFailureKind, SystemMessage, ToolResultMessage, UserMessage,
 };
 pub use model::{
     AnyModel, ChatModelType, ClassifierModel, ImageModel, Modality, Model, ModelCost,

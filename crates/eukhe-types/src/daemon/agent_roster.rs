@@ -54,21 +54,50 @@ enum Activity {
     Other,
 }
 
-/// The `runtimeKind` of a wire summary; any other kind is top-level.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "lowercase")]
-enum RuntimeKind {
+/// The `runtimeKind` of a wire summary; any other kind is top-level. Open
+/// on the wire: an unknown kind stays in [`RuntimeKind::Other`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RuntimeKind {
+    /// A child agent session.
     Subagent,
-    #[serde(other)]
-    Other,
+    /// Any other kind (top-level sessions and unknown wire words), kept
+    /// as written.
+    Other(String),
 }
 
 impl RuntimeKind {
-    fn parse(kind: &str) -> Self {
+    /// The top-level kind (no `runtimeKind` on the wire).
+    pub const TOP_LEVEL: Self = Self::Other(String::new());
+
+    /// The wire word.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::Subagent => "subagent",
+            Self::Other(kind) => kind,
+        }
+    }
+
+    /// The kind named by a wire word; unknown words land in
+    /// [`Self::Other`](enum@Self::Other).
+    #[must_use]
+    pub fn parse(kind: &str) -> Self {
         match kind {
             "subagent" => Self::Subagent,
-            _ => Self::Other,
+            other => Self::Other(other.to_owned()),
         }
+    }
+}
+
+impl Serialize for RuntimeKind {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for RuntimeKind {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        Ok(Self::parse(&String::deserialize(deserializer)?))
     }
 }
 
@@ -160,16 +189,11 @@ pub fn classify_summary_value(summary: &Value, queued_child: bool) -> AgentRoste
 #[must_use]
 pub fn roster_agent_id(
     session_id: &str,
-    runtime_kind: &str,
+    runtime_kind: RuntimeKind,
     rlm_child_id: Option<&str>,
     parent_key: Option<&str>,
 ) -> String {
-    agent_id(
-        session_id,
-        RuntimeKind::parse(runtime_kind),
-        rlm_child_id,
-        parent_key,
-    )
+    agent_id(session_id, runtime_kind, rlm_child_id, parent_key)
 }
 
 fn agent_id(
@@ -185,7 +209,7 @@ fn agent_id(
             Some(key) if !key.is_empty() => format!("{key}#{child_id}"),
             _ => child_id.to_owned(),
         },
-        (RuntimeKind::Subagent, None) | (RuntimeKind::Other, _) => session_id.to_owned(),
+        (RuntimeKind::Subagent, None) | (RuntimeKind::Other(_), _) => session_id.to_owned(),
     }
 }
 
@@ -193,7 +217,7 @@ fn agent_id(
 #[must_use]
 pub fn roster_agent_id_for_summary(summary: &Value) -> String {
     let session_id = field(summary, "sessionId").unwrap_or_default();
-    let runtime_kind = field(summary, "runtimeKind").unwrap_or(RuntimeKind::Other);
+    let runtime_kind = field(summary, "runtimeKind").unwrap_or(RuntimeKind::TOP_LEVEL);
     let non_empty = |key| field::<&str>(summary, key).filter(|text| !text.is_empty());
     let parent_key = non_empty("parentSessionPath").or_else(|| non_empty("parentActiveSessionId"));
     agent_id(
@@ -449,19 +473,30 @@ mod tests {
     #[test]
     fn agent_ids_qualify_children_by_parent_key() {
         // Top-level: session id.
-        assert_eq!(roster_agent_id("s1", "top-level", None, None), "s1");
+        assert_eq!(
+            roster_agent_id("s1", RuntimeKind::parse("top-level"), None, None),
+            "s1"
+        );
         // Subagent: parent path + child id.
         assert_eq!(
-            roster_agent_id("s2", "subagent", Some("7"), Some("/x/sess.jsonl")),
+            roster_agent_id(
+                "s2",
+                RuntimeKind::Subagent,
+                Some("7"),
+                Some("/x/sess.jsonl")
+            ),
             "/x/sess.jsonl#7"
         );
         // No-session parent: live parent id qualifies.
         assert_eq!(
-            roster_agent_id("s2", "subagent", Some("7"), Some("a1")),
+            roster_agent_id("s2", RuntimeKind::Subagent, Some("7"), Some("a1")),
             "a1#7"
         );
         // No parent key at all: bare child id.
-        assert_eq!(roster_agent_id("s2", "subagent", Some("7"), None), "7");
+        assert_eq!(
+            roster_agent_id("s2", RuntimeKind::Subagent, Some("7"), None),
+            "7"
+        );
     }
 
     #[test]
@@ -685,5 +720,26 @@ mod tests {
         assert!(slim.get("streamingMessage").is_none());
         assert!(slim.get("sessionActions").is_none());
         assert!(slim.get("diagnostics").is_none());
+    }
+}
+
+#[cfg(test)]
+mod runtime_kind_tests {
+    use super::RuntimeKind;
+
+    #[test]
+    fn runtime_kind_round_trips_known_and_unknown_words() {
+        let known = RuntimeKind::parse("subagent");
+        assert_eq!(known, RuntimeKind::Subagent);
+        assert_eq!(
+            serde_json::to_string(&known).expect("serialize"),
+            "\"subagent\""
+        );
+        let unknown = RuntimeKind::parse("cron-runner");
+        assert_eq!(unknown, RuntimeKind::Other("cron-runner".to_owned()));
+        assert_eq!(
+            serde_json::to_string(&unknown).expect("serialize"),
+            "\"cron-runner\""
+        );
     }
 }

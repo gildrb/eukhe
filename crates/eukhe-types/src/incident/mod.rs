@@ -38,8 +38,6 @@ pub use classify::{
 pub use parse::{parse_incident_daemon_log_line, parse_incident_log_line, timestamp_to_ms};
 pub use rules::{IncidentRules, IncidentShape, ShapeFit};
 
-use std::collections::HashSet;
-
 /// One severity band of a classified incident event (TS
 /// `IncidentSeverity`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -105,11 +103,74 @@ impl IncidentCategory {
     }
 }
 
+crate::pi_ai::open_string_enum! {
+    /// The class of a classified incident event (TS `eventClass`):
+    /// kebab-case wire words. Open: a class this build does not emit
+    /// stays in [`EventClass::Other`].
+    pub enum EventClass {
+        Timeout => "timeout",
+        CommandFailure => "command-failure",
+        Auth => "auth",
+        Diagnostic => "diagnostic",
+        Anomaly => "anomaly",
+        Provider => "provider",
+        WorkerStart => "worker-start",
+        WorkerStop => "worker-stop",
+        WorkerCrash => "worker-crash",
+        WorkerPassivation => "worker-passivation",
+        WorkerStderr => "worker-stderr",
+        SupervisorStart => "supervisor-start",
+        SupervisorAction => "supervisor-action",
+        RecoveryReplay => "recovery-replay",
+        RecoveryFailure => "recovery-failure",
+        RecoveryAction => "recovery-action",
+    }
+}
+
+/// The severity word of a structured-log line (`level`). Open on the
+/// wire: an unknown word stays in [`LogLevel::Other`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LogLevel {
+    Warn,
+    Error,
+    Info,
+    Debug,
+    /// Any other wire word, kept as written.
+    Other(String),
+}
+
+impl LogLevel {
+    /// The wire word.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::Warn => "warn",
+            Self::Error => "error",
+            Self::Info => "info",
+            Self::Debug => "debug",
+            Self::Other(word) => word,
+        }
+    }
+
+    /// The level named by a wire word; unknown words land in
+    /// [`Self::Other`](enum@Self::Other).
+    #[must_use]
+    pub fn parse(word: &str) -> Self {
+        match word {
+            "warn" => Self::Warn,
+            "error" => Self::Error,
+            "info" => Self::Info,
+            "debug" => Self::Debug,
+            other => Self::Other(other.to_owned()),
+        }
+    }
+}
+
 /// One parsed `agent.jsonl` record (TS `IncidentLogEntry`).
 #[derive(Debug, Clone, PartialEq)]
 pub struct IncidentLogEntry {
     pub time_ms: i64,
-    pub level: String,
+    pub level: LogLevel,
     pub component: String,
     pub msg: String,
     pub socket_path: Option<String>,
@@ -124,7 +185,7 @@ pub struct IncidentEvent {
     pub time_ms: i64,
     pub severity: IncidentSeverity,
     pub category: IncidentCategory,
-    pub event_class: String,
+    pub event_class: EventClass,
     pub subject: String,
     pub summary: String,
     pub tokens: Vec<String>,
@@ -159,24 +220,23 @@ pub(crate) const SUMMARY_TRUNCATION: usize = 120;
 pub(crate) const RECOVERY_BREAKDOWN_LIMIT: usize = 4;
 
 /// Event classes whose repeats form an error burst (TS `BURST_CLASSES`).
-pub(crate) fn burst_classes() -> &'static HashSet<&'static str> {
-    static CLASSES: std::sync::LazyLock<HashSet<&'static str>> =
-        std::sync::LazyLock::new(|| HashSet::from(["command-failure", "auth", "diagnostic"]));
-    &CLASSES
+pub(crate) fn burst_classes() -> &'static [EventClass] {
+    &[
+        EventClass::CommandFailure,
+        EventClass::Auth,
+        EventClass::Diagnostic,
+    ]
 }
 
 /// Event classes the classifier dedupes across the structured log and the
 /// worker stderr forward (TS `LIFECYCLE_CLASSES`).
-pub(crate) fn lifecycle_classes() -> &'static HashSet<&'static str> {
-    static CLASSES: std::sync::LazyLock<HashSet<&'static str>> = std::sync::LazyLock::new(|| {
-        HashSet::from([
-            "worker-start",
-            "worker-stop",
-            "worker-crash",
-            "worker-passivation",
-        ])
-    });
-    &CLASSES
+pub(crate) fn lifecycle_classes() -> &'static [EventClass] {
+    &[
+        EventClass::WorkerStart,
+        EventClass::WorkerStop,
+        EventClass::WorkerCrash,
+        EventClass::WorkerPassivation,
+    ]
 }
 
 /// The first line of a message, trimmed (TS `firstLine`).
@@ -225,5 +285,36 @@ mod tests {
     fn error_prefix_strips_only_the_prefix() {
         assert_eq!(error_message("Error: boom"), "boom");
         assert_eq!(error_message("boom"), "boom");
+    }
+}
+
+#[cfg(test)]
+mod open_enum_tests {
+    use super::{EventClass, LogLevel};
+
+    #[test]
+    fn event_class_round_trips_kebab_words() {
+        let known = EventClass::parse("command-failure");
+        assert_eq!(known, EventClass::CommandFailure);
+        assert_eq!(
+            serde_json::to_string(&known).expect("serialize"),
+            "\"command-failure\""
+        );
+        let unknown = EventClass::parse("worker-freeze");
+        assert_eq!(unknown, EventClass::Other("worker-freeze".to_owned()));
+        assert_eq!(
+            serde_json::to_string(&unknown).expect("serialize"),
+            "\"worker-freeze\""
+        );
+    }
+
+    #[test]
+    fn log_level_round_trips_known_and_unknown_words() {
+        let known = LogLevel::parse("error");
+        assert_eq!(known, LogLevel::Error);
+        assert_eq!(known.as_str(), "error");
+        let unknown = LogLevel::parse("trace");
+        assert_eq!(unknown, LogLevel::Other("trace".to_owned()));
+        assert_eq!(unknown.as_str(), "trace");
     }
 }

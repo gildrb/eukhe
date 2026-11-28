@@ -285,6 +285,14 @@ impl Tokenizer {
         }
     }
 
+    /// Tokens one agent-message assistant turn adds to a request to the
+    /// reading model, borrowed straight from the message (the
+    /// [`MessageParts::Assistant`] path, assembled for the caller).
+    #[must_use]
+    pub fn count_assistant_message(&self, assistant: &eukhe_types::ai::AssistantMessage) -> u64 {
+        self.count_message(&MessageParts::Assistant(ai_assistant(assistant)))
+    }
+
     /// Tokens of the parts of a non-assistant message (or of any content a
     /// caller assembled): text exactly, images by the reader's image rule.
     #[must_use]
