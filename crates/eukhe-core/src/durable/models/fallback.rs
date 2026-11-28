@@ -126,7 +126,7 @@ pub fn signed_in_defaults(available: &[Model]) -> Vec<Model> {
         .filter_map(|(provider, id)| {
             available
                 .iter()
-                .find(|model| model.provider == provider && model.id == id)
+                .find(|model| model.provider.as_str() == provider && model.id == id)
                 .cloned()
         })
         .collect()
@@ -215,14 +215,14 @@ pub fn reason(why: Why, from: &Model, error: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use eukhe_types::pi_ai::{Modality, ModelCost};
+    use eukhe_types::pi_ai::{Api, Modality, ModelCost, ProviderId};
 
     fn model(provider: &str, id: &str) -> Model {
         Model {
             id: id.to_owned(),
             name: format!("{provider} {id}"),
-            api: "faux".to_owned(),
-            provider: provider.to_owned(),
+            api: Api::parse("faux"),
+            provider: ProviderId::parse(provider),
             base_url: String::new(),
             input: vec![Modality::Text],
             input_limits: None,

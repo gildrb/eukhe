@@ -143,7 +143,7 @@ pub fn resolve_model_backup_references(
         let id = crate::models::resolver::model_id_alias(provider, id).unwrap_or(id);
         let named = all
             .iter()
-            .find(|model| model.provider == provider && model.id == id);
+            .find(|model| model.provider.as_str() == provider && model.id == id);
         let dropped = if named.is_none() {
             Some(format!("no model \"{selector}\" in the catalog"))
         } else if primary.is_some_and(|primary| primary == (provider, id)) {
@@ -534,7 +534,7 @@ pub async fn resolve_session_model(
     Ok(Some(ResolvedModel {
         thinking: clamp_thinking_level(&model, thinking),
         model: ModelRef {
-            provider: model.provider,
+            provider: model.provider.as_str().to_owned(),
             model_id: model.id,
         },
         substituted,
@@ -623,7 +623,7 @@ fn legacy_models(models: &[Model]) -> Result<Vec<eukhe_types::ai::Model>, Models
 
 fn catalog_model(all: &[Model], model: &eukhe_types::ai::Model) -> Result<Model, ModelsError> {
     all.iter()
-        .find(|entry| entry.provider == model.provider && entry.id == model.id)
+        .find(|entry| entry.provider.as_str() == model.provider && entry.id == model.id)
         .cloned()
         .ok_or_else(|| ModelsError::ModelNotFound {
             provider: model.provider.clone(),

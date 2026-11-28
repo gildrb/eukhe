@@ -80,14 +80,14 @@ fn engine_options_and_switches_read_the_cvars() {
         ),
         (
             EngineOptions {
-                device: "cpu".to_owned(),
+                device: Device::Cpu,
                 dtype: String::new(),
                 runtime_library: PathBuf::new(),
             },
             true,
             "af_heart".to_owned(),
             EngineOptions {
-                device: "cuda".to_owned(),
+                device: Device::Other("cuda".to_owned()),
                 dtype: "fp16".to_owned(),
                 runtime_library: PathBuf::from("/lib/libonnxruntime.so"),
             },

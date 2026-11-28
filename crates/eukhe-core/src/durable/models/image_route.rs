@@ -102,7 +102,7 @@ fn find_exact_model_reference_match<'a>(
             let provider_matches: Vec<&Model> = catalog
                 .iter()
                 .filter(|model| {
-                    model.provider.to_lowercase() == provider.to_lowercase()
+                    model.provider.as_str().to_lowercase() == provider.to_lowercase()
                         && model.id.to_lowercase() == model_id.to_lowercase()
                 })
                 .collect();

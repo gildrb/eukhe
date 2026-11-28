@@ -8,7 +8,7 @@ use eukhe_ai::providers::faux::{faux_assistant_message, FauxAssistantMessageOpti
 use eukhe_ai::types::ProviderStreamOptions;
 use eukhe_ai::utils::event_stream::AssistantMessageEventStream;
 use eukhe_types::pi_ai::{
-    DoneReason, ErrorReason, Model, ModelCost, StopReason, TranscriptContext,
+    Api, DoneReason, ErrorReason, Model, ModelCost, ProviderId, StopReason, TranscriptContext,
 };
 use tempfile::TempDir;
 
@@ -246,8 +246,8 @@ fn test_model() -> Model {
     Model {
         id: "m".to_string(),
         name: "m".to_string(),
-        api: "test".to_string(),
-        provider: "test".to_string(),
+        api: Api::parse("test"),
+        provider: ProviderId::parse("test"),
         base_url: "http://localhost:0".to_string(),
         input: Vec::new(),
         input_limits: None,

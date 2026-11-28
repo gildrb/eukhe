@@ -107,10 +107,14 @@ mod tests {
             .flat_map(|models| models.values())
             .flat_map(|model| ServiceTier::ALL.map(|tier| (model, tier)))
             .filter(|(model, tier)| {
-                former(&model.provider, &model.api, &model.id, *tier)
-                    != supports_service_tier((*model).into(), *tier)
+                former(
+                    model.provider.as_str(),
+                    model.api.as_str(),
+                    &model.id,
+                    *tier,
+                ) != supports_service_tier((*model).into(), *tier)
             })
-            .map(|(model, tier)| (model.provider.clone(), model.id.clone(), tier))
+            .map(|(model, tier)| (model.provider.as_str().to_owned(), model.id.clone(), tier))
             .collect();
         assert_eq!(differences, Vec::new());
     }

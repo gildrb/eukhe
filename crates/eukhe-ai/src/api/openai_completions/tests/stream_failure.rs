@@ -1,6 +1,6 @@
-//! eukhe addition (no TS counterpart): the `provider_stream_failure`
 //! diagnostic on failed streams.
 
+use eukhe_types::pi_ai::DiagnosticKind;
 use serde_json::json;
 
 use super::support::{collect, options_with_fetch, run_with_chunks, test_model, user_context};
@@ -39,7 +39,7 @@ async fn http_429_appends_one_provider_stream_failure_diagnostic() {
     let diagnostics = message.diagnostics.expect("diagnostics");
     assert_eq!(diagnostics.len(), 1);
     let diagnostic = &diagnostics[0];
-    assert_eq!(diagnostic.kind, "provider_stream_failure");
+    assert_eq!(diagnostic.kind, DiagnosticKind::ProviderStreamFailure);
     assert_eq!(
         diagnostic
             .error
@@ -79,7 +79,7 @@ async fn a_stream_without_finish_reason_ends_with_a_stream_drop_failure() {
     );
     let diagnostics = message.diagnostics.expect("diagnostics");
     assert_eq!(diagnostics.len(), 1);
-    assert_eq!(diagnostics[0].kind, "provider_stream_failure");
+    assert_eq!(diagnostics[0].kind, DiagnosticKind::ProviderStreamFailure);
     assert_eq!(
         details(&diagnostics[0]),
         json!({ "kind": "stream_drop", "providerErrorType": "stream_drop" })

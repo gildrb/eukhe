@@ -1,4 +1,3 @@
-//! Port of `test/images-models.test.ts`.
 //!
 //! "rejects chat models at the image entry point at runtime" and "rejects
 //! image models at the stream entry points at runtime" cast between model
@@ -468,7 +467,7 @@ async fn resolves_auth_through_the_provider_and_merges_it_into_image_requests_ex
     assert_eq!(
         api_key(
             models
-                .get_auth(&model.provider, AuthResolutionOverrides::default())
+                .get_auth(model.provider.as_str(), AuthResolutionOverrides::default())
                 .await
                 .expect("auth")
         )
@@ -835,8 +834,11 @@ async fn builtin_models_exposes_openrouter_image_models_under_the_openrouter_pro
         .expect("chat");
     let image =
         models.get_model_of_type(ModelType::Image, "openrouter", "google/gemini-3-pro-image");
-    assert_eq!(chat.api, "openai-completions");
-    assert_eq!(image.as_ref().map(AnyModel::api), Some("openrouter-images"));
+    assert_eq!(chat.api.as_str(), "openai-completions");
+    assert_eq!(
+        image.as_ref().map(|model| model.api().to_owned()),
+        Some("openrouter-images".to_owned())
+    );
 
     // One credential covers both.
     let api_key = |result: Option<AuthResult>| result.and_then(|result| result.auth.api_key);

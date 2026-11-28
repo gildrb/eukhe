@@ -320,7 +320,7 @@ fn preserves_tool_call_ids_via_history() {
     ] {
         let contents = convert_messages(
             &model,
-            &unsigned_context(&model.api, &model.provider, &model.id, None),
+            &unsigned_context(model.api.as_str(), model.provider.as_str(), &model.id, None),
         );
         let parts = all_parts(&contents);
         let call_ids: Vec<&JsonValue> = parts
@@ -351,7 +351,12 @@ fn does_not_add_skip_thought_signature_validator_for_unsigned_google_gen_ai_tool
     let model = gemini3_model("google-generative-ai", "google", "gemini-3-pro-preview");
     let contents = convert_messages(
         &model,
-        &unsigned_context(&model.api, &model.provider, "other-model", None),
+        &unsigned_context(
+            model.api.as_str(),
+            model.provider.as_str(),
+            "other-model",
+            None,
+        ),
     );
     let turn = model_turn(&contents);
     let calls = function_call_parts(turn);
@@ -379,7 +384,7 @@ fn does_not_add_skip_thought_signature_validator_for_unsigned_vertex_tool_calls(
     let model = gemini3_model("google-vertex", "google-vertex", "gemini-3-pro-preview");
     let contents = convert_messages(
         &model,
-        &unsigned_context(&model.api, &model.provider, &model.id, None),
+        &unsigned_context(model.api.as_str(), model.provider.as_str(), &model.id, None),
     );
     let turn = model_turn(&contents);
     let calls = function_call_parts(turn);
@@ -397,7 +402,12 @@ fn preserves_valid_thought_signature_when_present_for_the_same_provider_and_mode
     let valid = "AAAAAAAAAAAAAAAAAAAAAA==";
     let contents = convert_messages(
         &model,
-        &unsigned_context(&model.api, &model.provider, &model.id, Some(valid)),
+        &unsigned_context(
+            model.api.as_str(),
+            model.provider.as_str(),
+            &model.id,
+            Some(valid),
+        ),
     );
     let calls = function_call_parts(model_turn(&contents));
     assert_eq!(calls.len(), 2);
@@ -410,7 +420,12 @@ fn does_not_add_a_thought_signature_for_non_gemini_3_models() {
     let model = gemini3_model("google-generative-ai", "google", "gemini-2.5-flash");
     let contents = convert_messages(
         &model,
-        &unsigned_context(&model.api, &model.provider, "other-model", None),
+        &unsigned_context(
+            model.api.as_str(),
+            model.provider.as_str(),
+            "other-model",
+            None,
+        ),
     );
     let calls = function_call_parts(model_turn(&contents));
     assert_eq!(calls.len(), 2);
@@ -448,7 +463,7 @@ fn image_context(model: &Model) -> TranscriptContext {
     context(&json!({
         "messages": [
             { "role": "user", "content": "read the files", "timestamp": 0 },
-            assistant(&model.api, &model.provider, &model.id, &json!([
+            assistant(model.api.as_str(), model.provider.as_str(), &model.id, &json!([
                 { "type": "toolCall", "id": "call_a", "name": "read", "arguments": { "path": "a.txt" } },
                 { "type": "toolCall", "id": "call_img", "name": "read", "arguments": { "path": "image.png" } },
                 { "type": "toolCall", "id": "call_b", "name": "read", "arguments": { "path": "b.txt" } }

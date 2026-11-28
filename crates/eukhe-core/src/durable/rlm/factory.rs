@@ -297,7 +297,7 @@ impl FactoryHost {
         if !matches {
             return None;
         }
-        let status = registry.get_provider_auth_status(&session_model.provider);
+        let status = registry.get_provider_auth_status(session_model.provider.as_str());
         if status.source != Some(crate::auth::types::AuthSource::Stale)
             && status.label.as_deref() != Some("expired")
         {
@@ -317,7 +317,7 @@ fn session_model_to_ai_model(model: &eukhe_types::pi_ai::Model) -> AiModel {
         id: model.id.clone(),
         name: model.name.clone(),
         api: model.api.clone(),
-        provider: model.provider.clone(),
+        provider: model.provider.as_str().to_owned(),
         base_url: model.base_url.clone(),
         reasoning: model.reasoning,
         thinking_level_map: None,

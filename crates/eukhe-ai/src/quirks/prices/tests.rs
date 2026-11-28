@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use crate::models::{apply_service_tier_pricing, calculate_cost, CatalogModel};
 use crate::quirks::{QuirksError, Rulebook};
-use crate::types::{Model, ModelCostRates, Usage, UsageCost};
+use crate::types::{Api, Model, ModelCostRates, ProviderId, Usage, UsageCost};
 
 /// Every model of the compiled catalog.
 fn catalog() -> impl Iterator<Item = &'static Model> {
@@ -65,11 +65,11 @@ fn former_codex_multiplier(model_id: &str, service_tier: Option<&str>) -> f64 {
 /// the `openai` provider, the Codex copy for the `openai-codex-responses`
 /// models, no tier price for any other model.
 fn former_tier_cost(model: &Model, usage: &Usage, service_tier: Option<&str>) -> UsageCost {
-    let multiplier = if model.api == "openai-responses"
-        || (model.api == "openai-completions" && model.provider == "openai")
+    let multiplier = if model.api.as_str() == "openai-responses"
+        || (model.api.as_str() == "openai-completions" && model.provider.as_str() == "openai")
     {
         former_responses_multiplier(&model.id, service_tier)
-    } else if model.api == "openai-codex-responses" {
+    } else if model.api.as_str() == "openai-codex-responses" {
         former_codex_multiplier(&model.id, service_tier)
     } else {
         1.0
@@ -91,8 +91,8 @@ fn former_tier_cost(model: &Model, usage: &Usage, service_tier: Option<&str>) ->
 /// `model` with the provider `provider` and the wire API `api`.
 fn served_as(model: &Model, provider: &str, api: &str) -> Model {
     Model {
-        provider: provider.to_owned(),
-        api: api.to_owned(),
+        provider: ProviderId::parse(provider),
+        api: Api::parse(api),
         ..model.clone()
     }
 }
@@ -115,7 +115,7 @@ fn the_tier_prices_change_only_the_providers_that_do_not_sell_them() {
     ];
     let openai = |id: &str| {
         catalog()
-            .find(|model| model.provider == "openai" && model.id == id)
+            .find(|model| model.provider.as_str() == "openai" && model.id == id)
             .unwrap_or_else(|| panic!("the catalog has openai {id}"))
     };
     let crafted = [
@@ -145,8 +145,8 @@ fn the_tier_prices_change_only_the_providers_that_do_not_sell_them() {
             if usage.cost != former_tier_cost(model, &base, tier) {
                 *differences
                     .entry((
-                        model.provider.clone(),
-                        model.api.clone(),
+                        model.provider.as_str().to_owned(),
+                        model.api.as_str().to_owned(),
                         tier.unwrap_or("none"),
                     ))
                     .or_default() += 1;
@@ -247,7 +247,9 @@ fn only_claude_models_keep_the_1h_cache_write_price_of_anthropic() {
                 model.provider,
                 model.id
             );
-            *differences.entry(model.provider.clone()).or_default() += 1;
+            *differences
+                .entry(model.provider.as_str().to_owned())
+                .or_default() += 1;
         }
     }
     assert_eq!(claude_differences, Vec::new());

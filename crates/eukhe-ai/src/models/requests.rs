@@ -7,8 +7,8 @@ use std::sync::Arc;
 use eukhe_chord::context::AbortSignal;
 use eukhe_types::pi_ai::{
     AnyModel, AssistantImages, AssistantMessage, AssistantMessageEvent, ClassifierContext,
-    ClassifierModel, ClassifierResult, Context, DeferredHandle, ImageModel, ImagesContext, Model,
-    ProviderEnv, ProviderHeaders, StreamFailureKind,
+    ClassifierModel, ClassifierResult, Context, DeferredHandle, DiagnosticKind, ImageModel,
+    ImagesContext, Model, ProviderEnv, ProviderHeaders, StreamFailureKind,
 };
 use futures::future::BoxFuture;
 use futures::StreamExt;
@@ -237,14 +237,14 @@ impl Models {
         let signal = operation_signal(options.options.request().signal.clone());
         let (request_model, request_options) = self.apply_auth(request, options.clone()).await?;
         let oauth = self
-            .get_provider(&request.provider)
+            .get_provider(request.provider.as_str())
             .and_then(|provider| provider.auth.oauth.clone())
             .filter(|_| !explicit_key);
         let used = match &oauth {
             Some(_) => match self
                 .inner
                 .credentials
-                .read(&request.provider, AuthOperationOptions::default())
+                .read(request.provider.as_str(), AuthOperationOptions::default())
                 .await
             {
                 Ok(Some(Credential::OAuth(used))) => Some(used),
@@ -275,7 +275,9 @@ impl Models {
                         .unwrap_or_default()
                         .iter()
                         .rev()
-                        .find(|diagnostic| diagnostic.kind == "provider_stream_failure")
+                        .find(|diagnostic| {
+                            matches!(diagnostic.kind, DiagnosticKind::ProviderStreamFailure)
+                        })
                         .and_then(|diagnostic| diagnostic.details.as_ref()?.get("kind")?.as_str())
                         == Some(StreamFailureKind::Auth.as_str()),
                 ),
@@ -301,7 +303,7 @@ impl Models {
             let rejected_access = used.access.clone();
             let refreshed = refresh_stored_oauth_credential(
                 self.inner.credentials.as_ref(),
-                &request.provider,
+                request.provider.as_str(),
                 &oauth,
                 move |current| current.access == rejected_access,
                 &signal,

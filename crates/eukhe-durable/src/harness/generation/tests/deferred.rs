@@ -12,7 +12,7 @@ use eukhe_ai::providers::faux::{
 use eukhe_ai::types::DeferredRequest;
 use eukhe_ai::utils::event_stream::AssistantMessageEventStream;
 use eukhe_types::pi_ai::{
-    AssistantMessageDiagnostic, AssistantMessageEvent, ErrorReason, StopReason,
+    AssistantMessageDiagnostic, AssistantMessageEvent, DiagnosticKind, ErrorReason, StopReason,
 };
 
 use crate::harness::tests::chat_support::{chat_setup, open_chat, OpenChat};
@@ -60,8 +60,7 @@ async fn a_retryable_failed_poll_polls_the_same_job_again() {
         let mut details = serde_json::Map::new();
         details.insert("status".to_owned(), 503.into());
         message.diagnostics = Some(vec![AssistantMessageDiagnostic {
-            kind: "provider_stream_failure".to_owned(),
-            timestamp: 0,
+            kind: DiagnosticKind::ProviderStreamFailure,
             error: None,
             details: Some(details),
         }]);

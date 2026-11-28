@@ -2,7 +2,7 @@
 
 use std::sync::{Arc, Mutex, PoisonError};
 
-use eukhe_types::pi_ai::{AnyModel, Model};
+use eukhe_types::pi_ai::{AnyModel, Model, ProviderId};
 
 use super::radius_config::{
     get_radius_models, get_radius_models_from_config, load_radius_gateway_config,
@@ -148,7 +148,7 @@ pub fn radius_provider(options: RadiusProviderOptions) -> Provider {
                 .values()
                 .map(|model| {
                     AnyModel::Chat(Model {
-                        provider: id.clone(),
+                        provider: ProviderId::parse(&id),
                         ..model.clone()
                     })
                 })

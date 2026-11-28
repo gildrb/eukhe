@@ -1,5 +1,6 @@
 use eukhe_ai::models::{create_models, CreateModelsOptions};
 use eukhe_tiny::{find, FallbackChain};
+use eukhe_types::pi_ai::ProviderId;
 
 use super::*;
 
@@ -13,7 +14,7 @@ fn sorter() -> ClassifierModel {
         id: "sorter".to_owned(),
         name: "Sorter".to_owned(),
         api: "acme-classify".to_owned(),
-        provider: "acme".to_owned(),
+        provider: ProviderId::parse("acme"),
         base_url: String::new(),
         input: vec![Modality::Text],
         input_limits: None,

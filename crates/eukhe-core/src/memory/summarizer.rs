@@ -165,7 +165,7 @@ impl Summarizer for SettingsSummarizer {
                 let (queued, mut waited) = tokio::sync::oneshot::channel();
                 let permit = admission
                     .acquire(AdmissionRequest {
-                        provider_id: target.model.provider.clone(),
+                        provider_id: target.model.provider.to_string(),
                         priority: AdmissionPriority::Background,
                         on_queued: QueuedNotice::new(move || {
                             // The receiver lives until the acquire

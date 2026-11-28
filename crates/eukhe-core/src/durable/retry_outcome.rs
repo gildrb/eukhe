@@ -320,8 +320,8 @@ async fn service(harness: &eukhe_durable::harness::Harness, models: &Models, eve
             return Ok(());
         };
         // The provider's display name, for the row's next step.
-        let provider = models.get_provider(&message.provider).map_or_else(
-            || message.provider.clone(),
+        let provider = models.get_provider(message.provider.as_str()).map_or_else(
+            || message.provider.as_str().to_owned(),
             |provider| provider.name.clone(),
         );
         record_row(&conversation, entry_id, row, &provider, &cx).await
@@ -412,12 +412,13 @@ struct RetryRow {
 /// (the disclosure gate): agent-lifecycle failures and the
 /// faux queue exhaustion carry none.
 fn is_provider_failure(message: &AssistantMessage) -> bool {
-    let faux_exhausted = message.provider == "faux"
+    let faux_exhausted = message.provider.as_str() == "faux"
         && message.error_message.as_deref() == Some(FAUX_QUEUE_EXHAUSTED);
     !faux_exhausted
         && message.diagnostics.as_ref().is_some_and(|diagnostics| {
             diagnostics.iter().any(|diagnostic| {
-                diagnostic.kind == "provider_stream_failure" && diagnostic.details.is_some()
+                diagnostic.kind.as_str() == "provider_stream_failure"
+                    && diagnostic.details.is_some()
             })
         })
 }

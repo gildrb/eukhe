@@ -14,7 +14,7 @@ use eukhe_bend::rules::err_text::{self, Rule};
 use eukhe_bend::rules::retry::{self as rules, Cause, Facts, Wait, WaitInput};
 use eukhe_bend::wire::NAT_MAX;
 use eukhe_bend::{expect_core, Entry};
-use eukhe_types::pi_ai::{AssistantMessage, StopReason, StreamFailureKind};
+use eukhe_types::pi_ai::{AssistantMessage, DiagnosticKind, StopReason, StreamFailureKind};
 
 use super::js::number_to_js_string;
 use super::stream_failure::RepeatedLines;
@@ -37,7 +37,7 @@ pub fn is_budget_refusal(message: &AssistantMessage) -> bool {
         .diagnostics
         .iter()
         .flatten()
-        .any(|diagnostic| diagnostic.kind == BUDGET_REFUSAL_DIAGNOSTIC)
+        .any(|diagnostic| diagnostic.kind.as_str() == BUDGET_REFUSAL_DIAGNOSTIC)
 }
 
 /// The wait parameters of a retry: the step doubles from `base_delay_ms`
@@ -79,7 +79,7 @@ pub fn server_retry_after_ms(message: &AssistantMessage) -> Option<f64> {
         .iter()
         .flatten()
         .rev()
-        .filter(|diagnostic| diagnostic.kind == "provider_stream_failure")
+        .filter(|diagnostic| matches!(diagnostic.kind, DiagnosticKind::ProviderStreamFailure))
         .find_map(|diagnostic| diagnostic.details.as_ref()?.get("retryAfterMs")?.as_f64())
 }
 
@@ -151,7 +151,7 @@ fn newest_stream_failure(
         .iter()
         .flatten()
         .rev()
-        .find(|diagnostic| diagnostic.kind == "provider_stream_failure")?
+        .find(|diagnostic| matches!(diagnostic.kind, DiagnosticKind::ProviderStreamFailure))?
         .details
         .as_ref()
 }
@@ -252,7 +252,7 @@ impl FailureFacts {
             .diagnostics
             .iter()
             .flatten()
-            .any(|diagnostic| diagnostic.kind == QUOTA_PARK_DIAGNOSTIC);
+            .any(|diagnostic| diagnostic.kind.as_str() == QUOTA_PARK_DIAGNOSTIC);
         let budget = is_budget_refusal(message);
         let failure = newest_stream_failure(message);
         let text = message.error_message.as_deref().unwrap_or_default();

@@ -163,7 +163,7 @@ where
         if let Some(failure) = failure {
             let mut message = create_error_message(&model, failure.to_string(), started_at);
             record_stream_failure(
-                (&model.provider, &model.id, &model.api),
+                (model.provider.as_str(), &model.id, model.api.as_str()),
                 &mut message,
                 &failure,
             );

@@ -6,7 +6,7 @@ mod common;
 use eukhe_ai::providers::all::get_builtin_model;
 use eukhe_ai::types::ProviderStreamOptions;
 use eukhe_types::pi_ai::{
-    AssistantContentBlock, AssistantMessage, AssistantMessageEvent, Context, Message, Model,
+    Api, AssistantContentBlock, AssistantMessage, AssistantMessageEvent, Context, Message, Model,
     StopReason, UserContent, UserMessage,
 };
 use futures::StreamExt;
@@ -102,7 +102,7 @@ async fn should_error_with_openai_responses_when_using_xhigh() {
 #[ignore = "needs OPENAI_API_KEY; run with --ignored"]
 async fn should_error_with_openai_completions_when_using_xhigh() {
     let model = Model {
-        api: "openai-completions".to_owned(),
+        api: Api::parse("openai-completions"),
         compat: None,
         ..get_builtin_model("openai", "gpt-5-mini").expect("model")
     };

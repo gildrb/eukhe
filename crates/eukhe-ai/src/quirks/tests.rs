@@ -90,7 +90,7 @@ fn families_that_overlap_on_a_catalog_model_are_rejected() {
     let catalog = crate::models_generated::MODELS
         .values()
         .flat_map(|models| models.values())
-        .filter(|model| model.provider == "anthropic");
+        .filter(|model| model.provider.as_str() == "anthropic");
     assert_eq!(
         book.check_catalog(catalog),
         Err(vec![QuirksError::FamilyOverlap(FamilyOverlap {
@@ -765,7 +765,13 @@ fn the_shipped_host_rules_give_the_former_provider_checks() {
             ]
             .into_iter()
             .filter(|(_, same)| !same)
-            .map(|(directive, _)| (model.provider.clone(), model.id.clone(), directive))
+            .map(|(directive, _)| {
+                (
+                    model.provider.as_str().to_owned(),
+                    model.id.clone(),
+                    directive,
+                )
+            })
         })
         .collect();
     assert_eq!(differences, Vec::new());

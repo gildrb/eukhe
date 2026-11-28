@@ -8,8 +8,8 @@ use std::sync::{Mutex, PoisonError};
 
 use eukhe_types::pi_ai::{
     AssistantContentBlock, AssistantMessage, AssistantMessageDiagnostic, AssistantMessageEvent,
-    JsonObject, JsonValue, Model, StopReason, StreamFailureKind, TextContent, ThinkingContent,
-    Tool, ToolCall, Usage,
+    DiagnosticKind, JsonObject, JsonValue, Model, StopReason, StreamFailureKind, TextContent,
+    ThinkingContent, Tool, ToolCall, Usage,
 };
 use reqwest::header::HeaderMap;
 
@@ -24,7 +24,6 @@ use crate::utils::event_stream::AssistantMessageEventStream;
 use crate::utils::json_parse::{
     parse_json_with_repair, parse_streaming_json_object, parse_tool_call_arguments,
 };
-use crate::utils::now_ms;
 use crate::utils::provider_retry::{retry_provider_request, ProviderRetryOptions};
 use crate::utils::stream_failure::{
     classify_stream_failure, stream_failure_from_stop_reason, stream_failure_message,
@@ -647,10 +646,7 @@ fn check_stop_reason(
 
 /// The diagnostic recording the server's input transformations: the
 /// `type`, `path` and `reason` of each.
-fn input_transformations_diagnostic(
-    transformations: &[JsonValue],
-    timestamp: u64,
-) -> AssistantMessageDiagnostic {
+fn input_transformations_diagnostic(transformations: &[JsonValue]) -> AssistantMessageDiagnostic {
     let details: Vec<JsonValue> = transformations
         .iter()
         .map(|transformation| {
@@ -666,8 +662,7 @@ fn input_transformations_diagnostic(
     let mut detail_object = JsonObject::new();
     detail_object.insert("transformations".into(), JsonValue::Array(details));
     AssistantMessageDiagnostic {
-        kind: "anthropic_input_transformations".to_owned(),
-        timestamp,
+        kind: DiagnosticKind::AnthropicInputTransformations,
         error: None,
         details: Some(detail_object),
     }
@@ -727,7 +722,7 @@ pub(crate) async fn consume(
     if let Some(transformations) = input_transformations.filter(|items| !items.is_empty()) {
         append_assistant_message_diagnostic(
             output,
-            input_transformations_diagnostic(&transformations, now_ms()),
+            input_transformations_diagnostic(&transformations),
         );
     }
     Ok(())

@@ -11,11 +11,12 @@ use std::sync::Arc;
 use eukhe_chord::context::{AbortError, AbortReason};
 
 use eukhe_types::pi_ai::{AssistantMessage, JsonObject, JsonValue};
-pub use eukhe_types::pi_ai::{AssistantMessageDiagnostic, DiagnosticCode, DiagnosticErrorInfo};
+pub use eukhe_types::pi_ai::{
+    AssistantMessageDiagnostic, DiagnosticCode, DiagnosticErrorInfo, DiagnosticKind,
+};
 
 use super::js::js_to_string;
 use super::models_error::ModelsError;
-use super::now_ms;
 
 /// A thrown value (TS `unknown` in `catch`).
 pub type Thrown = AbortReason;
@@ -196,13 +197,12 @@ pub fn extract_diagnostic_error(error: &Thrown) -> DiagnosticErrorInfo {
 /// TS `createAssistantMessageDiagnostic`.
 #[must_use]
 pub fn create_assistant_message_diagnostic(
-    kind: &str,
+    kind: DiagnosticKind,
     error: &Thrown,
     details: Option<JsonObject>,
 ) -> AssistantMessageDiagnostic {
     AssistantMessageDiagnostic {
-        kind: kind.to_owned(),
-        timestamp: now_ms(),
+        kind,
         error: Some(extract_diagnostic_error(error)),
         details,
     }
@@ -301,12 +301,11 @@ mod tests {
         let mut message = faux_text_message("x");
         let details: JsonObject = json!({ "attempt": 1 }).as_object().unwrap().clone();
         let diagnostic = create_assistant_message_diagnostic(
-            "retry",
+            DiagnosticKind::Retry,
             &ErrorObject::new("boom").thrown(),
             Some(details),
         );
-        assert_eq!(diagnostic.kind, "retry");
-        assert!(diagnostic.timestamp > 0);
+        assert_eq!(diagnostic.kind, DiagnosticKind::Retry);
         assert_eq!(diagnostic.error.as_ref().unwrap().message, "boom");
         append_assistant_message_diagnostic(&mut message, diagnostic.clone());
         append_assistant_message_diagnostic(&mut message, diagnostic.clone());

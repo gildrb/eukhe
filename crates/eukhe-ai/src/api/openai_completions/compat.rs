@@ -3,7 +3,7 @@
 //! `getCompat`).
 
 use crate::quirks::{Lookup, Quirks};
-use crate::types::{IndexMap, KnownProvider};
+use crate::types::{IndexMap, ProviderId};
 
 use crate::types::{
     CacheControlFormat, ChatTemplateKwargValue, MaxTokensField, Model, ModelCompat,
@@ -80,7 +80,7 @@ pub(crate) fn model_compat(model: &Model) -> Option<&OpenAICompletionsCompat> {
 /// catalog formats; set `compat.thinkingFormat` to opt a custom model out.
 pub(crate) fn is_custom_qwen_template_model(model: &Model) -> bool {
     if !model.reasoning
-        || KnownProvider::parse(&model.provider).is_some()
+        || matches!(model.provider, ProviderId::Known(_))
         || model_compat(model).is_some_and(|compat| compat.thinking_format.is_some())
     {
         return false;

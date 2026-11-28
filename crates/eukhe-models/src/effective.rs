@@ -190,20 +190,21 @@ fn assemble(bundled: Vec<Model>, compiled: &[Model]) -> Result<Vec<Model>, Error
 #[cfg(test)]
 mod tests {
     use super::*;
+    use eukhe_types::ai::Api;
 
     #[test]
     fn repeated_keys_with_different_apis_keep_the_bundled_entry() {
         let mut bundled = crate::transports::compiled_models()[0].clone();
         bundled.provider = "shared-provider".to_owned();
         bundled.id = "shared-model".to_owned();
-        bundled.api = "bundled-api".to_owned();
+        bundled.api = Api::parse("bundled-api");
         bundled.thinking_level_map = None;
         bundled.compat = None;
         bundled.featured = None;
         bundled.headers = None;
 
         let mut compiled = bundled.clone();
-        compiled.api = "compiled-api".to_owned();
+        compiled.api = Api::parse("compiled-api");
         compiled.featured = Some(true);
 
         assert_eq!(

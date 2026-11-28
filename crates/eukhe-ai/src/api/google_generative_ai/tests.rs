@@ -5,7 +5,8 @@
 use std::sync::{Arc, Mutex, PoisonError};
 
 use eukhe_types::pi_ai::{
-    AssistantContentBlock, JsonValue, Model, StopReason, ThinkingBudgets, ThinkingLevel,
+    AssistantContentBlock, DiagnosticKind, JsonValue, Model, StopReason, ThinkingBudgets,
+    ThinkingLevel,
 };
 use serde_json::json;
 
@@ -58,7 +59,7 @@ async fn preserves_raw_gemini_finish_reasons_for_google_generative_ai_errors() {
     );
     // eukhe addition: the stream-failure diagnostic.
     let diagnostics = message.diagnostics.expect("diagnostics");
-    assert_eq!(diagnostics[0].kind, "provider_stream_failure");
+    assert_eq!(diagnostics[0].kind, DiagnosticKind::ProviderStreamFailure);
 }
 
 #[tokio::test]

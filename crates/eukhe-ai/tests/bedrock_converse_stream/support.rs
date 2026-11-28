@@ -522,6 +522,6 @@ pub fn find_diagnostic(message: &AssistantMessage, kind: &str) -> Option<JsonVal
         .diagnostics
         .as_ref()?
         .iter()
-        .find(|diagnostic| diagnostic.kind == kind)
+        .find(|diagnostic| diagnostic.kind.as_str() == kind)
         .map(|diagnostic| serde_json::to_value(diagnostic).expect("serializes"))
 }

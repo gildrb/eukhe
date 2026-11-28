@@ -48,7 +48,7 @@ fn gated<O: GatedOptions>(
         return inner(model, context, options);
     }
     gate.saw(super::runs::SeenModel {
-        provider: model.provider.clone(),
+        provider: model.provider.as_str().to_owned(),
         priced: model.cost.input > 0.0 || model.cost.output > 0.0,
     });
     let outer = AssistantMessageEventStream::new();

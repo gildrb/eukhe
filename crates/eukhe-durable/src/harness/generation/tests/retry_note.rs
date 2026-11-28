@@ -13,7 +13,8 @@ use eukhe_ai::providers::faux::{
 };
 use eukhe_chord::json::JsonValue;
 use eukhe_types::pi_ai::{
-    AssistantContentBlock, AssistantMessageDiagnostic, Message, StopReason, UserContent,
+    AssistantContentBlock, AssistantMessageDiagnostic, DiagnosticKind, Message, StopReason,
+    UserContent,
 };
 
 use crate::harness::generation::decide::MAX_NOTES;
@@ -290,8 +291,7 @@ async fn a_retry_after_a_stall_has_a_note_and_twice_the_idle_deadline() {
             details.insert("kind".to_owned(), "stream_stalled".into());
             details.insert("idleTimeoutMs".to_owned(), 2000.into());
             message.diagnostics = Some(vec![AssistantMessageDiagnostic {
-                kind: "provider_stream_failure".to_owned(),
-                timestamp: 0,
+                kind: DiagnosticKind::ProviderStreamFailure,
                 error: None,
                 details: Some(details),
             }]);

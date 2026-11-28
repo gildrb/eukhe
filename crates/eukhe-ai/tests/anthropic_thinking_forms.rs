@@ -1,6 +1,7 @@
-//! The `thinking` / `output_config` forms of the shipped Anthropic Messages
 //! models: what each model is sent at each thinking level, per the
 //! catalog's thinking facts for that model.
+
+use eukhe_types::pi_ai::Api;
 
 mod anthropic_support;
 
@@ -257,13 +258,13 @@ async fn zai_glm_rides_the_anthropic_endpoint() {
     };
     let anthropic = || {
         (
-            "anthropic-messages".to_owned(),
+            Api::parse("anthropic-messages"),
             "https://api.z.ai/api/anthropic".to_owned(),
         )
     };
     let coding = || {
         (
-            "openai-completions".to_owned(),
+            Api::parse("openai-completions"),
             "https://api.z.ai/api/coding/paas/v4".to_owned(),
         )
     };

@@ -180,12 +180,13 @@ fn is_content(entry: &FileEntry) -> bool {
 #[cfg(test)]
 mod tests {
     use crate::session::manager::SessionManager;
+    use eukhe_types::pi_ai::Api;
     use eukhe_types::session::AgentMessage;
 
     fn assistant() -> AgentMessage {
         AgentMessage::Assistant(eukhe_types::ai::AssistantMessage {
             content: vec![],
-            api: "openai-completions".to_string(),
+            api: Api::parse("openai-completions"),
             provider: "openai".to_string(),
             model: "m".to_string(),
             response_model: None,

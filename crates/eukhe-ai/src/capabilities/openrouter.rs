@@ -1,4 +1,3 @@
-//! The `OpenRouter` dialect: the key's credit usage (`GET /v1/key`) and the
 //! images of the `openrouter-images` API as generated images.
 
 use eukhe_types::pi_ai::{AssistantImages, JsonValue, UserContentBlock};
@@ -66,7 +65,7 @@ pub(crate) async fn usage(
 
 #[cfg(test)]
 mod tests {
-    use eukhe_types::pi_ai::{ImageContent, ImagesStopReason, TextContent};
+    use eukhe_types::pi_ai::{ImageContent, ImagesStopReason, ProviderId, TextContent};
     use serde_json::json;
 
     use super::*;
@@ -120,7 +119,7 @@ mod tests {
     fn images_of_keeps_the_image_blocks() {
         let output = AssistantImages {
             api: "openrouter-images".to_owned(),
-            provider: "openrouter".to_owned(),
+            provider: ProviderId::parse("openrouter"),
             model: "google/gemini-2.5-flash-image".to_owned(),
             output: vec![
                 UserContentBlock::Text(TextContent::new("here")),

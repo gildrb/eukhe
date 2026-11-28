@@ -391,7 +391,9 @@ fn round_ms(delta_ms: f64) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use eukhe_types::pi_ai::{AssistantContentBlock, ThinkingContent, UsageCost};
+    use eukhe_types::pi_ai::{
+        Api, AssistantContentBlock, KnownApi, ProviderId, ThinkingContent, UsageCost,
+    };
 
     /// Tests that touch the `EUKHE_REQUEST_TIMING` env serialize on this
     /// lock: the process env is global across parallel test threads.
@@ -421,8 +423,8 @@ mod tests {
     fn empty_partial() -> AssistantMessage {
         AssistantMessage {
             content: Vec::new(),
-            api: "openai-completions".to_string(),
-            provider: "bench".to_string(),
+            api: Api::Known(KnownApi::OpenAICompletions),
+            provider: ProviderId::parse("bench"),
             model: "bench/bench-model".to_string(),
             response_model: None,
             response_id: None,

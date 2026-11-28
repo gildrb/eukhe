@@ -919,8 +919,8 @@ impl<'a> From<&'a Model> for ModelKey<'a> {
         Self {
             id: &model.id,
             name: &model.name,
-            api: &model.api,
-            provider: &model.provider,
+            api: model.api.as_str(),
+            provider: model.provider.as_str(),
             base_url: &model.base_url,
         }
     }
@@ -931,8 +931,8 @@ impl<'a> From<&'a eukhe_types::ai::Model> for ModelKey<'a> {
         Self {
             id: &model.id,
             name: &model.name,
-            api: &model.api,
-            provider: &model.provider,
+            api: model.api.as_str(),
+            provider: model.provider.as_str(),
             base_url: &model.base_url,
         }
     }

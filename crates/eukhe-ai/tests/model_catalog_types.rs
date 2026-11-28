@@ -19,19 +19,19 @@ fn copilot(id: &str) -> &'static Model {
 
 #[test]
 fn derives_model_api_id_and_provider_literals_from_grouped_model_data() {
-    assert_eq!(xai("grok-4.5").api, "openai-responses");
+    assert_eq!(xai("grok-4.5").api.as_str(), "openai-responses");
     assert_eq!(xai("grok-4.5").id, "grok-4.5");
-    assert_eq!(xai("grok-4.5").provider, "xai");
-    assert_eq!(xai("grok-4.6").api, "openai-responses");
+    assert_eq!(xai("grok-4.5").provider.as_str(), "xai");
+    assert_eq!(xai("grok-4.6").api.as_str(), "openai-responses");
     assert_eq!(xai("grok-4.6").id, "grok-4.6");
-    assert_eq!(xai("grok-4.7").api, "openai-responses");
+    assert_eq!(xai("grok-4.7").api.as_str(), "openai-responses");
     assert_eq!(xai("grok-4.7").id, "grok-4.7");
-    assert_eq!(xai("grok-4.3").api, "openai-responses");
+    assert_eq!(xai("grok-4.3").api.as_str(), "openai-responses");
 }
 
 #[test]
 fn routes_github_copilot_grok_4_5_through_the_responses_api() {
-    assert_eq!(copilot("grok-4.5").api, "openai-responses");
+    assert_eq!(copilot("grok-4.5").api.as_str(), "openai-responses");
 }
 
 // Regression test for https://github.com/earendil-works/pi/issues/9209
@@ -44,11 +44,11 @@ fn routes_all_github_copilot_gpt_models_through_the_responses_api() {
     assert!(!gpt_models.is_empty());
     assert!(gpt_models
         .iter()
-        .all(|model| model.api == "openai-responses"));
-    assert_eq!(copilot("gpt-6-astra").api, "openai-responses");
+        .all(|model| model.api.as_str() == "openai-responses"));
+    assert_eq!(copilot("gpt-6-astra").api.as_str(), "openai-responses");
     for model_id in ["gpt-6-sol", "gpt-6-luna"] {
         let model = copilot(model_id);
-        assert_eq!(model.api, "openai-responses");
+        assert_eq!(model.api.as_str(), "openai-responses");
         assert_match_object(
             model,
             &serde_json::json!({

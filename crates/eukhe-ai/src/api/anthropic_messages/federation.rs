@@ -77,7 +77,7 @@ pub(crate) fn get_anthropic_federation(
     headers: Option<&ProviderHeaders>,
     env: Option<&ProviderEnv>,
 ) -> Option<AnthropicFederationConfig> {
-    if model.provider != "anthropic" || has_request_auth(api_key, headers) {
+    if model.provider.as_str() != "anthropic" || has_request_auth(api_key, headers) {
         return None;
     }
     let federation_rule_id = get_provider_env_value(ANTHROPIC_FEDERATION_RULE_ID_ENV, env)?;

@@ -1,9 +1,9 @@
-//! Port of `test/stream.test.ts`: the "Generate E2E Tests" provider matrix.
 //! Every case hits a real endpoint (TS `describe.skipIf(!process.env.X)` /
 //! `it.skipIf(!token)`), so each is `#[ignore]`d with the variables it needs
 //! and fails with a clear message when they are missing. OAuth tokens (TS
 //! `resolveApiKey`) come from `PI_TEST_<PROVIDER>_TOKEN`. TS `{ retry: N }`
 //! runs the case up to N times.
+use eukhe_types::pi_ai::Api;
 
 mod common;
 
@@ -664,7 +664,7 @@ vertex!(
 /// without `compat`.
 fn openai_completions_model() -> Model {
     Model {
-        api: "openai-completions".to_owned(),
+        api: Api::parse("openai-completions"),
         compat: None,
         ..model("openai", "gpt-4o-mini")
     }

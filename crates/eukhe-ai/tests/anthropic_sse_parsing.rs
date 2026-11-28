@@ -293,16 +293,11 @@ async fn uses_the_serving_model_input_transformations_from_the_final_stream_even
     )
     .await;
 
-    let mut diagnostics = to_json(&result.diagnostics);
-    for diagnostic in diagnostics.as_array_mut().expect("diagnostics") {
-        assert!(diagnostic["timestamp"].is_number());
-        diagnostic["timestamp"] = json!(0);
-    }
+    let diagnostics = to_json(&result.diagnostics);
     assert_eq!(
         diagnostics,
         json!([{
             "type": "anthropic_input_transformations",
-            "timestamp": 0,
             "details": {
                 "transformations": [{
                     "type": "thinking_dropped",

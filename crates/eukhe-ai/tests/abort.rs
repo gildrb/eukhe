@@ -1,4 +1,3 @@
-//! Port of `test/abort.test.ts`: aborting a provider stream mid-generation
 //! or before it starts ends the request with `stopReason: "aborted"`, and the
 //! conversation continues afterwards.
 //!
@@ -8,6 +7,8 @@
 //! `stream`/`complete` env API key injection, as in TS. The `OpenAI` Codex
 //! token, which TS resolves from `~/.pi/agent/auth.json` (`test/oauth.ts`),
 //! comes from `PI_TEST_OPENAI_CODEX_TOKEN`.
+
+use eukhe_types::pi_ai::Api;
 
 mod common;
 
@@ -259,7 +260,7 @@ async fn google_should_handle_immediate_abort() {
 fn openai_completions_llm() -> Model {
     let mut llm = model("openai", "gpt-4o-mini");
     llm.compat = None;
-    "openai-completions".clone_into(&mut llm.api);
+    llm.api = Api::parse("openai-completions");
     llm
 }
 

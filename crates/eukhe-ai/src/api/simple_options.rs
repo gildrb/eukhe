@@ -39,7 +39,7 @@ pub const OPENAI_MAX_OUTPUT_TOKENS: u64 = 64_000;
 /// predicates decide the wire.
 #[must_use]
 pub fn maps_forced_tool_choice(model: &Model, reasoning: Option<ThinkingLevel>) -> bool {
-    match KnownApi::parse(&model.api) {
+    match KnownApi::parse(model.api.as_str()) {
         Some(KnownApi::AnthropicMessages) => {
             !crate::api::anthropic_messages::manual_thinking(model, reasoning)
         }
@@ -183,7 +183,7 @@ pub fn build_base_options(
     let quirks = Quirks::of(model);
     let needs = quirks.default_output_cap().unwrap_or(true)
         || id_has_prefix(model, quirks.default_output_cap_prefixes())
-        || match KnownApi::parse(&model.api) {
+        || match KnownApi::parse(model.api.as_str()) {
             Some(KnownApi::AnthropicMessages) => true,
             Some(KnownApi::BedrockConverseStream) => {
                 crate::api::bedrock_converse_stream::convert::is_anthropic_claude_model(model)

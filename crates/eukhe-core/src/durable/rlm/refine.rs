@@ -403,7 +403,7 @@ pub(crate) fn legacy_model(model: &eukhe_types::pi_ai::Model) -> eukhe_types::ai
         id: model.id.clone(),
         name: model.name.clone(),
         api: model.api.clone(),
-        provider: model.provider.clone(),
+        provider: model.provider.as_str().to_owned(),
         base_url: model.base_url.clone(),
         reasoning: model.reasoning,
         thinking_level_map: None,

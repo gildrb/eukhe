@@ -37,8 +37,8 @@ fn compat(model: &Model) -> serde_json::Value {
 fn registers_the_default_kimi_k3_model_via_openai_compatible_chat_completions_api() {
     let model = together("moonshotai/Kimi-K3");
 
-    assert_eq!(model.api, "openai-completions");
-    assert_eq!(model.provider, "together");
+    assert_eq!(model.api.as_str(), "openai-completions");
+    assert_eq!(model.provider.as_str(), "together");
     assert_eq!(model.base_url, "https://api.together.ai/v1");
     assert!(model.reasoning);
     assert_json_eq(

@@ -372,7 +372,7 @@ pub fn stream(
                 output.error_message = Some(format_mistral_error(&failure));
                 // eukhe addition: provider stream-failure diagnostics.
                 record_stream_failure(
-                    (&model.provider, &model.id, &model.api),
+                    (model.provider.as_str(), &model.id, model.api.as_str()),
                     &mut output,
                     &diagnostic_error,
                 );

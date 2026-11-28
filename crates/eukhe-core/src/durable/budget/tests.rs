@@ -30,8 +30,8 @@ use eukhe_types::budget::{
 };
 use eukhe_types::pi_ai::{
     AssistantContentBlock, AssistantMessage, AssistantMessageEvent, Context as PiContext,
-    DeferredHandle, DoneReason, ErrorReason, Message, ModelCost, ModelCostTier, Partial,
-    StopReason, Tool, ToolChoice, Usage, UserContent, UserMessage,
+    DeferredHandle, DiagnosticKind, DoneReason, ErrorReason, Message, ModelCost, ModelCostTier,
+    Partial, StopReason, Tool, ToolChoice, Usage, UserContent, UserMessage,
 };
 use futures::StreamExt as _;
 use tempfile::TempDir;
@@ -722,7 +722,7 @@ async fn a_request_is_stopped_at_its_granted_time() {
         ),
         (
             Some(notices::REQUEST_STOPPED.to_owned()),
-            vec![BUDGET_REFUSAL_DIAGNOSTIC.to_owned()],
+            vec![DiagnosticKind::parse(BUDGET_REFUSAL_DIAGNOSTIC)],
             Some(std::time::Duration::from_millis(60_000)),
         )
     );
@@ -1341,7 +1341,12 @@ async fn a_refused_request_is_typed_and_never_retried() {
             is_context_overflow(&refused, None),
             fixture.faux.state().call_count,
         ),
-        (vec![BUDGET_REFUSAL_DIAGNOSTIC.to_owned()], false, false, 0)
+        (
+            vec![DiagnosticKind::parse(BUDGET_REFUSAL_DIAGNOSTIC)],
+            false,
+            false,
+            0,
+        )
     );
 }
 

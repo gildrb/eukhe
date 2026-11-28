@@ -91,7 +91,7 @@ fn ships_a_static_public_catalog_for_the_default_gateway() {
     let models = (provider.get_models)().expect("models");
     assert!(!models.is_empty());
     assert!(chat_models(&models).any(|model| model.id == "balanced"
-        && model.provider == "radius"
+        && model.provider.as_str() == "radius"
         && model.api.as_str() == "pi-messages"));
 }
 

@@ -143,7 +143,7 @@ async fn next_mapped_event(state: &mut MapState) -> Option<Result<JsonValue, Thr
             .as_ref()
             .filter(|_| event_type == Some(EventType::CodexRateLimits))
         {
-            crate::quota::record_codex_frame(&state.model.provider, credential, &event);
+            crate::quota::record_codex_frame(state.model.provider.as_str(), credential, &event);
         }
 
         match event_type {

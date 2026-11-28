@@ -13,8 +13,8 @@ use eukhe_ai::providers::faux::{
     FauxProviderHandle, FauxResponseStep, RegisterFauxProviderOptions,
 };
 use eukhe_types::pi_ai::{
-    Context as PiContext, ImageContent, JsonObject, Modality, StopReason, TextContent, Usage,
-    UserMessage,
+    Context as PiContext, ImageContent, JsonObject, Modality, ProviderId, StopReason, TextContent,
+    Usage, UserMessage,
 };
 
 /// A session-shaped `HostDeps` over temp dirs (no Harness attached:
@@ -828,7 +828,7 @@ async fn a_dead_login_is_never_refreshed_until_a_new_login() {
     let kept = watch.refresh(stale.clone(), signal()).await.unwrap();
     let dead_refresh = (
         kept == stale,
-        take_login_failure(&inner.logins, "faux-a"),
+        take_login_failure(&inner.logins, &ProviderId::parse("faux-a")),
         refreshes(),
     );
     let login = ProviderAuthInteraction::new(Arc::new(Unasked), signal());
@@ -927,7 +927,10 @@ async fn a_new_login_clears_the_dead_login_of_its_account() {
     };
     let before = (dead(&first), dead(&second));
     let _kept = watch.refresh(first.clone(), signal()).await.unwrap();
-    let dead_refresh = (take_login_failure(&inner.logins, "faux-a"), refreshes());
+    let dead_refresh = (
+        take_login_failure(&inner.logins, &ProviderId::parse("faux-a")),
+        refreshes(),
+    );
     let login = ProviderAuthInteraction::new(Arc::new(Unasked), signal());
     let _logged_in = watch.login(login, None).await.unwrap();
     let after = (dead(&first), dead(&second));
@@ -1408,8 +1411,7 @@ fn quota_step(reset_ms: u64) -> FauxResponseStep {
         message.stop_reason = StopReason::Error;
         message.error_message = Some("429 rate limit".to_owned());
         message.diagnostics = Some(vec![eukhe_types::pi_ai::AssistantMessageDiagnostic {
-            kind: "provider_stream_failure".to_owned(),
-            timestamp: 0,
+            kind: eukhe_types::pi_ai::DiagnosticKind::ProviderStreamFailure,
             error: None,
             details: Some(details),
         }]);

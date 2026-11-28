@@ -16,9 +16,9 @@ use eukhe_durable::types::{
     ContextEdit, ContextEditAction, ConversationOwnership, EntryDraft, EntryHead, EntryRecord,
 };
 use eukhe_types::pi_ai::{
-    AssistantContentBlock, AssistantMessage, IndexMap, JsonObject, Message, StopReason,
-    SystemContent, SystemMessage, TextContent, ToolCall, ToolResultMessage, Usage, UserContent,
-    UserContentBlock, UserMessage,
+    Api, AssistantContentBlock, AssistantMessage, IndexMap, JsonObject, Message, ProviderId,
+    StopReason, SystemContent, SystemMessage, TextContent, ToolCall, ToolResultMessage, Usage,
+    UserContent, UserContentBlock, UserMessage,
 };
 use futures::future::BoxFuture;
 
@@ -60,8 +60,8 @@ fn assistant_message(text: &str, calls: &[&str], stop_reason: Option<StopReason>
     }));
     Message::Assistant(AssistantMessage {
         content,
-        api: "example".to_owned(),
-        provider: "example".to_owned(),
+        api: Api::parse("example"),
+        provider: ProviderId::parse("example"),
         model: "example".to_owned(),
         response_model: None,
         response_id: None,

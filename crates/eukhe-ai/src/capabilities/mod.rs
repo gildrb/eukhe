@@ -319,8 +319,8 @@ impl Capabilities {
 pub fn capabilities_of(model: &Model) -> Capabilities {
     let quirks = Quirks::for_lookup(model, Lookup::Capabilities);
     Capabilities {
-        provider: model.provider.clone(),
-        api: model.api.clone(),
+        provider: model.provider.as_str().to_owned(),
+        api: model.api.as_str().to_owned(),
         base_url: model.base_url.clone(),
         entries: Capability::ALL
             .into_iter()

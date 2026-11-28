@@ -368,7 +368,7 @@ struct ClientInputs<'a> {
 fn create_client(model: &Model, inputs: &ClientInputs<'_>) -> (SdkClient, bool) {
     let model_headers = model.headers.as_ref().map(to_provider_headers);
     let fetch = inputs.fetch.cloned();
-    if model.provider == "github-copilot" {
+    if model.provider.as_str() == "github-copilot" {
         let client = SdkClient {
             base_url: model.base_url.clone(),
             auth: ClientAuth::Static {
@@ -598,7 +598,7 @@ pub fn stream_anthropic(
                     *failure.diagnostic
                 };
                 record_stream_failure(
-                    (&model.provider, &model.id, &model.api),
+                    (model.provider.as_str(), &model.id, model.api.as_str()),
                     &mut output,
                     &diagnostic,
                 );
@@ -667,7 +667,7 @@ async fn run(
         }
     };
     if let Some(token) = request.api_key.as_deref().filter(|_| is_oauth) {
-        crate::quota::record_anthropic_headers(&model.provider, token, response.headers());
+        crate::quota::record_anthropic_headers(model.provider.as_str(), token, response.headers());
     }
     if let Some(on_response) = &request.on_response {
         on_response(
@@ -719,7 +719,7 @@ fn request_client(
             model.provider
         )));
     }
-    let copilot_headers = (model.provider == "github-copilot").then(|| {
+    let copilot_headers = (model.provider.as_str() == "github-copilot").then(|| {
         let has_images = has_copilot_vision_input(context.messages());
         to_provider_headers(&build_copilot_dynamic_headers(
             context.messages(),

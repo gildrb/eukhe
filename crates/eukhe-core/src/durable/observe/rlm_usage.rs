@@ -141,6 +141,7 @@ mod tests {
     use super::*;
     use eukhe_chord::json::JsonValue;
     use eukhe_durable::types::ConversationId;
+    use eukhe_types::pi_ai::{Api, ProviderId};
     use eukhe_types::pi_ai::{StopReason, UsageCost};
 
     fn usage(input: u64, output: u64, total_tokens: u64) -> Usage {
@@ -166,8 +167,8 @@ mod tests {
         EntryRecord {
             model: Some(vec![Message::Assistant(AssistantMessage {
                 content: Vec::new(),
-                api: "faux".to_owned(),
-                provider: "faux".to_owned(),
+                api: Api::parse("faux"),
+                provider: ProviderId::parse("faux"),
                 model: "faux-1".to_owned(),
                 response_model: None,
                 response_id: None,

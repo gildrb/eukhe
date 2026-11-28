@@ -93,7 +93,7 @@ impl McpEndpointProbeImpl for ReqwestMcpProbe {
 
 /// One JSON-RPC request body for the handshake.
 fn rpc(method: &str, id: i64, params: &serde_json::Value) -> serde_json::Value {
-    serde_json::json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params.clone() })
+    serde_json::json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params })
 }
 
 fn auth_headers(token: &str) -> reqwest::header::HeaderMap {

@@ -6,7 +6,9 @@
 
 use serde_json::json;
 
-use eukhe_types::pi_ai::{AssistantMessageDiagnostic, DoneReason, ErrorReason, JsonObject, Usage};
+use eukhe_types::pi_ai::{
+    AssistantMessageDiagnostic, DiagnosticKind, DoneReason, ErrorReason, JsonObject, Usage,
+};
 
 use super::*;
 
@@ -748,8 +750,7 @@ fn supports_interleaved_streams_by_content_index() {
 fn snapshots_mutable_event_data_and_keeps_reduction_pure() {
     let mut partial = AssistantMessage {
         diagnostics: Some(vec![AssistantMessageDiagnostic {
-            kind: "test".into(),
-            timestamp: 2,
+            kind: DiagnosticKind::Other("test".into()),
             error: None,
             details: Some(object(json!({ "value": "original" }))),
         }]),

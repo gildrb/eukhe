@@ -1,4 +1,3 @@
-//! The `azure-openai-responses` wire API. Port of
 //! `api/azure-openai-responses.ts`.
 //!
 //! API-specific options (TS `AzureOpenAIResponsesOptions`) are read from
@@ -6,6 +5,7 @@
 //! `toolChoice`, and the Azure endpoint keys of
 //! [`AzureEndpointOptions::from_extra`].
 
+use eukhe_types::pi_ai::Api;
 use std::sync::Arc;
 
 use serde_json::json;
@@ -206,7 +206,7 @@ fn build_params(
 fn new_output(model: &Model) -> AssistantMessage {
     AssistantMessage {
         content: Vec::new(),
-        api: "azure-openai-responses".to_owned(),
+        api: Api::parse("azure-openai-responses"),
         provider: model.provider.clone(),
         model: model.id.clone(),
         response_model: None,

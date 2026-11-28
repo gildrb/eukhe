@@ -47,7 +47,7 @@ pub fn registry_model(model: &pi_ai::Model) -> Result<Model, ConversionError> {
         id: model.id.clone(),
         name: model.name.clone(),
         api: model.api.clone(),
-        provider: model.provider.clone(),
+        provider: model.provider.as_str().to_owned(),
         base_url: model.base_url.clone(),
         reasoning: model.reasoning,
         thinking_level_map: model.thinking_level_map.as_ref().map(thinking_level_map),

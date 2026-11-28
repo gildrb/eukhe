@@ -67,7 +67,7 @@ fn applies_copilot_specific_adaptive_thinking_effort_overrides() {
     assert!(levels(&opus47).contains(&"max".to_owned()));
 
     let opus5 = copilot_model("claude-opus-5");
-    assert_eq!(opus5.api, "anthropic-messages");
+    assert_eq!(opus5.api.as_str(), "anthropic-messages");
     assert_eq!(opus5.context_window, 1_000_000);
     assert_match_object(
         &model_json(&opus5)["thinkingLevelMap"],
@@ -77,7 +77,7 @@ fn applies_copilot_specific_adaptive_thinking_effort_overrides() {
     assert!(levels(&opus5).contains(&"max".to_owned()));
 
     let opus55 = copilot_model("claude-opus-5.5");
-    assert_eq!(opus55.api, "anthropic-messages");
+    assert_eq!(opus55.api.as_str(), "anthropic-messages");
     assert_eq!(opus55.context_window, 1_000_000);
     assert_eq!(levels(&opus55), ["low", "medium", "high", "xhigh", "max"]);
 
@@ -93,7 +93,7 @@ fn applies_copilot_specific_adaptive_thinking_effort_overrides() {
 #[tokio::test]
 async fn uses_bearer_auth_copilot_headers_and_valid_anthropic_messages_payload() {
     let model = copilot_model("claude-sonnet-4.6");
-    assert_eq!(model.api, "anthropic-messages");
+    assert_eq!(model.api.as_str(), "anthropic-messages");
 
     let (fetch, captured) = mock_fetch(minimal_sse());
     let mut options = ProviderStreamOptions::default();

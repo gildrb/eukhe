@@ -137,7 +137,7 @@ impl Catalog {
 fn api_for(api: Option<&ProviderApi>, model: &Model) -> Option<ProviderStreams> {
     match api? {
         ProviderApi::Single(streams) => Some(streams.clone()),
-        ProviderApi::ByApi(by_api) => by_api.get(&model.api).cloned(),
+        ProviderApi::ByApi(by_api) => by_api.get(model.api.as_str()).cloned(),
     }
 }
 

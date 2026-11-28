@@ -91,7 +91,7 @@ async fn first_system_prompt(place: TreePlace, host: Arc<FakeHost>) -> String {
     config.models = Some(models);
     config.model = Some(
         ModelRef {
-            provider: model.provider,
+            provider: model.provider.as_str().to_owned(),
             model_id: model.id,
         }
         .into(),

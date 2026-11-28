@@ -87,7 +87,7 @@ async fn every_listed_model_resolves_in_a_session() {
         .models
         .get_models(None)
         .into_iter()
-        .map(|model| (model.provider, model.id))
+        .map(|model| (model.provider.as_str().to_owned(), model.id))
         .collect();
     let missing: Vec<String> = listed
         .iter()
@@ -176,7 +176,7 @@ async fn requested_models_resolve_exactly_or_are_not_found() {
         .models
         .get_models(None)
         .into_iter()
-        .map(|model| (model.provider, model.id))
+        .map(|model| (model.provider.as_str().to_owned(), model.id))
         .collect();
     let settings = SettingsManager::in_memory(&Settings::default());
     let resolve = |provider: &str, id: &str| {

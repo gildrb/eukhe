@@ -26,6 +26,7 @@ use eukhe_tiny::{
     Candidate, CatalogModel, ModelKind, Role, RoleSettings, TinyClient, TinyError, TinyHome,
     CATALOG,
 };
+use eukhe_types::pi_ai::ProviderId;
 use eukhe_types::pi_ai::{
     AnyModel, ClassifierAnswer, ClassifierContext, ClassifierModel, ClassifierQuestion,
     ClassifierResult, ClassifierStopReason, IndexMap, Modality, ModelCost, ModelType,
@@ -69,7 +70,7 @@ pub fn classifier_model(model: &CatalogModel) -> ClassifierModel {
         id: model.id.to_owned(),
         name: model.title.to_owned(),
         api: LOCAL_CLASSIFIER_API.to_owned(),
-        provider: LOCAL_PROVIDER.to_owned(),
+        provider: ProviderId::parse(LOCAL_PROVIDER),
         base_url: String::new(),
         input: vec![Modality::Text],
         input_limits: None,

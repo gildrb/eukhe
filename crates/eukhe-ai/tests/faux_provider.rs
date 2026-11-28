@@ -65,8 +65,8 @@ fn faux_tokenizer(registration: &Registered) -> Arc<Tokenizer> {
     let model = registration.get_model();
     Tokenizer::for_model(ModelRef {
         id: &model.id,
-        provider: &model.provider,
-        api: &model.api,
+        provider: model.provider.as_str(),
+        api: model.api.as_str(),
     })
 }
 
@@ -247,8 +247,8 @@ async fn rewrites_api_provider_and_model_on_returned_messages() {
 
     let response = done(&registration, hi(), ProviderStreamOptions::default()).await;
 
-    assert_eq!(response.api, "faux:test");
-    assert_eq!(response.provider, "faux-provider");
+    assert_eq!(response.api.as_str(), "faux:test");
+    assert_eq!(response.provider.as_str(), "faux-provider");
     assert_eq!(response.model, "faux-model");
 }
 

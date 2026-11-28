@@ -501,7 +501,10 @@ async fn checks_provider_auth_without_refreshing_oauth_and_filters_available_mod
     );
     assert_eq!(refreshes.load(Ordering::SeqCst), 0);
     let providers = |models: Vec<eukhe_types::pi_ai::Model>| -> Vec<String> {
-        models.into_iter().map(|model| model.provider).collect()
+        models
+            .into_iter()
+            .map(|model| model.provider.as_str().to_owned())
+            .collect()
     };
     assert_eq!(
         providers(
@@ -714,8 +717,7 @@ async fn a_provider_401_refreshes_the_stored_oauth_token_and_reissues_once() {
         rejected.stop_reason = StopReason::Error;
         rejected.error_message = Some("401 OAuth access token has expired".to_owned());
         rejected.diagnostics = Some(vec![eukhe_types::pi_ai::AssistantMessageDiagnostic {
-            kind: "provider_stream_failure".to_owned(),
-            timestamp: 0,
+            kind: eukhe_types::pi_ai::DiagnosticKind::ProviderStreamFailure,
             error: None,
             details: serde_json::json!({ "kind": "auth", "status": 401 })
                 .as_object()

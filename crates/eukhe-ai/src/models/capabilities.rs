@@ -35,7 +35,7 @@ impl RequestOptions<Model> for CapabilityOptions {
 fn unsupported(capability: Capability, model: &Model) -> CapabilityError {
     CapabilityError::Unsupported(Unsupported {
         capability,
-        provider: model.provider.clone(),
+        provider: model.provider.as_str().to_owned(),
     })
 }
 
@@ -56,7 +56,7 @@ impl Models {
         for model in self.get_models(Some(provider)) {
             let known = rows
                 .iter()
-                .any(|row| row.api == model.api && row.base_url == model.base_url);
+                .any(|row| row.api == model.api.as_str() && row.base_url == model.base_url);
             if !known {
                 rows.push(capabilities_of(&model));
             }
@@ -200,7 +200,7 @@ impl Models {
         options: ModelsCapabilityOptions,
     ) -> Result<GeneratedImages, CapabilityError> {
         let Some(AnyModel::Image(image_model)) =
-            self.get_model_of_type(ModelType::Image, &model.provider, &request.model)
+            self.get_model_of_type(ModelType::Image, model.provider.as_str(), &request.model)
         else {
             return Err(CapabilityError::Request(error(format!(
                 "Unknown image model of provider {}: {}",

@@ -417,7 +417,7 @@ mod tests {
                 rest: serde_json::Map::default(),
                 cache_breakpoint: None,
             })],
-            api: "openai-completions".to_string(),
+            api: Api::parse("openai-completions"),
             provider: "test".to_string(),
             model: "m".to_string(),
             response_model: None,
@@ -649,11 +649,13 @@ mod tests {
         assert_eq!(rejected.instructions, None);
     }
 
+    use eukhe_types::pi_ai::Api;
+
     fn test_model() -> eukhe_types::ai::Model {
         eukhe_types::ai::Model {
             id: "test".to_string(),
             name: "test".to_string(),
-            api: "openai-completions".to_string(),
+            api: Api::parse("openai-completions"),
             provider: "test".to_string(),
             base_url: "https://example.invalid".to_string(),
             reasoning: false,

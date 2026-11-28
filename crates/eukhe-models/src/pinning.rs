@@ -63,7 +63,7 @@ impl PinnedTemplates {
                     .transports
                     .entry(model.provider.clone())
                     .or_default()
-                    .entry(model.api.clone())
+                    .entry(model.api.as_str().to_owned())
                     .or_default()
                     .insert(model.base_url.clone(), model.headers.clone());
                 pinned

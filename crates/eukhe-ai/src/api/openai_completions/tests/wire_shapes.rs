@@ -225,7 +225,7 @@ async fn kimi_always_sends_an_output_cap() {
 /// A chat-completions reasoning model whose id names Qwen.
 fn is_qwen_chat(model: &Model) -> bool {
     model.reasoning
-        && model.api == "openai-completions"
+        && model.api.as_str() == "openai-completions"
         && model.id.to_ascii_lowercase().contains("qwen")
 }
 
@@ -266,7 +266,7 @@ async fn cloudflare_workers_ai_sends_reasoning_effort() {
         &["cloudflare-ai-gateway"],
         |model| {
             model.reasoning
-                && model.api == "openai-completions"
+                && model.api.as_str() == "openai-completions"
                 && model.id.starts_with("workers-ai/")
                 && !is_qwen_chat(model)
         },
@@ -346,8 +346,8 @@ async fn off_sends_the_lowest_offered_effort() {
 async fn fireworks_models_send_chat_completions_reasoning_effort() {
     let other_api: Vec<String> = crate::providers::all::get_builtin_models("fireworks")
         .into_iter()
-        .filter(|model| model.api != "openai-completions")
-        .map(|model| format!("{} ({})", model.id, model.api))
+        .filter(|model| model.api.as_str() != "openai-completions")
+        .map(|model| format!("{} ({})", model.id, model.api.as_str()))
         .collect();
     assert!(other_api.is_empty(), "not chat-completions: {other_api:?}");
     let effort = |effort: &str| json!({ "reasoning_effort": effort });
@@ -373,7 +373,10 @@ async fn fireworks_models_send_chat_completions_reasoning_effort() {
 /// `reasoning_effort`, not as an Anthropic body.
 #[tokio::test]
 async fn opencode_go_minimax_m3_sends_chat_completions_reasoning_effort() {
-    assert_eq!(model("opencode-go", "minimax-m3").api, "openai-completions");
+    assert_eq!(
+        model("opencode-go", "minimax-m3").api.as_str(),
+        "openai-completions"
+    );
     assert_rows(
         &[("opencode-go", "minimax-m3", "high")],
         |_| json!({ "reasoning_effort": "high" }),
@@ -453,7 +456,7 @@ async fn output_cap_field_matches_the_reference() {
         ("opencode-go", ""),
     ] {
         for model in crate::providers::all::get_builtin_models(provider) {
-            if model.api != "openai-completions" || !model.id.starts_with(prefix) {
+            if model.api.as_str() != "openai-completions" || !model.id.starts_with(prefix) {
                 continue;
             }
             let payload = payload(&model, level("high").filter(|_| model.reasoning), false).await;

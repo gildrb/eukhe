@@ -266,7 +266,10 @@ async fn http_failures_record_a_provider_stream_failure_diagnostic() {
     );
     let diagnostics = result.diagnostics.expect("diagnostics");
     assert_eq!(diagnostics.len(), 1);
-    assert_eq!(diagnostics[0].kind, "provider_stream_failure");
+    assert_eq!(
+        diagnostics[0].kind,
+        eukhe_types::pi_ai::DiagnosticKind::ProviderStreamFailure
+    );
     let details = diagnostics[0].details.clone().expect("details");
     assert_eq!(details["kind"], json!("overloaded"));
     assert_eq!(details["status"], json!(529));

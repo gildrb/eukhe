@@ -81,8 +81,8 @@ pub(super) fn base64_len(bytes: usize) -> u64 {
 fn native(model: &Model) -> (u32, Option<u64>) {
     let rule = resolve_image_tokenization(ModelRef {
         id: &model.id,
-        provider: &model.provider,
-        api: &model.api,
+        provider: model.provider.as_str(),
+        api: model.api.as_str(),
     });
     match rule {
         Some(ImageTokenization::AnthropicPatch {
@@ -164,7 +164,8 @@ fn caps(model: &Model) -> ImageCaps {
 #[cfg(test)]
 mod tests {
     use eukhe_types::pi_ai::{
-        ModelCost, ModelImageInputLimits, ModelImageResizeOptions, ModelInputLimits,
+        Api, ModelCost, ModelImageInputLimits, ModelImageResizeOptions, ModelInputLimits,
+        ProviderId,
     };
 
     use super::*;
@@ -173,8 +174,8 @@ mod tests {
         Model {
             id: id.to_owned(),
             name: id.to_owned(),
-            api: api.to_owned(),
-            provider: "p".to_owned(),
+            api: Api::parse(api),
+            provider: ProviderId::parse("p"),
             base_url: String::new(),
             input: if vision {
                 vec![Modality::Text, Modality::Image]

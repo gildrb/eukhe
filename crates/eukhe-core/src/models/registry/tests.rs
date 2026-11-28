@@ -247,7 +247,7 @@ fn a_stored_xai_subscription_switches_its_models_onto_responses() {
     let dir = tempfile::tempdir().unwrap();
     let registry = registry_with_completions_grok(auth, &dir);
     let grok = completions_grok(&registry);
-    assert_eq!(grok.api, "openai-responses");
+    assert_eq!(grok.api.as_str(), "openai-responses");
     assert_eq!(grok.base_url, "https://api.x.ai/v1");
     // The catalog's xai model is non-reasoning: "off" is the only
     // supported level whatever the subscription map nulls (the
@@ -361,7 +361,7 @@ fn without_a_stored_xai_subscription_the_models_stay_on_completions() {
     let dir = tempfile::tempdir().unwrap();
     let registry = registry_with_completions_grok(auth_without_env(&serde_json::json!({})), &dir);
     let grok = completions_grok(&registry);
-    assert_eq!(grok.api, "openai-completions");
+    assert_eq!(grok.api.as_str(), "openai-completions");
     assert!(grok.thinking_level_map.is_none());
     assert!(grok.compat.is_none());
 }

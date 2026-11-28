@@ -49,8 +49,9 @@ use eukhe_tokens::Tokenizer;
 use eukhe_types::budget::{BudgetAmounts, BudgetDimension, BudgetLimits, BudgetReport};
 use eukhe_types::pi_ai::{
     AssistantContentBlock, AssistantMessage, AssistantMessageDiagnostic, AssistantMessageEvent,
-    DeferredHandle, DoneReason, ErrorReason, JsonValue, Message, Model, ModelCost, Partial,
-    ServiceTier, StopReason, ToolChoice, TranscriptContext, Usage, UserContent, UserMessage,
+    DeferredHandle, DiagnosticKind, DoneReason, ErrorReason, JsonValue, Message, Model, ModelCost,
+    Partial, ServiceTier, StopReason, ToolChoice, TranscriptContext, Usage, UserContent,
+    UserMessage,
 };
 use futures::StreamExt as _;
 
@@ -762,8 +763,7 @@ impl<O: GatedOptions> Request<O> {
                 provider_thinking_level: None,
                 thinking_level: None,
                 diagnostics: Some(vec![AssistantMessageDiagnostic {
-                    kind: BUDGET_REFUSAL_DIAGNOSTIC.to_owned(),
-                    timestamp: now_millis(),
+                    kind: DiagnosticKind::parse(BUDGET_REFUSAL_DIAGNOSTIC),
                     error: None,
                     details: None,
                 }]),
@@ -875,7 +875,7 @@ impl<O: GatedOptions> Request<O> {
         if agent_turn {
             let gate = Arc::clone(&self.gate);
             let seen = SeenModel {
-                provider: model.provider.clone(),
+                provider: model.provider.as_str().to_owned(),
                 priced: model.cost.input > 0.0 || model.cost.output > 0.0,
             };
             let first = offered.last().copied().unwrap_or_default();

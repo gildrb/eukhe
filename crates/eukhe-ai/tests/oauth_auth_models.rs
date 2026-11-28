@@ -48,7 +48,7 @@ async fn resolves_stored_anthropic_oauth_credentials_via_the_lazy_flow_import() 
 
     let model = models.get_models(Some("anthropic")).remove(0);
     let result = models
-        .get_auth(&model.provider, AuthResolutionOverrides::default())
+        .get_auth(model.provider.as_str(), AuthResolutionOverrides::default())
         .await
         .expect("auth")
         .expect("configured");
@@ -75,7 +75,7 @@ async fn resolves_stored_github_copilot_oauth_credentials_including_per_credenti
 
     let model = models.get_models(Some("github-copilot")).remove(0);
     let result = models
-        .get_auth(&model.provider, AuthResolutionOverrides::default())
+        .get_auth(model.provider.as_str(), AuthResolutionOverrides::default())
         .await
         .expect("auth")
         .expect("configured");

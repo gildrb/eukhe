@@ -50,8 +50,8 @@ fn value<T: serde::Serialize>(value: &T) -> Value {
 fn registers_non_glm_non_kimi_k3_models_via_the_openai_compatible_chat_api() {
     let model = fireworks("accounts/fireworks/models/deepseek-v4p1-flash");
 
-    assert_eq!(model.api, "openai-completions");
-    assert_eq!(model.provider, "fireworks");
+    assert_eq!(model.api.as_str(), "openai-completions");
+    assert_eq!(model.provider.as_str(), "fireworks");
     assert_eq!(model.base_url, "https://api.fireworks.ai/inference/v1");
     assert!(model.reasoning);
     assert_json_eq(&model.input, &json!(["text", "image"]));
@@ -99,7 +99,7 @@ fn routes_kimi_k3_through_the_openai_compatible_api_with_native_effort_controls(
         "max": "max",
     });
 
-    assert_eq!(base.api, "openai-completions");
+    assert_eq!(base.api.as_str(), "openai-completions");
     assert_eq!(base.base_url, "https://api.fireworks.ai/inference/v1");
     assert_json_eq(&base.compat, &compat);
     assert_json_eq(&base.thinking_level_map, &thinking_level_map);
@@ -113,7 +113,7 @@ fn routes_kimi_k3_through_the_openai_compatible_api_with_native_effort_controls(
 /// on the chat-completions route).
 fn offers_native_effort_levels_for(model_id: &str, levels: &Value) {
     let model = fireworks(model_id);
-    assert_eq!(model.api, "openai-completions");
+    assert_eq!(model.api.as_str(), "openai-completions");
     assert_json_eq(&get_supported_thinking_levels(&model), levels);
 }
 

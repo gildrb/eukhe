@@ -98,7 +98,7 @@ fn catalog() -> Vec<Model> {
     crate::models_generated::MODELS
         .values()
         .flat_map(|models| models.values())
-        .filter(|model| model.api.starts_with("google"))
+        .filter(|model| model.api.as_str().starts_with("google"))
         .cloned()
         .collect()
 }

@@ -35,9 +35,9 @@ use std::sync::Arc;
 use eukhe_chord::context::AbortSignal;
 use eukhe_types::pi_ai::IndexMap;
 use eukhe_types::pi_ai::{
-    AssistantMessage, AssistantMessageEvent, DoneReason, ErrorReason, JsonObject, JsonValue, Model,
-    ModelThinkingLevel, OpenAIResponsesCompat, StopReason, TranscriptContext, Transport, Usage,
-    UsageCost,
+    Api, AssistantMessage, AssistantMessageEvent, DiagnosticKind, DoneReason, ErrorReason,
+    JsonObject, JsonValue, Model, ModelThinkingLevel, OpenAIResponsesCompat, StopReason,
+    TranscriptContext, Transport, Usage, UsageCost,
 };
 
 use crate::api::constrained_sampling::create_grammar_tool_input_properties;
@@ -263,7 +263,7 @@ pub fn stream(
     tokio::spawn(async move {
         let mut output = AssistantMessage {
             content: Vec::new(),
-            api: API.to_owned(),
+            api: Api::parse(API),
             provider: model.provider.clone(),
             model: model.id.clone(),
             response_model: None,
@@ -320,7 +320,7 @@ pub fn stream(
                 ));
                 // eukhe addition: the `provider_stream_failure` diagnostic.
                 record_stream_failure(
-                    (&model.provider, &model.id, &model.api),
+                    (model.provider.as_str(), &model.id, model.api.as_str()),
                     &mut output,
                     &to_provider_error(&error, aborted),
                 );
@@ -492,7 +492,7 @@ async fn run(
             append_assistant_message_diagnostic(
                 output,
                 create_assistant_message_diagnostic(
-                    "provider_transport_failure",
+                    DiagnosticKind::ProviderTransportFailure,
                     &error,
                     Some(details),
                 ),

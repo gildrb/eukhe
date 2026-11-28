@@ -282,7 +282,7 @@ pub fn thinking_level_map(model: &Model) -> Option<&ThinkingLevelMap> {
     model
         .thinking_level_map
         .as_ref()
-        .or_else(|| rule_ladder(model, &model.provider, model.reasoning))
+        .or_else(|| rule_ladder(model, model.provider.as_str(), model.reasoning))
 }
 
 /// The ladder facts of a pi-ai model.
@@ -290,7 +290,7 @@ fn facts(model: &Model) -> LadderFacts {
     LadderFacts::new(
         Reasons::ByFlag(model.reasoning),
         model.thinking_level_map.as_ref().map(entries),
-        rule_ladder(model, &model.provider, model.reasoning).map(entries),
+        rule_ladder(model, model.provider.as_str(), model.reasoning).map(entries),
     )
 }
 

@@ -13,6 +13,7 @@ use std::sync::LazyLock;
 use eukhe_models::bundled::BundledCatalogFallback;
 use eukhe_models::ModelCatalog;
 use eukhe_types::ai::{CompatKind, Model, ModelCompat, ModelThinkingLevel, OpenAiResponsesCompat};
+use eukhe_types::pi_ai::Api;
 
 use crate::auth::manager::AuthStorage;
 use crate::auth::types::AuthCredential;
@@ -101,7 +102,7 @@ pub struct ModelRegistry {
 /// reasoning output stays; unverified effort controls never send).
 fn xai_subscription_model(model: &Model) -> Model {
     let mut adapted = model.clone();
-    adapted.api = "openai-responses".to_string();
+    adapted.api = Api::parse("openai-responses");
     adapted.base_url = "https://api.x.ai/v1".to_string();
     // TS `getXaiSubscriptionModel` fills only an absent map: a model
     // that already declares its levels keeps them.

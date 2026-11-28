@@ -19,7 +19,8 @@ use eukhe_chord::context::AbortController;
 use eukhe_types::daemon::agent_roster::ModelAdmission;
 use eukhe_types::daemon::AdmissionPriority;
 use eukhe_types::pi_ai::{
-    AssistantMessageEvent, DoneReason, Model, ModelCost, StopReason, TranscriptContext,
+    Api, AssistantMessageEvent, DoneReason, Model, ModelCost, ProviderId, StopReason,
+    TranscriptContext,
 };
 use tempfile::TempDir;
 
@@ -93,8 +94,8 @@ fn model(provider: &str) -> Model {
     Model {
         id: "m".to_string(),
         name: "m".to_string(),
-        api: "test".to_string(),
-        provider: provider.to_string(),
+        api: Api::parse("test"),
+        provider: ProviderId::parse(provider),
         base_url: "http://localhost:0".to_string(),
         input: Vec::new(),
         input_limits: None,

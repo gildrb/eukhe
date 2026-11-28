@@ -67,9 +67,9 @@ use eukhe_durable::session::{SessionError, SessionResult, Tx};
 use eukhe_durable::types::{ConversationId, TypedEntryDraft};
 use eukhe_types::input_origin::InputOrigin;
 use eukhe_types::pi_ai::{
-    AssistantMessage, AssistantMessageDiagnostic, AssistantMessageEvent, DoneReason, ErrorReason,
-    Message, Modality, Model, PromptProgress, StopReason, TranscriptContext, Usage, UserContent,
-    UserContentBlock,
+    AssistantMessage, AssistantMessageDiagnostic, AssistantMessageEvent, DiagnosticKind,
+    DoneReason, ErrorReason, Message, Modality, Model, PromptProgress, ProviderId, StopReason,
+    TranscriptContext, Usage, UserContent, UserContentBlock,
 };
 use futures::future::BoxFuture;
 use futures::{FutureExt, StreamExt};
@@ -252,7 +252,8 @@ struct DeadLogin {
 /// The dead login of `provider`'s current account, when every account of
 /// the provider (or the one login of a provider with no stored account)
 /// is dead for the run: the provider has no login left.
-fn provider_dead_login(inner: &Inner, provider: &str) -> Option<DeadLogin> {
+fn provider_dead_login(inner: &Inner, provider: &ProviderId) -> Option<DeadLogin> {
+    let provider = provider.as_str();
     let accounts = inner.accounts.accounts(provider);
     let current = inner.accounts.current_identity(provider, &accounts);
     let dead = inner.dead_logins.lock().unwrap_or_else(poisoned);
@@ -271,7 +272,8 @@ fn provider_dead_login(inner: &Inner, provider: &str) -> Option<DeadLogin> {
 /// Record `provider`'s login found unusable: the account a request just
 /// failed on, and each account this session's account rotation found
 /// dead ([`AccountBook::is_dead`]).
-fn mark_dead_login(inner: &Inner, provider: &str, dead: &DeadLogin) {
+fn mark_dead_login(inner: &Inner, provider: &ProviderId, dead: &DeadLogin) {
+    let provider = provider.as_str();
     let accounts = inner.accounts.accounts(provider);
     let mut identities = vec![inner.accounts.current_identity(provider, &accounts)];
     identities.extend(
@@ -631,8 +633,14 @@ impl OAuthAuth for LoginWatch {
 
 /// The recorded failed refresh of `provider`'s login, taken: the request
 /// about to go out on that login fails instead.
-fn take_login_failure(logins: &Mutex<HashMap<String, String>>, provider: &str) -> Option<String> {
-    logins.lock().unwrap_or_else(poisoned).remove(provider)
+fn take_login_failure(
+    logins: &Mutex<HashMap<String, String>>,
+    provider: &ProviderId,
+) -> Option<String> {
+    logins
+        .lock()
+        .unwrap_or_else(poisoned)
+        .remove(provider.as_str())
 }
 
 /// The diagnostic kind of a request that failed at the provider runtime
@@ -656,8 +664,7 @@ fn login_failed_stream(model: &Model, error: &str) -> AssistantMessageEventStrea
 fn login_failed_message(model: &Model, error: &str) -> AssistantMessage {
     let mut message = refuted_message(model, error);
     message.diagnostics = Some(vec![AssistantMessageDiagnostic {
-        kind: LOGIN_EXPIRED_DIAGNOSTIC.to_owned(),
-        timestamp: now_millis(),
+        kind: DiagnosticKind::parse(LOGIN_EXPIRED_DIAGNOSTIC),
         error: None,
         details: None,
     }]);
@@ -742,7 +749,7 @@ async fn run_request(
     // provider, so it never fails over to another.
     if inner
         .models
-        .get_provider(&primary.provider)
+        .get_provider(primary.provider.as_str())
         .is_some_and(|provider| provider.dedups_requests)
     {
         failover.enabled = false;
@@ -1056,7 +1063,7 @@ async fn run_request(
                     .lock()
                     .unwrap_or_else(poisoned)
                     .iter_mut()
-                    .filter(|((provider, _), _)| *provider == primary.provider)
+                    .filter(|((provider, _), _)| *provider == primary.provider.as_str())
                 {
                     dead.moved_to = serving.clone();
                 }
@@ -1122,7 +1129,7 @@ fn original_dispatch(
         .originals
         .lock()
         .unwrap_or_else(poisoned)
-        .get(&model.provider)
+        .get(model.provider.as_str())
         .cloned();
     let models = inner.models.clone();
     let settings = Arc::clone(&inner.deps.settings);
@@ -1221,8 +1228,7 @@ async fn finish_failure(
             .diagnostics
             .get_or_insert_with(Vec::new)
             .push(AssistantMessageDiagnostic {
-                kind: QUOTA_PARK_DIAGNOSTIC.to_owned(),
-                timestamp: now_millis(),
+                kind: DiagnosticKind::parse(QUOTA_PARK_DIAGNOSTIC),
                 error: None,
                 details: details.as_object().cloned(),
             });
@@ -1442,10 +1448,11 @@ enum AccountTurn {
 fn account_turn(
     inner: &Inner,
     settings: &SettingsManager,
-    provider: &str,
+    provider: &ProviderId,
     message: &AssistantMessage,
     waits: u64,
 ) -> AccountTurn {
+    let provider = provider.as_str();
     let Some(failure) = AccountFailure::of(message, wait_cap_ms(settings)) else {
         return AccountTurn::Stays;
     };
@@ -1658,7 +1665,7 @@ async fn backup_move(
                 allowed: allowlist_allows(settings, model),
                 images: !request.images || model.input.contains(&Modality::Image),
                 exhausted: backups::quota_exhausted(
-                    QuotaBoard::latest(&model.provider).as_ref(),
+                    QuotaBoard::latest(model.provider.as_str()).as_ref(),
                     now,
                 ),
                 model,
@@ -1776,7 +1783,7 @@ fn failure_why(
         .diagnostics
         .iter()
         .flatten()
-        .any(|diagnostic| diagnostic.kind == LOGIN_EXPIRED_DIAGNOSTIC)
+        .any(|diagnostic| diagnostic.kind.as_str() == LOGIN_EXPIRED_DIAGNOSTIC)
         || failure.error_message.as_deref().is_some_and(|error| {
             error.starts_with(MISSING_KEY_PREFIX)
                 || error.contains(CREDENTIAL_STORE_FAILED)

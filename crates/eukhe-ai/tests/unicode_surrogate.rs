@@ -160,7 +160,7 @@ fn unpaired_surrogate_text() -> String {
 
 impl Scenario {
     fn input(self, model: &Model) -> ScenarioInput {
-        let mistral = model.provider == "mistral";
+        let mistral = model.provider.as_str() == "mistral";
         match self {
             Self::EmojiInToolResults => ScenarioInput {
                 tool_call_id: if mistral { "testtool1" } else { "test_1" },

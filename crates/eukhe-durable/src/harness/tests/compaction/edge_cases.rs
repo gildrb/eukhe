@@ -8,7 +8,9 @@ use eukhe_ai::providers::faux::{
     faux_assistant_message, faux_thinking, FauxAssistantMessageOptions, FauxModelDefinition,
     RegisterFauxProviderOptions,
 };
-use eukhe_types::pi_ai::{AssistantMessage, AssistantMessageDiagnostic, Message, StopReason};
+use eukhe_types::pi_ai::{
+    AssistantMessage, AssistantMessageDiagnostic, DiagnosticKind, Message, StopReason,
+};
 use futures::FutureExt;
 
 use super::automatic::{event_kinds, record_events};
@@ -43,8 +45,7 @@ fn retry_after(mut message: AssistantMessage, ms: f64) -> AssistantMessage {
     let mut details = eukhe_types::pi_ai::JsonObject::new();
     details.insert("retryAfterMs".to_owned(), ms.into());
     message.diagnostics = Some(vec![AssistantMessageDiagnostic {
-        kind: "provider_stream_failure".to_owned(),
-        timestamp: 0,
+        kind: DiagnosticKind::ProviderStreamFailure,
         error: None,
         details: Some(details),
     }]);

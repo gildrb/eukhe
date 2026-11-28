@@ -7,9 +7,9 @@ use eukhe_ai::models::{create_models as create_pi_models, CreateModelsOptions, M
 use eukhe_ai::typebox::{TSchema, Type};
 use eukhe_chord::context::{Context, BACKGROUND_CONTEXT};
 use eukhe_types::pi_ai::{
-    AssistantContentBlock, AssistantMessage, IndexMap, Message, StopReason, SystemContent,
-    SystemMessage, TextContent, ToolCall, ToolResultMessage, Usage, UserContent, UserContentBlock,
-    UserMessage,
+    Api, AssistantContentBlock, AssistantMessage, IndexMap, Message, ProviderId, StopReason,
+    SystemContent, SystemMessage, TextContent, ToolCall, ToolResultMessage, Usage, UserContent,
+    UserContentBlock, UserMessage,
 };
 use futures::future::BoxFuture;
 
@@ -136,8 +136,8 @@ pub(crate) fn assistant(text: &str, options: AssistantOptions<'_>) -> AssistantM
     }));
     AssistantMessage {
         content,
-        api: "faux".to_owned(),
-        provider: "faux".to_owned(),
+        api: Api::parse("faux"),
+        provider: ProviderId::parse("faux"),
         model: "faux".to_owned(),
         response_model: None,
         response_id: None,

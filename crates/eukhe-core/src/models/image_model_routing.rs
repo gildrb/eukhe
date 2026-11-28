@@ -125,12 +125,13 @@ pub fn resolve_image_model_override(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use eukhe_types::pi_ai::Api;
 
     fn model(id: &str, image: bool) -> Model {
         Model {
             id: id.to_string(),
             name: id.to_string(),
-            api: "anthropic-messages".to_string(),
+            api: Api::parse("anthropic-messages"),
             provider: "anthropic".to_string(),
             base_url: "https://x".to_string(),
             reasoning: true,
@@ -262,7 +263,7 @@ mod tests {
         let session = model("claude-opus-4-7-text-only", false);
         let mut image_model = model("gpt-5.4", true);
         image_model.provider = "openai".to_string();
-        image_model.api = "openai-responses".to_string();
+        image_model.api = Api::parse("openai-responses");
         let available = vec![session.clone(), image_model];
         let inputs = inputs(&session, Some("openai/gpt-5.4"), &available, false);
         let resolved = resolve_image_model_override(&inputs).unwrap().unwrap();

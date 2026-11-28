@@ -36,9 +36,9 @@ fn force_adaptive_thinking(model: &Model) -> bool {
 fn marks_built_in_anthropic_messages_models_that_use_adaptive_thinking() {
     let mut flagged_models: Vec<String> = get_all_models()
         .iter()
-        .filter(|model| model.api == "anthropic-messages")
+        .filter(|model| model.api.as_str() == "anthropic-messages")
         .filter(|model| force_adaptive_thinking(model))
-        .map(|model| format!("{}/{}", model.provider, model.id))
+        .map(|model| format!("{}/{}", model.provider.as_str(), model.id))
         .collect();
     flagged_models.sort();
 

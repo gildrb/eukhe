@@ -27,8 +27,8 @@ pub struct ContextTokens {
 pub fn model_tokenizer(model: &Model) -> Arc<Tokenizer> {
     Tokenizer::for_model(ModelRef {
         id: &model.id,
-        provider: &model.provider,
-        api: &model.api,
+        provider: model.provider.as_str(),
+        api: model.api.as_str(),
     })
 }
 

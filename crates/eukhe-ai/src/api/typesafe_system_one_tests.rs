@@ -1,6 +1,6 @@
-//! Port of `test/typesafe-system-one.test.ts` and the custom-fetch Jev
 //! routing cases of `test/classifier-models.test.ts`.
 
+use eukhe_types::pi_ai::ProviderId;
 use std::future::pending;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -159,7 +159,7 @@ async fn posts_openrouter_system_one_requests_to_its_typesafe_compatible_endpoin
     });
     let mut open_router_model = model();
     open_router_model.id = "typesafe/jev-1.13".to_owned();
-    open_router_model.provider = "openrouter".to_owned();
+    open_router_model.provider = ProviderId::parse("openrouter");
     open_router_model.base_url = "https://openrouter.ai/api/v1".to_owned();
     open_router_model.cost.input = 0.042;
 

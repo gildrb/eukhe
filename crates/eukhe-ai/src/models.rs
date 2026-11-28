@@ -76,10 +76,10 @@ macro_rules! impl_catalog_model {
                 &self.id
             }
             fn provider_id(&self) -> &str {
-                &self.provider
+                self.provider.as_str()
             }
             fn api_id(&self) -> &str {
-                &self.api
+                self.api.as_str()
             }
             fn catalog_type(&self) -> ModelType {
                 $model_type
@@ -171,7 +171,7 @@ pub(crate) fn model_headers_as_provider_headers(
 /// models never match, even when their api id equals `api`.
 #[must_use]
 pub fn has_api(model: &AnyModel, api: &str) -> bool {
-    matches!(model, AnyModel::Chat(chat) if chat.api == api)
+    matches!(model, AnyModel::Chat(chat) if chat.api.as_str() == api)
 }
 
 /// Computes `usage.cost` from the model's prices (request-wide tiers by

@@ -96,7 +96,7 @@ async fn test_context_overflow(model: &Model, api_key: &str) -> OverflowResult {
     let has_usage_data = response.usage.input > 0 || response.usage.cache_read > 0;
 
     OverflowResult {
-        provider: model.provider.clone(),
+        provider: model.provider.as_str().to_owned(),
         model: model.id.clone(),
         context_window: model.context_window,
         stop_reason: response.stop_reason,

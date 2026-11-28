@@ -17,10 +17,10 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use eukhe_chord::context::AbortSignal;
 use eukhe_tokens::{ModelRef, Tokenizer};
 use eukhe_types::pi_ai::{
-    AnyModel, AssistantContentBlock, AssistantMessage, AssistantMessageEvent, CacheRetention,
+    AnyModel, Api, AssistantContentBlock, AssistantMessage, AssistantMessageEvent, CacheRetention,
     DeferredHandle, DoneReason, ErrorReason, JsonObject, JsonValue, Message, Modality, Model,
-    ModelCost, ModelInputLimits, ProviderResponse, StopReason, TextContent, ThinkingContent,
-    ToolCall, TranscriptContext, Usage, UserContent, UserContentBlock,
+    ModelCost, ModelInputLimits, ProviderId, ProviderResponse, StopReason, TextContent,
+    ThinkingContent, ToolCall, TranscriptContext, Usage, UserContent, UserContentBlock,
 };
 use futures::future::BoxFuture;
 
@@ -167,8 +167,8 @@ pub fn faux_assistant_message(
 ) -> AssistantMessage {
     AssistantMessage {
         content: normalize_faux_assistant_content(content.into()),
-        api: DEFAULT_API.to_owned(),
-        provider: DEFAULT_PROVIDER.to_owned(),
+        api: Api::parse(DEFAULT_API),
+        provider: ProviderId::parse(DEFAULT_PROVIDER),
         model: DEFAULT_MODEL_ID.to_owned(),
         response_model: None,
         response_id: options.response_id,
@@ -305,8 +305,8 @@ fn random_unit() -> f64 {
 fn message_tokenizer(message: &AssistantMessage) -> Arc<Tokenizer> {
     Tokenizer::for_model(ModelRef {
         id: &message.model,
-        provider: &message.provider,
-        api: &message.api,
+        provider: message.provider.as_str(),
+        api: message.api.as_str(),
     })
 }
 
@@ -486,8 +486,8 @@ fn clone_message(
     model_id: &str,
 ) -> AssistantMessage {
     AssistantMessage {
-        api: api.to_owned(),
-        provider: provider.to_owned(),
+        api: Api::parse(api),
+        provider: ProviderId::parse(provider),
         model: model_id.to_owned(),
         ..message.clone()
     }
@@ -501,8 +501,8 @@ fn base_message(
 ) -> AssistantMessage {
     AssistantMessage {
         content: Vec::new(),
-        api: api.to_owned(),
-        provider: provider.to_owned(),
+        api: Api::parse(api),
+        provider: ProviderId::parse(provider),
         model: model_id.to_owned(),
         response_model: None,
         response_id: None,
@@ -524,7 +524,12 @@ fn base_message(
 fn create_deferred_message(model: &Model, handle: &DeferredHandle) -> AssistantMessage {
     AssistantMessage {
         deferred: Some(handle.clone()),
-        ..base_message(&model.api, &model.provider, &model.id, StopReason::Deferred)
+        ..base_message(
+            model.api.as_str(),
+            model.provider.as_str(),
+            &model.id,
+            StopReason::Deferred,
+        )
     }
 }
 
@@ -854,8 +859,8 @@ impl FauxCore {
             .map(|definition| Model {
                 name: definition.name.unwrap_or_else(|| definition.id.clone()),
                 id: definition.id,
-                api: api.clone(),
-                provider: provider.clone(),
+                api: Api::parse(&api),
+                provider: ProviderId::parse(&provider),
                 base_url: DEFAULT_BASE_URL.to_owned(),
                 input: definition
                     .input
@@ -1015,9 +1020,9 @@ impl FauxCore {
         if wants_deferred(options.as_ref()) {
             let deferred_options = self.inner.deferred.clone().unwrap_or_default();
             let handle = DeferredHandle {
-                provider: request_model.provider.clone(),
+                provider: request_model.provider.as_str().to_owned(),
                 model_id: request_model.id.clone(),
-                api: request_model.api.clone(),
+                api: request_model.api.as_str().to_owned(),
                 id: random_id("deferred"),
                 expires_at: None,
                 poll_after_ms: deferred_options.poll_after_ms,

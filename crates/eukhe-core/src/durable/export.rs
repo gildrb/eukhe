@@ -67,7 +67,7 @@ pub fn export_rows(entries: &[EntryRecord]) -> Result<ExportRows> {
             continue;
         };
         if let Some(usage) = body.get("message").and_then(valid_assistant_usage) {
-            context_tokens = calculate_context_tokens(&usage);
+            context_tokens = calculate_context_tokens(usage);
         }
         let id = entry.id.to_string();
         let mut row = Map::new();

@@ -77,7 +77,7 @@ async fn records_status_error_code_and_request_id_for_a_non_2xx_from_client_send
     assert!(diagnostic.get("error").is_none());
     let mut keys: Vec<&String> = diagnostic.as_object().expect("object").keys().collect();
     keys.sort();
-    assert_eq!(keys, ["details", "timestamp", "type"]);
+    assert_eq!(keys, ["details", "type"]);
 }
 
 #[tokio::test]

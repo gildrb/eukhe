@@ -1,6 +1,6 @@
 //! The `opencode-go` provider. Port of `providers/opencode-go.ts`.
 
-use eukhe_types::pi_ai::IndexMap;
+use eukhe_types::pi_ai::{Api, IndexMap};
 
 use super::api_route::routed_streams;
 use super::opencode_go_models::OPENCODE_GO_MODELS;
@@ -20,7 +20,7 @@ fn responses_route(model: &Model) -> Option<Model> {
         return None;
     }
     let mut routed = model.clone();
-    "openai-responses".clone_into(&mut routed.api);
+    routed.api = Api::parse("openai-responses");
     routed.compat = Some(ModelCompat::OpenAIResponses(OpenAIResponsesCompat {
         supports_developer_role: Some(false),
         ..OpenAIResponsesCompat::default()

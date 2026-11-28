@@ -23,7 +23,7 @@ async fn sends_openai_models_as_chat_completions_with_reasoning_effort() {
             .get(id)
             .expect("catalog model")
             .clone();
-        assert_eq!(model.api, "openai-responses", "{id}");
+        assert_eq!(model.api.as_str(), "openai-responses", "{id}");
         let (fetch, captured) = mock_fetch(vec![MockResponse::sse("data: [DONE]\n\n")]);
         let mut options = SimpleStreamOptions {
             reasoning: Some(level),

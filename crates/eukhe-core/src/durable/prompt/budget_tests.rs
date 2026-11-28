@@ -168,7 +168,7 @@ async fn default_root_request(kernel: Kernel) -> (usize, String) {
     config.models = Some(models);
     config.model = Some(
         ModelRef {
-            provider: model.provider,
+            provider: model.provider.as_str().to_owned(),
             model_id: model.id,
         }
         .into(),

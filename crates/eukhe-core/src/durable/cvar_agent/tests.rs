@@ -63,7 +63,7 @@ impl Fixture {
         let model = self.faux.get_model();
         config.model = Some(
             ModelRef {
-                provider: model.provider,
+                provider: model.provider.as_str().to_owned(),
                 model_id: model.id,
             }
             .into(),

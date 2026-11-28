@@ -262,7 +262,7 @@ pub(super) fn layered_streams(base: Option<Arc<Provider>>) -> (StreamFn, StreamS
         let api_model = model.clone();
         let context = context.clone();
         lazy_stream(model, async move {
-            let api = load_stream_api(&api_model.api)?;
+            let api = load_stream_api(api_model.api.as_str())?;
             Ok((api.stream)(&api_model, &context, options))
         })
     });
@@ -273,7 +273,7 @@ pub(super) fn layered_streams(base: Option<Arc<Provider>>) -> (StreamFn, StreamS
         let api_model = model.clone();
         let context = context.clone();
         lazy_stream(model, async move {
-            let api = load_stream_api(&api_model.api)?;
+            let api = load_stream_api(api_model.api.as_str())?;
             Ok((api.stream_simple)(&api_model, &context, options))
         })
     });

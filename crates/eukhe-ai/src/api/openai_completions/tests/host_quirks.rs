@@ -1,7 +1,7 @@
-//! eukhe addition: the wire of the quirks rulebook's host settings
 //! A model names one host: the provider's host
 //! wins over a host its base URL names, and the two do not combine.
 
+use crate::types::ProviderId;
 use serde_json::json;
 
 use super::support::{capture_payload, context, model};
@@ -124,7 +124,7 @@ async fn the_openai_provider_at_a_loopback_url_keeps_the_loopback_settings() {
     let mut openai = chat_model("openai", "gpt-5", "http://localhost:8080/v1");
     openai.reasoning = true;
     let mut custom = openai.clone();
-    custom.provider = "my-local".to_owned();
+    custom.provider = ProviderId::Other("my-local".into());
     let sent = payload(&openai).await;
     assert_eq!(
         (
@@ -145,7 +145,7 @@ async fn a_llama_cpp_provider_on_a_lan_address_sends_the_hostless_wire() {
     let mut llama = chat_model("llama-cpp", "gemma-3-4b", "http://192.168.1.20:8080/v1");
     llama.reasoning = true;
     let mut custom = llama.clone();
-    custom.provider = "my-lan".to_owned();
+    custom.provider = ProviderId::Other("my-lan".into());
     let mut sent = payload(&llama).await;
     assert_eq!(
         (

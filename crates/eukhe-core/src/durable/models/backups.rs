@@ -66,7 +66,7 @@ fn login_rejected(failure: &AssistantMessage) -> bool {
         .diagnostics
         .iter()
         .flatten()
-        .any(|diagnostic| diagnostic.kind == LOGIN_EXPIRED_DIAGNOSTIC)
+        .any(|diagnostic| diagnostic.kind.as_str() == LOGIN_EXPIRED_DIAGNOSTIC)
         || failure.error_message.as_deref().is_some_and(|error| {
             error.starts_with(MISSING_KEY_PREFIX)
                 || error.contains(CREDENTIAL_STORE_FAILED)
@@ -84,7 +84,7 @@ fn model_gone(failure: &AssistantMessage) -> bool {
         .iter()
         .flatten()
         .rev()
-        .find(|diagnostic| diagnostic.kind == "provider_stream_failure")
+        .find(|diagnostic| diagnostic.kind.as_str() == "provider_stream_failure")
         .and_then(|diagnostic| diagnostic.details.as_ref());
     let gone_status = details
         .and_then(|details| details.get("status"))

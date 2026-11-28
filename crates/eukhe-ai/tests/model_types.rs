@@ -103,13 +103,13 @@ async fn work_through_a_handwritten_provider() {
     assert_eq!(model.model_type, None);
     let any = AnyModel::Chat(model.clone());
     assert_eq!(get_model_type(&any), ModelType::Chat);
-    assert!(has_api(&any, &model.api));
+    assert!(has_api(&any, model.api.as_str()));
     let typed = AnyModel::Chat(Model {
         model_type: Some(ChatModelType::Chat),
         ..model.clone()
     });
     assert!(models_are_equal(Some(&any), Some(&typed)));
-    let image = AnyModel::Image(image_model(&model.provider, &model.id));
+    let image = AnyModel::Image(image_model(model.provider.as_str(), &model.id));
     assert!(!models_are_equal(Some(&any), Some(&image)));
     let expected: Vec<AnyModel> = faux_models.iter().cloned().map(AnyModel::Chat).collect();
     assert_eq!(

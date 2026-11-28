@@ -1,9 +1,9 @@
-//! The request builder and stream loop of `google-generative-ai.ts` and
 //! `google-vertex.ts`. The two TS modules carry identical copies of
 //! `buildParams` and of the `stream` body (differing only in the API id and
 //! two error texts); the Rust port keeps one implementation, parameterized
 //! by [`GoogleApiKind`].
 
+use eukhe_types::pi_ai::Api;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -217,7 +217,7 @@ enum OpenBlock {
 fn empty_output(kind: GoogleApiKind, model: &Model) -> AssistantMessage {
     AssistantMessage {
         content: Vec::new(),
-        api: kind.api().to_owned(),
+        api: Api::parse(kind.api()),
         provider: model.provider.clone(),
         model: model.id.clone(),
         response_model: None,
@@ -316,7 +316,7 @@ pub(crate) fn run_google_stream(
                 ));
                 // eukhe addition: the `provider_stream_failure` diagnostic.
                 record_stream_failure(
-                    (&model.provider, &model.id, &model.api),
+                    (model.provider.as_str(), &model.id, model.api.as_str()),
                     &mut output,
                     &provider_error,
                 );

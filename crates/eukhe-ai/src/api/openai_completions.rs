@@ -160,7 +160,7 @@ fn create_client(
     for (name, value) in model.headers.iter().flatten() {
         headers.insert(name.clone(), Some(value.clone()));
     }
-    if model.provider == "github-copilot" {
+    if model.provider.as_str() == "github-copilot" {
         let has_images = has_copilot_vision_input(context.messages());
         for (name, value) in build_copilot_dynamic_headers(context.messages(), has_images) {
             headers.insert(name, Some(value));
@@ -284,7 +284,7 @@ async fn run(
 ) {
     let request = &options.stream.request;
     let setup = get_client_api_key(
-        &model.provider,
+        model.provider.as_str(),
         request.api_key.as_deref(),
         request.headers.as_ref(),
     )
@@ -382,7 +382,7 @@ fn fail(
         output.raw_stop_reason.as_deref(),
     );
     record_stream_failure(
-        (&model.provider, &model.id, &model.api),
+        (model.provider.as_str(), &model.id, model.api.as_str()),
         output,
         &provider_error,
     );

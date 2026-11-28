@@ -53,7 +53,7 @@ pub fn is_context_overflow(message: &AssistantMessage, context_window: Option<u6
     rule::is_overflow(&Reply {
         stop: stop(message.stop_reason),
         message: error_message,
-        provider: &message.provider,
+        provider: message.provider.as_str(),
         window: context_window.unwrap_or(0),
         input: message.usage.input,
         cache_read: message.usage.cache_read,

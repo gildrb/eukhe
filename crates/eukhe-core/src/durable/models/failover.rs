@@ -114,14 +114,14 @@ pub fn failover_candidates(current: &Model, available: &[Model]) -> Vec<Model> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use eukhe_types::pi_ai::{Modality, ModelCost};
+    use eukhe_types::pi_ai::{Api, Modality, ModelCost, ProviderId};
 
     fn catalog_model(provider: &str, id: &str) -> Model {
         Model {
             id: id.to_owned(),
             name: format!("{provider} {id}"),
-            api: "faux".to_owned(),
-            provider: provider.to_owned(),
+            api: Api::parse("faux"),
+            provider: ProviderId::parse(provider),
             base_url: String::new(),
             input: vec![Modality::Text],
             input_limits: None,

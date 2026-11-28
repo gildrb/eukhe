@@ -187,7 +187,7 @@ impl<'a> StreamState<'a> {
             scratch: HashMap::new(),
             streamed_reasoning_details: None,
             response_service_tier: None,
-            leaked_thinking: (!(model.provider == "openai"
+            leaked_thinking: (!(model.provider.as_str() == "openai"
                 && (model.base_url.is_empty()
                     || url::Url::parse(&model.base_url)
                         .is_ok_and(|url| url.host_str() == Some("api.openai.com")))))

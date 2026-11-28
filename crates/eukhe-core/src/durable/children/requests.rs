@@ -185,7 +185,7 @@ async fn find_models(children: Arc<Children>, call: HostCall) -> anyhow::Result<
             } else {
                 model.name.clone()
             },
-            provider: model.provider,
+            provider: model.provider.as_str().to_owned(),
             id: model.id,
         })
         .collect();

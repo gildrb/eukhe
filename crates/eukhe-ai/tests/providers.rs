@@ -43,10 +43,11 @@ use eukhe_ai::utils::event_stream::AssistantMessageEventStream;
 use eukhe_ai::utils::transcript::normalize_context;
 use eukhe_chord::context::{AbortController, AbortSignal};
 use eukhe_types::pi_ai::{
-    AnyModel, AssistantContentBlock, AssistantMessageEvent, DeferredHandle, DoneReason, IndexMap,
-    Modality, Model, ModelImageResizeOptions, ModelThinkingLevel, ProviderHeaders, StopReason,
-    TextContent,
+    AnyModel, Api, AssistantContentBlock, AssistantMessageEvent, DeferredHandle, DoneReason,
+    IndexMap, Modality, Model, ModelImageResizeOptions, ModelThinkingLevel, ProviderHeaders,
+    StopReason, TextContent,
 };
+
 use futures::future::BoxFuture;
 use futures::StreamExt;
 use tokio::sync::Notify;
@@ -186,7 +187,7 @@ fn builtin_models_registers_every_builtin_provider_with_models() {
 
     let anthropic = models.get_model("anthropic", "claude-haiku-4-5");
     assert_eq!(
-        anthropic.map(|model| model.api).as_deref(),
+        anthropic.as_ref().map(|model| model.api.as_str()),
         Some("anthropic-messages")
     );
 
@@ -558,7 +559,7 @@ async fn reports_bedrock_as_configured_from_ambient_aws_credentials_without_an_a
     let model = models.get_models(Some("amazon-bedrock")).remove(0);
 
     let result = models
-        .get_auth(&model.provider, AuthResolutionOverrides::default())
+        .get_auth(model.provider.as_str(), AuthResolutionOverrides::default())
         .await
         .expect("auth")
         .expect("configured");
@@ -569,7 +570,7 @@ async fn reports_bedrock_as_configured_from_ambient_aws_credentials_without_an_a
     unconfigured.set_provider(amazon_bedrock_provider());
     assert_eq!(
         unconfigured
-            .get_auth(&model.provider, AuthResolutionOverrides::default())
+            .get_auth(model.provider.as_str(), AuthResolutionOverrides::default())
             .await
             .expect("auth"),
         None
@@ -585,7 +586,7 @@ async fn requires_cloudflare_workers_ai_account_config_and_returns_scoped_env() 
         .remove(0);
     assert_eq!(
         missing_account
-            .get_auth(&model.provider, AuthResolutionOverrides::default())
+            .get_auth(model.provider.as_str(), AuthResolutionOverrides::default())
             .await
             .expect("auth"),
         None
@@ -600,7 +601,7 @@ async fn requires_cloudflare_workers_ai_account_config_and_returns_scoped_env() 
     );
     configured.set_provider(cloudflare_workers_ai_provider());
     let result = configured
-        .get_auth(&model.provider, AuthResolutionOverrides::default())
+        .get_auth(model.provider.as_str(), AuthResolutionOverrides::default())
         .await
         .expect("auth")
         .expect("configured");
@@ -630,7 +631,7 @@ async fn requires_cloudflare_ai_gateway_account_and_gateway_config_and_returns_s
         .remove(0);
     assert_eq!(
         missing_gateway
-            .get_auth(&model.provider, AuthResolutionOverrides::default())
+            .get_auth(model.provider.as_str(), AuthResolutionOverrides::default())
             .await
             .expect("auth"),
         None
@@ -646,7 +647,7 @@ async fn requires_cloudflare_ai_gateway_account_and_gateway_config_and_returns_s
     );
     configured.set_provider(cloudflare_ai_gateway_provider());
     let result = configured
-        .get_auth(&model.provider, AuthResolutionOverrides::default())
+        .get_auth(model.provider.as_str(), AuthResolutionOverrides::default())
         .await
         .expect("auth")
         .expect("configured");
@@ -725,7 +726,7 @@ async fn resolves_vertex_via_adc_file_plus_project_and_location() {
     let model = configured.get_models(Some("google-vertex")).remove(0);
 
     let result = configured
-        .get_auth(&model.provider, AuthResolutionOverrides::default())
+        .get_auth(model.provider.as_str(), AuthResolutionOverrides::default())
         .await
         .expect("auth")
         .expect("configured");
@@ -740,7 +741,7 @@ async fn resolves_vertex_via_adc_file_plus_project_and_location() {
     partial.set_provider(google_vertex_provider());
     assert_eq!(
         partial
-            .get_auth(&model.provider, AuthResolutionOverrides::default())
+            .get_auth(model.provider.as_str(), AuthResolutionOverrides::default())
             .await
             .expect("auth"),
         None
@@ -750,7 +751,7 @@ async fn resolves_vertex_via_adc_file_plus_project_and_location() {
     let keyed = models_with_env(&[("GOOGLE_CLOUD_API_KEY", "vertex-key")], &[]);
     keyed.set_provider(google_vertex_provider());
     let result = keyed
-        .get_auth(&model.provider, AuthResolutionOverrides::default())
+        .get_auth(model.provider.as_str(), AuthResolutionOverrides::default())
         .await
         .expect("auth")
         .expect("configured");
@@ -838,7 +839,7 @@ fn recording_streams(label: &'static str, calls: Arc<Mutex<Vec<String>>>) -> Pro
 
 fn mixed_model(api: &str, id: &str) -> Model {
     let mut model = common::test_model("mixed", id);
-    api.clone_into(&mut model.api);
+    model.api = Api::parse(api);
     model
 }
 
@@ -851,9 +852,9 @@ fn keyless_auth() -> ProviderAuth {
 
 fn handle_for(model: &Model) -> DeferredHandle {
     DeferredHandle {
-        provider: model.provider.clone(),
+        provider: model.provider.as_str().to_owned(),
         model_id: model.id.clone(),
-        api: model.api.clone(),
+        api: model.api.as_str().to_owned(),
         id: "response-1".into(),
         expires_at: None,
         poll_after_ms: None,
@@ -1522,11 +1523,18 @@ fn every_builtin_model_api_has_a_registered_implementation() {
     for provider in builtin_providers() {
         for model in get_all_builtin_models(&provider.id) {
             let (api, loaded) = match &model {
-                AnyModel::Chat(model) => (&model.api, load_stream_api(&model.api).is_ok()),
-                AnyModel::Image(model) => (&model.api, load_image_api(&model.api).is_ok()),
-                AnyModel::Classifier(model) => {
-                    (&model.api, load_classifier_api(&model.api).is_ok())
-                }
+                AnyModel::Chat(model) => (
+                    model.api.as_str(),
+                    load_stream_api(model.api.as_str()).is_ok(),
+                ),
+                AnyModel::Image(model) => (
+                    model.api.as_str(),
+                    load_image_api(model.api.as_str()).is_ok(),
+                ),
+                AnyModel::Classifier(model) => (
+                    model.api.as_str(),
+                    load_classifier_api(model.api.as_str()).is_ok(),
+                ),
             };
             assert!(
                 loaded,

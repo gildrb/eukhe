@@ -191,9 +191,9 @@ async fn survives_provider_and_models_stream_deferred_dispatch() {
     let observed: Observed = Arc::default();
     let model = model();
     let handle = DeferredHandle {
-        provider: model.provider.clone(),
+        provider: model.provider.as_str().to_owned(),
         model_id: model.id.clone(),
-        api: model.api.clone(),
+        api: model.api.as_str().to_owned(),
         id: "response".to_owned(),
         expires_at: None,
         poll_after_ms: None,
@@ -206,7 +206,7 @@ async fn survives_provider_and_models_stream_deferred_dispatch() {
         Arc::clone(&observed),
     );
     let provider = create_provider(CreateProviderOptions {
-        id: model.provider.clone(),
+        id: model.provider.as_str().to_owned(),
         auth: ProviderAuth {
             api_key: Some(ambient_auth()),
             oauth: None,
@@ -287,7 +287,7 @@ async fn survives_models_image_dispatch() {
     let on_models = Arc::clone(&observed);
     models.set_provider(
         create_provider(CreateProviderOptions {
-            id: image_model.provider.clone(),
+            id: image_model.provider.as_str().to_owned(),
             auth: ProviderAuth {
                 api_key: Some(ambient_auth()),
                 oauth: None,

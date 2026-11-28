@@ -56,15 +56,12 @@ impl AccountFailure {
     /// (else for the run's wait limit, `wait_cap_ms`); `None` for any other
     /// failure.
     pub(super) fn of(message: &AssistantMessage, wait_cap_ms: u64) -> Option<Self> {
-        let login = message
-            .diagnostics
-            .iter()
-            .flatten()
-            .any(|diagnostic| diagnostic.kind == super::provider::LOGIN_EXPIRED_DIAGNOSTIC)
-            || message
-                .error_message
-                .as_deref()
-                .is_some_and(|error| error.contains(crate::models::registry::LOGIN_EXPIRED_REPORT));
+        let login = message.diagnostics.iter().flatten().any(|diagnostic| {
+            diagnostic.kind.as_str() == super::provider::LOGIN_EXPIRED_DIAGNOSTIC
+        }) || message
+            .error_message
+            .as_deref()
+            .is_some_and(|error| error.contains(crate::models::registry::LOGIN_EXPIRED_REPORT));
         if login {
             return Some(Self::Login);
         }

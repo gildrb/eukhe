@@ -185,11 +185,11 @@ async fn test_tokens_on_abort(llm: &Model, options: ProviderStreamOptions) {
     ) {
         assert_eq!(msg.usage.input, 0);
         assert_eq!(msg.usage.output, 0);
-    } else if llm.provider == "minimax" {
+    } else if llm.provider.as_str() == "minimax" {
         // MiniMax M2.7 does not report token usage for aborted requests.
         assert_eq!(msg.usage.input, 0);
         assert_eq!(msg.usage.output, 0);
-    } else if llm.provider == "kimi-coding" {
+    } else if llm.provider.as_str() == "kimi-coding" {
         // Kimi reports input tokens early but output tokens only in the final chunk.
         assert!(msg.usage.input > 0);
         assert_eq!(msg.usage.output, 0);

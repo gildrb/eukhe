@@ -18,9 +18,9 @@ use std::sync::{Arc, LazyLock};
 
 use eukhe_types::pi_ai::{
     AssistantContentBlock, AssistantMessage, AssistantMessageDiagnostic, AssistantMessageEvent,
-    CacheRetention, DiagnosticCode, DoneReason, ErrorReason, JsonObject, JsonValue, Model, Partial,
-    ProviderEnv, ProviderResponse, StopReason, TextContent, ThinkingContent, ToolCall, ToolChoice,
-    TranscriptContext, Usage,
+    CacheRetention, DiagnosticCode, DiagnosticKind, DoneReason, ErrorReason, JsonObject, JsonValue,
+    Model, Partial, ProviderEnv, ProviderResponse, StopReason, TextContent, ThinkingContent,
+    ToolCall, ToolChoice, TranscriptContext, Usage,
 };
 use futures::future::BoxFuture;
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
@@ -248,8 +248,7 @@ fn append_rewrite_diagnostic(message: &mut AssistantMessage, rewrite: Option<Jso
     append_assistant_message_diagnostic(
         message,
         AssistantMessageDiagnostic {
-            kind: "pi_messages_rewrite".to_owned(),
-            timestamp: now_ms(),
+            kind: DiagnosticKind::PiMessagesRewrite,
             error: None,
             details: Some(rewrite),
         },
@@ -857,7 +856,7 @@ fn create_error_event(
         append_assistant_message_diagnostic(
             &mut message,
             create_assistant_message_diagnostic(
-                "pi_messages_response_failure",
+                DiagnosticKind::Other("pi_messages_response_failure".into()),
                 error,
                 Some(diagnostic_details.clone()),
             ),

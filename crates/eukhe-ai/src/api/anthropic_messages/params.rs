@@ -407,7 +407,9 @@ fn convert_messages(
                 if let (Some(managed), Some(level)) =
                     (settings.managed_provider, &message.provider_thinking_level)
                 {
-                    if message.api == "anthropic-messages" && message.provider == managed {
+                    if message.api.as_str() == "anthropic-messages"
+                        && message.provider.as_str() == managed
+                    {
                         if is_anthropic_effort(level) {
                             assistant_levels.push((message_index, Some(level.clone())));
                         } else if level == NO_EFFORT {

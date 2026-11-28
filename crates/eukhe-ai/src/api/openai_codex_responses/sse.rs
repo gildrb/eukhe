@@ -268,7 +268,7 @@ async fn send_attempt(
         response = send => response?,
     };
     if let Some(token) = options.stream.request.api_key.as_deref() {
-        crate::quota::record_codex_headers(&model.provider, token, response.headers());
+        crate::quota::record_codex_headers(model.provider.as_str(), token, response.headers());
     }
 
     if let Some(on_response) = &options.stream.request.on_response {

@@ -35,7 +35,7 @@ fn get_e2e_api_key(provider: &str) -> Option<String> {
 fn get_anthropic_messages_models(provider: &str) -> Vec<Model> {
     get_builtin_models(provider)
         .into_iter()
-        .filter(|model| model.api == "anthropic-messages")
+        .filter(|model| model.api.as_str() == "anthropic-messages")
         .collect()
 }
 

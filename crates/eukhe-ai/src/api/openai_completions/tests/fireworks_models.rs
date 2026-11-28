@@ -73,7 +73,7 @@ async fn omits_unsupported_long_cache_retention() {
 #[tokio::test]
 async fn routes_kimi_k3_through_the_openai_compatible_api_with_native_effort_controls() {
     let base = fireworks_model("accounts/fireworks/models/kimi-k3");
-    assert_eq!(base.api, "openai-completions");
+    assert_eq!(base.api.as_str(), "openai-completions");
 
     let payload = simple_payload(&base, |options| {
         options.reasoning = Some(ThinkingLevel::Max);

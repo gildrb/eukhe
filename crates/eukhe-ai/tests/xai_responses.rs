@@ -1,4 +1,4 @@
-//! Port of `test/xai-responses.test.ts`.
+use eukhe_types::pi_ai::ProviderId;
 
 mod openai_responses_support;
 
@@ -204,7 +204,7 @@ fn excludes_retired_and_redundant_models_from_the_built_in_catalog() {
 #[test]
 fn routes_every_built_in_xai_model_through_responses() {
     for model in XAI_MODELS.values() {
-        assert_eq!(model.api, "openai-responses", "{}", model.id);
+        assert_eq!(model.api.as_str(), "openai-responses", "{}", model.id);
     }
     let levels =
         |id: &str| serde_json::to_value(get_supported_thinking_levels(&xai(id))).expect("levels");
@@ -397,7 +397,7 @@ async fn sends_no_reasoning_summary_to_xai() {
 async fn uses_pis_user_agent_by_default_for_responses_requests() {
     let (fetch, captured) = mock_fetch(vec![completed_response()]);
     let mut openai_model = xai("grok-4.5");
-    openai_model.provider = "openai".to_owned();
+    openai_model.provider = ProviderId::parse("openai");
     openai_model.base_url = "https://api.openai.com/v1".to_owned();
     let mut options = ProviderStreamOptions::default();
     options.stream.request.api_key = Some("test-token".to_owned());

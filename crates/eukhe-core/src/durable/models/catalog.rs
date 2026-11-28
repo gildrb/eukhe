@@ -42,9 +42,12 @@ pub(super) fn with_catalog_models(
                 continue;
             }
         };
-        match joining.iter_mut().find(|(id, _)| *id == model.provider) {
+        match joining
+            .iter_mut()
+            .find(|(id, _)| *id == model.provider.as_str())
+        {
             Some((_, models)) => models.push(model),
-            None => joining.push((model.provider.clone(), vec![model])),
+            None => joining.push((model.provider.as_str().to_owned(), vec![model])),
         }
     }
     let mut layered: Vec<Provider> = providers

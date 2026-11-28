@@ -18,7 +18,7 @@ use std::collections::HashSet;
 
 use serde::Deserialize;
 
-use eukhe_types::ai::{Model, ModelCompat, ModelCost, ModelInput, ThinkingLevelMap};
+use eukhe_types::ai::{Api, Model, ModelCompat, ModelCost, ModelInput, ThinkingLevelMap};
 use eukhe_types::JsNumber;
 
 use crate::compat::is_model_compat;
@@ -201,7 +201,7 @@ fn parse_entry(candidate: &serde_json::Value) -> Result<Model, EntryDefect> {
     Ok(Model {
         id: entry.id,
         name: entry.name,
-        api: entry.api,
+        api: Api::parse(&entry.api),
         provider: entry.provider,
         base_url: entry.base_url,
         reasoning: entry.reasoning,

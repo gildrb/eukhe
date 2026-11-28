@@ -400,7 +400,10 @@ async fn surfaces_backend_error_responses_with_diagnostics() {
         "401 Unauthorized: Token expired (unauthorized)"
     );
     let diagnostic = &message.diagnostics.as_ref().expect("diagnostics")[0];
-    assert_eq!(diagnostic.kind, "pi_messages_response_failure");
+    assert_eq!(
+        diagnostic.kind,
+        eukhe_types::pi_ai::DiagnosticKind::Other("pi_messages_response_failure".into())
+    );
     assert_eq!(
         diagnostic
             .details

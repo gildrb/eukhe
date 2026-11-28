@@ -4,8 +4,8 @@
 //! string before it is persisted.
 
 use eukhe_types::pi_ai::{
-    AssistantMessage, AssistantMessageDiagnostic, DiagnosticCode, DiagnosticErrorInfo, StopReason,
-    StreamFailureKind,
+    AssistantMessage, AssistantMessageDiagnostic, DiagnosticCode, DiagnosticErrorInfo,
+    DiagnosticKind, StopReason, StreamFailureKind,
 };
 use serde::{Deserialize, Serialize};
 
@@ -829,8 +829,7 @@ pub fn record_stream_failure(
     append_assistant_message_diagnostic(
         output,
         AssistantMessageDiagnostic {
-            kind: "provider_stream_failure".to_string(),
-            timestamp: now_ms(),
+            kind: DiagnosticKind::ProviderStreamFailure,
             error: Some(diagnostic_error_info(error)),
             details,
         },

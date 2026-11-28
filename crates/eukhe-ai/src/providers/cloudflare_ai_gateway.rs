@@ -1,7 +1,7 @@
 //! The `cloudflare-ai-gateway` provider. Port of
 //! `providers/cloudflare-ai-gateway.ts`.
 
-use eukhe_types::pi_ai::IndexMap;
+use eukhe_types::pi_ai::{Api, IndexMap};
 
 use super::api_route::moved_streams;
 use super::cloudflare_ai_gateway_models::CLOUDFLARE_AI_GATEWAY_MODELS;
@@ -22,7 +22,7 @@ use crate::types::{MaxTokensField, Model, ModelCompat, OpenAICompletionsCompat};
 /// `system` role.
 fn openai_chat_completions(model: &Model) -> Model {
     let mut routed = model.clone();
-    "openai-completions".clone_into(&mut routed.api);
+    routed.api = Api::parse("openai-completions");
     routed.compat = Some(ModelCompat::OpenAICompletions(OpenAICompletionsCompat {
         supports_store: Some(true),
         supports_developer_role: Some(false),

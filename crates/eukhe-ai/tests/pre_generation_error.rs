@@ -49,8 +49,8 @@ async fn expect_missing_auth_throws(api: &str, stream: AssistantMessageEventStre
     assert_eq!(result.stop_reason, StopReason::Error, "{api}");
     assert_eq!(result.error_message.as_deref(), Some(MISSING_AUTH), "{api}");
     assert!(result.content.is_empty(), "{api}: {:?}", result.content);
-    assert_eq!(result.api, api);
-    assert_eq!(result.provider, "test-provider", "{api}");
+    assert_eq!(result.api.as_str(), api);
+    assert_eq!(result.provider.as_str(), "test-provider", "{api}");
     assert_eq!(result.model, "test-model", "{api}");
 
     let [AssistantMessageEvent::Error { reason, error }] = events.as_slice() else {

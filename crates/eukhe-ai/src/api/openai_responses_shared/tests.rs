@@ -37,7 +37,7 @@ fn models() -> Vec<Model> {
         .collect();
     let template = catalog
         .iter()
-        .find(|model| model.api == "openai-responses")
+        .find(|model| model.api.as_str() == "openai-responses")
         .cloned()
         .unwrap();
     let crafted = [

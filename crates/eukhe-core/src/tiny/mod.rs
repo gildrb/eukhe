@@ -17,7 +17,7 @@ use std::path::{Path, PathBuf};
 
 use eukhe_ai::models::{Models, ModelsSimpleStreamOptions};
 use eukhe_ai::types::{SimpleStreamOptions, StreamOptions};
-use eukhe_tiny::{CatalogModel, ChatRequest, ChatRole, EngineOptions, FallbackChain};
+use eukhe_tiny::{CatalogModel, ChatRequest, ChatRole, Device, EngineOptions, FallbackChain};
 use eukhe_types::model_roles::ModelRole;
 use eukhe_types::pi_ai::{
     AssistantContentBlock, Context as PiContext, Message, Model, StopReason, UserContent,
@@ -86,7 +86,8 @@ pub fn engine_options(cvars: &Cvars) -> EngineOptions {
     EngineOptions {
         device: cvars
             .optional_text(&table::PROVIDERS_TINY_MODEL_DEVICE)
-            .unwrap_or_else(|| "cpu".to_owned()),
+            .as_deref()
+            .map_or(Device::Cpu, Device::parse),
         dtype: cvars
             .optional_text(&table::PROVIDERS_TINY_MODEL_DTYPE)
             .unwrap_or_default(),

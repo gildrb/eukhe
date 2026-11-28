@@ -1,4 +1,4 @@
-use eukhe_types::pi_ai::AssistantMessageDiagnostic;
+use eukhe_types::pi_ai::{AssistantMessageDiagnostic, DiagnosticKind};
 
 use super::*;
 use crate::utils::test_support::{faux_stop_message, faux_text_message};
@@ -25,8 +25,7 @@ fn retryable(error_message: &str) -> bool {
 fn failure(error_message: &str, details: &serde_json::Value) -> AssistantMessage {
     let mut message = faux_stop_message(StopReason::Error, Some(error_message));
     message.diagnostics = Some(vec![AssistantMessageDiagnostic {
-        kind: "provider_stream_failure".to_owned(),
-        timestamp: 0,
+        kind: DiagnosticKind::ProviderStreamFailure,
         error: None,
         details: details.as_object().cloned(),
     }]);
@@ -130,8 +129,7 @@ fn a_parked_failure_is_never_retried() {
     );
     if let Some(diagnostics) = parked.diagnostics.as_mut() {
         diagnostics.push(AssistantMessageDiagnostic {
-            kind: QUOTA_PARK_DIAGNOSTIC.to_owned(),
-            timestamp: 0,
+            kind: DiagnosticKind::Other(QUOTA_PARK_DIAGNOSTIC.into()),
             error: None,
             details: None,
         });
@@ -161,8 +159,7 @@ fn a_budget_refusal_is_never_retried_or_an_overflow() {
     );
     if let Some(diagnostics) = refused.diagnostics.as_mut() {
         diagnostics.push(AssistantMessageDiagnostic {
-            kind: BUDGET_REFUSAL_DIAGNOSTIC.to_owned(),
-            timestamp: 0,
+            kind: DiagnosticKind::Other(BUDGET_REFUSAL_DIAGNOSTIC.into()),
             error: None,
             details: None,
         });

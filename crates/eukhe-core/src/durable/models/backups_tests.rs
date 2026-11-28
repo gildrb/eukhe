@@ -6,15 +6,18 @@ use super::super::resolve_model_backup_references;
 use super::*;
 use crate::settings::SettingsManager;
 use eukhe_types::cvar::Command;
-use eukhe_types::pi_ai::{AssistantMessageDiagnostic, JsonObject, Modality, ModelCost, Usage};
+use eukhe_types::pi_ai::{
+    Api, AssistantMessageDiagnostic, DiagnosticKind, JsonObject, Modality, ModelCost, ProviderId,
+    Usage,
+};
 use eukhe_types::quota::{QuotaSource, QuotaWindow};
 
 fn model(provider: &str, id: &str) -> Model {
     Model {
         id: id.to_owned(),
         name: format!("{provider} {id}"),
-        api: "faux".to_owned(),
-        provider: provider.to_owned(),
+        api: Api::parse("faux"),
+        provider: ProviderId::parse(provider),
         base_url: String::new(),
         input: vec![Modality::Text],
         input_limits: None,
@@ -36,16 +39,15 @@ fn model(provider: &str, id: &str) -> Model {
 fn failed(error: &str, details: JsonObject) -> AssistantMessage {
     AssistantMessage {
         content: Vec::new(),
-        api: "faux".to_owned(),
-        provider: "faux".into(),
+        api: Api::parse("faux"),
+        provider: ProviderId::parse("faux"),
         model: "faux-1".into(),
         response_model: None,
         response_id: None,
         provider_thinking_level: None,
         thinking_level: None,
         diagnostics: Some(vec![AssistantMessageDiagnostic {
-            kind: "provider_stream_failure".to_owned(),
-            timestamp: 0,
+            kind: DiagnosticKind::ProviderStreamFailure,
             error: None,
             details: Some(details),
         }]),

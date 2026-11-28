@@ -58,7 +58,7 @@ async fn surfaces_routed_chunk_model_on_response_model_without_changing_model() 
         message.response_model.as_deref(),
         Some("anthropic/claude-opus-4.8")
     );
-    assert_eq!(message.provider, "openrouter");
+    assert_eq!(message.provider.as_str(), "openrouter");
     assert_eq!(message.stop_reason, StopReason::Stop);
 }
 

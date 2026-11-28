@@ -35,8 +35,9 @@ mod smithy_schema;
 use std::sync::Arc;
 
 use eukhe_types::pi_ai::{
-    AssistantMessage, AssistantMessageEvent, DoneReason, ErrorReason, JsonObject, JsonValue, Model,
-    StopReason, ThinkingBudgets, ThinkingLevel, ToolChoice, TranscriptContext, Usage,
+    AssistantMessage, AssistantMessageEvent, DiagnosticKind, DoneReason, ErrorReason, JsonObject,
+    JsonValue, Model, StopReason, ThinkingBudgets, ThinkingLevel, ToolChoice, TranscriptContext,
+    Usage,
 };
 use serde::Deserialize;
 
@@ -334,8 +335,7 @@ fn append_bedrock_failure_diagnostic(
     append_assistant_message_diagnostic(
         output,
         AssistantMessageDiagnostic {
-            kind: "bedrock_response_failure".to_owned(),
-            timestamp: now_ms(),
+            kind: DiagnosticKind::BedrockResponseFailure,
             error: None,
             details: Some(details),
         },
@@ -769,7 +769,7 @@ pub fn stream(
                     )
                 };
                 record_stream_failure(
-                    (&model.provider, &model.id, &model.api),
+                    (model.provider.as_str(), &model.id, model.api.as_str()),
                     &mut output,
                     &diagnostic_error,
                 );

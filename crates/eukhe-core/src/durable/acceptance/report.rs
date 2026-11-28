@@ -70,7 +70,7 @@ impl Judge for AnswerJudge {
                     .as_deref()
                     .and_then(|selector| selector.split_once('/'))
                     .and_then(|(provider, id)| self.0.models.get_model(provider, id))
-                    .is_some_and(|model| model.api.split(':').next() == Some(FAUX_API)),
+                    .is_some_and(|model| model.api.as_str().split(':').next() == Some(FAUX_API)),
                 Err(error) => return JudgeReply::Unavailable(error.to_string()),
             };
             if faux {

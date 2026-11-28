@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use eukhe_types::pi_ai::IndexMap;
+use eukhe_types::pi_ai::{Api, IndexMap};
 
 use super::api_route::moved_streams;
 use super::openrouter_models::{
@@ -26,7 +26,7 @@ use crate::types::{Model, ModelCompat, OpenAIResponsesCompat};
 fn openrouter_responses(model: &Model) -> Model {
     let compat = get_compat(model);
     let mut routed = model.clone();
-    "openai-responses".clone_into(&mut routed.api);
+    routed.api = Api::parse("openai-responses");
     let base_url = routed.base_url.trim_end_matches('/');
     if base_url.ends_with("/api") {
         routed.base_url = format!("{base_url}/v1");

@@ -116,7 +116,7 @@ fn catalog() -> Vec<Model> {
 fn bedrock() -> Vec<Model> {
     catalog()
         .into_iter()
-        .filter(|model| model.api == "bedrock-converse-stream")
+        .filter(|model| model.api.as_str() == "bedrock-converse-stream")
         .collect()
 }
 
@@ -190,13 +190,13 @@ fn block_binding_and_adaptive_thinking_are_the_rulebook_answers_of_the_old_lists
         .chain(
             catalog()
                 .into_iter()
-                .filter(|model| model.api == "anthropic-messages"),
+                .filter(|model| model.api.as_str() == "anthropic-messages"),
         )
         .collect();
     let differences: Vec<String> = models
         .iter()
         .filter(|model| {
-            let old_adaptive = if model.api == "anthropic-messages" {
+            let old_adaptive = if model.api.as_str() == "anthropic-messages" {
                 model
                     .compat
                     .as_ref()

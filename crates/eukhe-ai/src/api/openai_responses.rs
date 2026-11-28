@@ -51,7 +51,7 @@ const CHATGPT_USAGE_URL: &str = "https://chatgpt.com/settings/usage";
 /// `OpenAI` API keys start with `sk-`; a different credential sent directly
 /// to `OpenAI` is a Sign in with `ChatGPT` access token.
 fn is_chatgpt_sign_in(model: &Model, api_key: Option<&str>) -> bool {
-    model.provider == "openai"
+    model.provider.as_str() == "openai"
         && model.base_url == "https://api.openai.com/v1"
         && api_key.is_some_and(|key| !key.starts_with("sk-"))
 }
@@ -259,7 +259,7 @@ fn create_client(
     for (name, value) in model.headers.iter().flatten() {
         headers.insert(name.clone(), Some(value.clone()));
     }
-    if model.provider == "github-copilot" {
+    if model.provider.as_str() == "github-copilot" {
         let has_images = has_copilot_vision_input(context.messages());
         for (name, value) in build_copilot_dynamic_headers(context.messages(), has_images) {
             headers.insert(name, Some(value));
@@ -632,7 +632,11 @@ pub(crate) fn fail_stream(
         output.model.clone(),
         output.api.clone(),
     );
-    record_stream_failure((&provider, &model_id, &api), &mut output, &failure);
+    record_stream_failure(
+        (provider.as_str(), &model_id, api.as_str()),
+        &mut output,
+        &failure,
+    );
     stream.push(AssistantMessageEvent::Error {
         reason: if aborted {
             ErrorReason::Aborted
@@ -655,7 +659,7 @@ async fn run(
     let request = &options.stream.request;
     let api = OpenAIResponsesOptions::from_extra(&options.extra);
     let api_key = get_client_api_key(
-        &model.provider,
+        model.provider.as_str(),
         request.api_key.as_deref(),
         request.headers.as_ref(),
     )?;
@@ -770,7 +774,7 @@ pub fn stream(
                     .signal
                     .as_ref()
                     .is_some_and(eukhe_chord::context::AbortSignal::aborted);
-                let prefix = if model.provider == "openai" {
+                let prefix = if model.provider.as_str() == "openai" {
                     "OpenAI API error".to_owned()
                 } else {
                     format!("{} API error", model.provider)
@@ -807,7 +811,7 @@ pub fn stream_simple(
     options: SimpleStreamOptions,
 ) -> AssistantMessageEventStream {
     if let Err(error) = get_client_api_key(
-        &model.provider,
+        model.provider.as_str(),
         options.stream.request.api_key.as_deref(),
         options.stream.request.headers.as_ref(),
     ) {

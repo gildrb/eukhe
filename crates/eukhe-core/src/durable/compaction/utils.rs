@@ -315,6 +315,7 @@ pub const SUMMARIZATION_SYSTEM_PROMPT: &str = "You are a context summarization a
 #[cfg(test)]
 mod tests {
     use super::*;
+    use eukhe_types::pi_ai::{Api, KnownApi};
 
     fn user(text: &str) -> AgentMessage {
         AgentMessage::User(eukhe_types::ai::UserMessage {
@@ -346,7 +347,7 @@ mod tests {
                     rest: serde_json::Map::default(),
                 }),
             ],
-            api: "openai-completions".to_string(),
+            api: Api::Known(KnownApi::OpenAICompletions),
             provider: "p".to_string(),
             model: "m".to_string(),
             response_model: None,
@@ -442,7 +443,7 @@ mod tests {
                     })
                 })
                 .collect(),
-            api: "openai-completions".to_string(),
+            api: Api::Known(KnownApi::OpenAICompletions),
             provider: "p".to_string(),
             model: "m".to_string(),
             response_model: None,

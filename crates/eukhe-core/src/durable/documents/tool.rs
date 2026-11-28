@@ -246,7 +246,8 @@ mod tests {
     use std::path::Path;
 
     use eukhe_types::pi_ai::{
-        ModelCost, ModelImageInputLimits, ModelImageResizeOptions, ModelInputLimits,
+        Api, ModelCost, ModelImageInputLimits, ModelImageResizeOptions, ModelInputLimits,
+        ProviderId,
     };
 
     use super::*;
@@ -255,8 +256,8 @@ mod tests {
         Model {
             id: "m".to_owned(),
             name: "m".to_owned(),
-            api: "faux".to_owned(),
-            provider: "p".to_owned(),
+            api: Api::parse("faux"),
+            provider: ProviderId::parse("p"),
             base_url: String::new(),
             input,
             input_limits: resize.map(|resize| ModelInputLimits {
