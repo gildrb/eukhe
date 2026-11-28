@@ -106,7 +106,7 @@ fn attributes_provider_failures_to_the_worker_owning_the_pid_at_that_time() {
     let events = events_of(&entries, &pids_of(&entries));
     let summaries: Vec<&str> = events
         .iter()
-        .filter(|event| event.event_class == "provider")
+        .filter(|event| event.event_class.as_str() == "provider")
         .map(|event| event.summary.as_str())
         .collect();
     assert_eq!(
@@ -131,7 +131,7 @@ fn a_later_sighting_never_owns_an_earlier_failure() {
     let events = events_of(&entries, &pids_of(&entries));
     let summaries: Vec<&str> = events
         .iter()
-        .filter(|event| event.event_class == "provider")
+        .filter(|event| event.event_class.as_str() == "provider")
         .map(|event| event.summary.as_str())
         .collect();
     assert_eq!(
@@ -186,7 +186,7 @@ fn a_same_component_restart_within_two_seconds_is_a_real_event() {
     ];
     let events = events_of(&crashed, &pids_of(&crashed));
     assert_eq!(events.len(), 1);
-    assert_eq!(events[0].event_class, "worker-crash");
+    assert_eq!(events[0].event_class.as_str(), "worker-crash");
     assert_eq!(events[0].severity, IncidentSeverity::Critical);
 }
 
@@ -261,7 +261,7 @@ fn command_failures_classify_by_their_error_body() {
     for (msg, event_class, severity, summary) in cases {
         let events = events_of(&[entry(msg)], &WorkerPidMap::default());
         assert_eq!(events.len(), 1, "{msg}");
-        assert_eq!(events[0].event_class, event_class, "{msg}");
+        assert_eq!(events[0].event_class.as_str(), event_class, "{msg}");
         assert_eq!(events[0].severity, severity, "{msg}");
         assert_eq!(events[0].summary, summary, "{msg}");
     }
@@ -373,7 +373,7 @@ fn daemon_log_line_parses_supervisor_and_worker_lines() {
         "Supervisor command attach failed: Error: Timed out waiting for daemon worker response to attach"
     );
     assert_eq!(supervisor.time_ms, 1_789_070_559_765);
-    assert_eq!(supervisor.level, "warn");
+    assert_eq!(supervisor.level.as_str(), "warn");
     assert_eq!(supervisor.pid, None);
 
     let worker = parse_incident_daemon_log_line(

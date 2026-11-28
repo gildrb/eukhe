@@ -103,7 +103,7 @@ fn normalizes_a_deep_no_op_to_exact_previous_identity() {
         .unwrap();
     let prepared = change.prepare().unwrap();
     assert!(prepared.value().strict_equals(prepared.base()));
-    assert!(prepared.ops().is_empty());
+    assert_eq!(prepared.ops().len(), 0);
     tracker.adopt(&prepared).unwrap();
     assert!(tracker.value().strict_equals(prepared.base()));
 }
@@ -121,7 +121,7 @@ fn takes_immutable_ownership_of_replacement_input_and_applies_no_op_normalizatio
         .prepare_replace(j(r#"{"nested":{"value":2}}"#))
         .unwrap();
     assert!(no_op.value().strict_equals(&tracker.value()));
-    assert!(no_op.ops().is_empty());
+    assert_eq!(no_op.ops().len(), 0);
 }
 
 #[test]
@@ -612,7 +612,7 @@ fn rejects_unknown_verbs_malformed_tuples_paths_and_splice_payloads() {
         r#"{"op":"s"}"#,
         "null",
     ] {
-        assert!(Op::from_json(&j(invalid)).is_err(), "{invalid}");
+        assert!(Op::from_json(&j(invalid)).is_err());
     }
     assert_eq!(
         Op::from_json(&j(r#"["ZZZ",["value"],9]"#))
@@ -663,7 +663,7 @@ fn accepts_decoded_operations_and_rejects_wire_only_forms() {
         r#"["p",["value"],0,0,[]]"#,
         r#"["m",["value"],[0]]"#,
     ] {
-        assert!(assert_valid_op(&j(operation)).is_ok(), "{operation}");
+        assert!(assert_valid_op(&j(operation)).is_ok());
     }
     for wire_only in [
         r#"["s",1]"#,
@@ -674,8 +674,8 @@ fn accepts_decoded_operations_and_rejects_wire_only_forms() {
         r##"["#",0,["value"]]"##,
         r#"["s",0,1]"#,
     ] {
-        assert!(assert_valid_op(&j(wire_only)).is_err(), "{wire_only}");
-        assert!(assert_valid_wire_op(&j(wire_only)).is_ok(), "{wire_only}");
+        assert!(assert_valid_op(&j(wire_only)).is_err());
+        assert!(assert_valid_wire_op(&j(wire_only)).is_ok());
     }
 }
 

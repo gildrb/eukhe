@@ -612,8 +612,7 @@ impl Ledger {
         Ok(Locked::open(&owner.path, OpenMode::Existing)?
             .as_ref()
             .and_then(Locked::state)
-            .map(|state| state.members.clone())
-            .unwrap_or_default())
+            .map_or_else(Default::default, |state| state.members.clone()))
     }
 
     /// The children `agent` gave a budget of their own from the session's
@@ -630,15 +629,14 @@ impl Ledger {
         Ok(Locked::open(&owner.path, OpenMode::Existing)?
             .as_ref()
             .and_then(Locked::state)
-            .map(|state| {
+            .map_or_else(Default::default, |state| {
                 state
                     .children
                     .iter()
                     .filter(|(_, lent)| lent.agent == agent)
                     .map(|(child, _)| child.clone())
                     .collect()
-            })
-            .unwrap_or_default())
+            }))
     }
 
     /// The open reservations of `agent`: what it holds now, each with the
@@ -656,7 +654,7 @@ impl Ledger {
         Ok(Locked::open(&owner.path, OpenMode::Existing)?
             .as_ref()
             .and_then(Locked::state)
-            .map(|state| {
+            .map_or_else(Default::default, |state| {
                 state
                     .account
                     .holds
@@ -664,8 +662,7 @@ impl Ledger {
                     .filter(|hold| hold.agent == agent)
                     .cloned()
                     .collect()
-            })
-            .unwrap_or_default())
+            }))
     }
 
     /// Reserves for `agent` the first of `offers` (the wanted amount, then
@@ -1150,17 +1147,14 @@ impl Ledger {
         let (_, locked) = self.lock()?;
         let now = (self.clock)();
         // Every agent with a hold, once each, in order.
-        let agents: BTreeSet<String> = locked
-            .state()
-            .map(|state| {
-                state
-                    .account
-                    .holds
-                    .iter()
-                    .map(|hold| hold.agent.clone())
-                    .collect()
-            })
-            .unwrap_or_default();
+        let agents: BTreeSet<String> = locked.state().map_or_else(Default::default, |state| {
+            state
+                .account
+                .holds
+                .iter()
+                .map(|hold| hold.agent.clone())
+                .collect()
+        });
         let locked = match (agents.is_empty(), in_flight) {
             (false, InFlight::Wait) => return Ok(None),
             (true, InFlight::Wait | InFlight::Charge) => locked,
@@ -1170,8 +1164,7 @@ impl Ledger {
         };
         let account = locked
             .state()
-            .map(|state| state.account.clone())
-            .unwrap_or_default();
+            .map_or_else(Default::default, |state| state.account.clone());
         let op = Op::Return {
             carve: lent.carve,
             account: account.clone(),

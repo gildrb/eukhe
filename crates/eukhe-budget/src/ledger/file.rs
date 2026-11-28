@@ -280,8 +280,7 @@ impl Locked {
             sources: state
                 .run
                 .as_ref()
-                .map(|run| run.sources.clone())
-                .unwrap_or_default(),
+                .map_or_else(Default::default, |run| run.sources.clone()),
             program_runs: state.program_runs,
             plan: state.plan.clone(),
             next: Some(state.next_run.clone()).filter(|next| !next.is_empty()),

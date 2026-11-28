@@ -636,7 +636,7 @@ impl Shell {
         let mut running = JoinSet::new();
         // A command whose task fails without a status failed.
         let mut statuses = vec![1; planned.len()];
-        let env: Vec<(String, String)> = self
+        let env: std::sync::Arc<[(String, String)]> = self
             .exported
             .iter()
             .filter_map(|key| self.vars.get(key).map(|value| (key.clone(), value.clone())))
@@ -668,13 +668,10 @@ impl Shell {
                 continue;
             }
             let argv = stage.argv.clone();
-            let env: Vec<(String, String)> = env
-                .iter()
-                .cloned()
-                .chain(stage.assigns.iter().cloned())
-                .collect();
+            let env = std::sync::Arc::clone(&env);
+            let assigns = stage.assigns.clone();
             let cwd = self.cwd.clone();
-            running.spawn(async move { (at, command(argv, env, cwd, wired).await) });
+            running.spawn(async move { (at, command(argv, env, assigns, cwd, wired).await) });
         }
         drop(chunks);
         while let Some(chunk) = arrived.recv().await {
@@ -832,9 +829,16 @@ impl Shell {
 }
 
 /// Run one command on its streams: the own coreutil, else the external
-/// program in `cwd` with `env`. Its exit status.
+/// program in `cwd` with `env` and `assigns` in its environment. Its exit
+/// status.
 #[tracing::instrument(level = "debug", skip_all, fields(program = %argv[0]))]
-async fn command(argv: Vec<String>, env: Vec<(String, String)>, cwd: PathBuf, wired: Wired) -> i32 {
+async fn command(
+    argv: Vec<String>,
+    env: std::sync::Arc<[(String, String)]>,
+    assigns: Vec<(String, String)>,
+    cwd: PathBuf,
+    wired: Wired,
+) -> i32 {
     let builtin = {
         let (argv, cwd) = (argv.clone(), cwd.clone());
         tokio::task::spawn_blocking(move || {
@@ -898,7 +902,11 @@ async fn command(argv: Vec<String>, env: Vec<(String, String)>, cwd: PathBuf, wi
             .args(&argv[1..])
             .current_dir(&cwd)
             .env_clear()
-            .envs(env)
+            .envs(
+                env.iter()
+                    .chain(&assigns)
+                    .map(|(name, value)| (name.as_str(), value.as_str())),
+            )
             .stdin(stdin.map_or_else(Stdio::null, Stdio::from))
             .stdout(Stdio::from(stdout))
             .stderr(Stdio::from(stderr))

@@ -175,9 +175,9 @@ impl ThemeSources {
         let (custom, custom_warnings) = self
             .custom_dir
             .as_deref()
-            .map(custom_entries)
-            .map(entries_into_parts)
-            .unwrap_or_default();
+            .map_or_else(Default::default, |dir| {
+                entries_into_parts(custom_entries(dir))
+            });
         warnings.extend(custom_warnings);
         let (files, file_count) = truncate_files(dedupe(registered.into_iter().chain(custom)));
         if let Some(file_count) = file_count {
