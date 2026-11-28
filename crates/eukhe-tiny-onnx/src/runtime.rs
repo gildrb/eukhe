@@ -3,7 +3,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, PoisonError};
 
-use eukhe_tiny::{EngineOptions, WorkerFailure};
+use eukhe_tiny::{Device, EngineOptions, WorkerFailure};
 use ort::environment::Environment;
 use ort::session::builder::GraphOptimizationLevel;
 use ort::session::Session;
@@ -24,11 +24,11 @@ pub(crate) struct Runtime {
 impl Runtime {
     /// Checks the options; loads nothing.
     pub(crate) fn new(options: &EngineOptions) -> Result<Runtime, WorkerFailure> {
-        match options.device.as_str() {
-            "" | CPU => {}
-            other => {
+        match &options.device {
+            Device::Cpu => {}
+            Device::Other(word) => {
                 return Err(WorkerFailure::Load {
-                    message: format!("device `{other}` is not supported (only `{CPU}`)"),
+                    message: format!("device `{word}` is not supported (only `{CPU}`)"),
                 });
             }
         }

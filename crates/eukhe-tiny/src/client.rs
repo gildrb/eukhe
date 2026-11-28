@@ -191,7 +191,8 @@ impl WorkerLauncher {
             .args(["--backend", BACKEND.id()])
             .arg("--agent-dir")
             .arg(home.agent_dir())
-            .args(["--device", device]);
+            .arg("--device")
+            .arg(device.as_str());
         if !dtype.is_empty() {
             command.args(["--dtype", dtype]);
         }

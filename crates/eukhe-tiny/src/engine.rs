@@ -7,11 +7,52 @@ use crate::protocol::{
     Audio, ChatReply, ChatRequest, SpeakRequest, TranscribeRequest, Transcript, WorkerFailure,
 };
 
+/// The execution device a worker launches on: the backend runs on
+/// [`Device::Cpu`]; any other word is carried as given so the launch tag
+/// and the backend's error name it exactly.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Device {
+    /// The CPU.
+    Cpu,
+    /// A word the current backend does not implement (`cuda`, ...),
+    /// carried unchanged.
+    Other(String),
+}
+
+impl Device {
+    /// The device's word, as spelled on the command line and in the
+    /// launch tag.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::Cpu => "cpu",
+            Self::Other(word) => word,
+        }
+    }
+
+    /// Parses a device word; the empty word (an unset setting) is the
+    /// CPU, as the backends have always treated it.
+    #[must_use]
+    pub fn parse(word: &str) -> Self {
+        match word {
+            "cpu" | "" => Self::Cpu,
+            other => Self::Other(other.to_owned()),
+        }
+    }
+}
+
+impl std::fmt::Display for Device {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
 /// The settings a worker launches with; they are part of its launch tag.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EngineOptions {
-    /// The execution device (`cpu`, the default).
-    pub device: String,
+    /// The execution device; [`Device::Cpu`] unless the setting names
+    /// another word the backend may yet support.
+    pub device: Device,
     /// The weight precision override; empty: the catalog's file set.
     pub dtype: String,
     /// The ONNX Runtime shared library; empty: `ORT_DYLIB_PATH`, else the

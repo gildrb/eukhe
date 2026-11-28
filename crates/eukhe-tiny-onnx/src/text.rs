@@ -506,7 +506,7 @@ mod tests {
     use std::time::Instant;
 
     use eukhe_tiny::{
-        ChatMessage, ChatRequest, ChatRole, ChatTemplate, Engine, EngineOptions, StopReason,
+        ChatMessage, ChatRequest, ChatRole, ChatTemplate, Device, Engine, EngineOptions, StopReason,
     };
 
     use super::{render, TextEngine};
@@ -561,7 +561,7 @@ mod tests {
                 continue;
             }
             let runtime = Runtime::new(&EngineOptions {
-                device: "cpu".to_owned(),
+                device: Device::Cpu,
                 dtype: String::new(),
                 runtime_library: PathBuf::from(&library),
             })

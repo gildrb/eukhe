@@ -14,7 +14,7 @@ use tokio::process::Child;
 use super::{spawn_detached, TinyError, WorkerLauncher};
 use crate::catalog::{find, CatalogModel};
 use crate::election::{self, probe, Got, Launched, Launcher, Met, BACKEND};
-use crate::engine::EngineOptions;
+use crate::engine::{Device, EngineOptions};
 use crate::paths::TinyHome;
 use crate::protocol::{ChatMessage, ChatReply, ChatRequest, ChatRole, Reply, Request, StopReason};
 use crate::testing::{Echo, CRASH};
@@ -104,7 +104,7 @@ impl Launcher for Helper<'_> {
 
 fn options(device: &str) -> EngineOptions {
     EngineOptions {
-        device: device.to_owned(),
+        device: Device::parse(device),
         dtype: String::new(),
         runtime_library: PathBuf::new(),
     }

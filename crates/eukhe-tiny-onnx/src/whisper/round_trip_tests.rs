@@ -5,7 +5,7 @@
 
 use std::path::{Path, PathBuf};
 
-use eukhe_tiny::{Engine, EngineOptions, SpeakRequest, TranscribeRequest};
+use eukhe_tiny::{Device, Engine, EngineOptions, SpeakRequest, TranscribeRequest};
 
 use crate::audio::{read_wav, write_wav};
 use crate::kokoro::KokoroEngine;
@@ -25,7 +25,7 @@ fn kokoro_speech_transcribes_back() {
     let temp = tempfile::tempdir().expect("temp dir");
     let kokoro = installed_kokoro(&models.join("kokoro"), temp.path());
     let options = EngineOptions {
-        device: "cpu".to_owned(),
+        device: Device::Cpu,
         dtype: String::new(),
         runtime_library: PathBuf::new(),
     };

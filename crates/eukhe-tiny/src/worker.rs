@@ -16,7 +16,7 @@ use tokio::time::Instant;
 
 use crate::catalog::{find, CatalogModel};
 use crate::election::{seat, Seated};
-use crate::engine::{Engine, EngineFactory, EngineOptions};
+use crate::engine::{Device, Engine, EngineFactory, EngineOptions};
 use crate::paths::{Backend, TinyHome};
 use crate::protocol::{read_line, Line, Reply, Request, Response, WorkerFailure, MAX_LINE_BYTES};
 
@@ -148,7 +148,7 @@ impl WorkerArgs {
         let mut backend = None;
         let mut agent_dir = None;
         let mut options = EngineOptions {
-            device: "cpu".to_owned(),
+            device: Device::Cpu,
             dtype: String::new(),
             runtime_library: PathBuf::new(),
         };
@@ -168,7 +168,7 @@ impl WorkerArgs {
                         Some(Backend::parse(&id).ok_or(WorkerArgsError::UnknownBackend { id })?);
                 }
                 "--agent-dir" => agent_dir = Some(PathBuf::from(value()?)),
-                "--device" => options.device = value()?,
+                "--device" => options.device = Device::parse(&value()?),
                 "--dtype" => options.dtype = value()?,
                 "--runtime-library" => options.runtime_library = PathBuf::from(value()?),
                 "--idle-secs" => {
@@ -661,7 +661,7 @@ mod tests {
                 backend: Backend::Onnx,
                 agent_dir: PathBuf::from("/a"),
                 options: EngineOptions {
-                    device: "cuda".to_owned(),
+                    device: Device::Other("cuda".to_owned()),
                     dtype: "fp16".to_owned(),
                     runtime_library: PathBuf::from("/x/libonnxruntime.so"),
                 },
@@ -675,7 +675,7 @@ mod tests {
                 backend: Backend::Onnx,
                 agent_dir: PathBuf::from("/a"),
                 options: EngineOptions {
-                    device: "cpu".to_owned(),
+                    device: Device::Cpu,
                     dtype: String::new(),
                     runtime_library: PathBuf::new(),
                 },
@@ -874,7 +874,7 @@ mod tests {
                 backend: Backend::Onnx,
                 agent_dir: PathBuf::from("/a"),
                 options: EngineOptions {
-                    device: "cpu".to_owned(),
+                    device: Device::Cpu,
                     dtype: String::new(),
                     runtime_library: PathBuf::new(),
                 },
@@ -886,7 +886,7 @@ mod tests {
                 .unwrap()
                 .options
                 .device,
-            "--dtype"
+            Device::Other("--dtype".to_owned())
         );
         assert_eq!(
             WorkerArgs::parse(&words(
@@ -897,7 +897,7 @@ mod tests {
                 backend: Backend::Onnx,
                 agent_dir: PathBuf::from("/a"),
                 options: EngineOptions {
-                    device: "last".to_owned(),
+                    device: Device::Other("last".to_owned()),
                     dtype: String::new(),
                     runtime_library: PathBuf::new(),
                 },

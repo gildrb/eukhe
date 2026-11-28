@@ -26,7 +26,7 @@ pub use catalog::{
 };
 pub use client::{TinyClient, TinyError};
 pub use download::{download, DownloadError, Downloaded, Progress, HUGGING_FACE};
-pub use engine::{Engine, EngineFactory, EngineOptions};
+pub use engine::{Device, Engine, EngineFactory, EngineOptions};
 pub use paths::{Backend, TinyHome};
 pub use protocol::{
     Audio, ChatMessage, ChatReply, ChatRequest, ChatRole, Reply, Request, Response, SpeakRequest,
