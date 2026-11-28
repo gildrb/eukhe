@@ -237,7 +237,7 @@ impl Models {
         }
         let selected: Option<HashSet<String>> =
             options.providers.map(|ids| ids.into_iter().collect());
-        let refreshable: Vec<Arc<Provider>> = self
+        let refreshes: Vec<_> = self
             .get_providers()
             .into_iter()
             .filter(|provider| {
@@ -246,10 +246,6 @@ impl Models {
                         .as_ref()
                         .is_none_or(|selected| selected.contains(&provider.id))
             })
-            .collect();
-
-        let refreshes: Vec<_> = refreshable
-            .into_iter()
             .map(|provider| {
                 let (generation, controller) = self.begin_provider_refresh(&provider.id);
                 let signal = AbortSignal::any(&[caller_signal.clone(), controller.signal()]);

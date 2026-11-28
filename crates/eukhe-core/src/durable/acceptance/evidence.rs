@@ -303,18 +303,23 @@ pub(crate) fn read_answer(reply: &JudgeReply) -> Answer {
     match reply {
         JudgeReply::Unavailable(_) => Answer::Unavailable,
         JudgeReply::Stopped => Answer::Stopped,
-        JudgeReply::Text(text) => {
-            let word: String = text
-                .trim_start()
-                .chars()
-                .take_while(char::is_ascii_alphabetic)
-                .collect();
-            match word.to_ascii_uppercase().as_str() {
-                "PASS" => Answer::Yes,
-                "FAIL" => Answer::No,
-                _ => Answer::Unreadable,
-            }
-        }
+        JudgeReply::Text(text) => read_text_answer(text),
+    }
+}
+
+/// The answer a judge's reply text starts with: its leading word, in any
+/// case.
+pub(crate) fn read_text_answer(text: &str) -> Answer {
+    let text = text.trim_start();
+    let word = &text[..text
+        .find(|c: char| !c.is_ascii_alphabetic())
+        .unwrap_or(text.len())];
+    if word.eq_ignore_ascii_case("PASS") {
+        Answer::Yes
+    } else if word.eq_ignore_ascii_case("FAIL") {
+        Answer::No
+    } else {
+        Answer::Unreadable
     }
 }
 

@@ -26,7 +26,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use eukhe_chord::json::JsonValue;
-use eukhe_core::durable::messages::REFINEMENT_AUDIT_CUSTOM_TYPE;
+use eukhe_core::durable::messages::{COMPACTION_OUTCOME_CUSTOM_TYPE, REFINEMENT_AUDIT_CUSTOM_TYPE};
 use eukhe_core::durable::{
     CustomEntryData, CustomStateData, ProviderWireEvent, BASH_ENTRY, BRANCH_SUMMARY_ENTRY,
     CUSTOM_ENTRY, CUSTOM_STATE_ENTRY,
@@ -49,6 +49,7 @@ use eukhe_types::daemon::{
 };
 use eukhe_types::pi_ai::{AssistantContentBlock, AssistantMessage, Message, StopReason, Usage};
 use eukhe_types::session::{AgentMessage, CustomMessage};
+use serde::Deserialize as _;
 use serde_json::{Map, Value};
 
 use super::wire_messages::{
@@ -1291,22 +1292,22 @@ impl EventTranslator {
     /// `_endCompactionUnsuccessfully`: a skip carries the row text with the
     /// `warning` severity, a failure the row text, a cancel `aborted` alone.
     fn settle_held_end(&mut self, row: &CustomMessage) -> Option<SessionEvent> {
-        let details = row.details.as_ref()?;
-        if row.custom_type != "compaction_outcome" || details["reported"] == true {
+        let details = outcome_details(row)?;
+        if details.reported == Value::Bool(true) {
             return None;
         }
         let text = content_text(&row.content);
-        let (aborted, error_message, error_severity) = match details["outcome"].as_str()? {
-            "skipped" => (false, Some(text), Some(ErrorSeverity::Warning)),
-            "failed" => (false, Some(text), None),
-            "cancelled" => (true, None, None),
-            _ => return None,
+        let (aborted, error_message, error_severity) = match details.outcome? {
+            OutcomeKind::Skipped => (false, Some(text), Some(ErrorSeverity::Warning)),
+            OutcomeKind::Failed => (false, Some(text), None),
+            OutcomeKind::Cancelled => (true, None, None),
+            OutcomeKind::Other => return None,
         };
-        let reason = details["reason"].as_str()?;
+        let reason = details.reason?;
         let index = self
             .held_ends
             .iter()
-            .position(|(_, held)| wire_reason(*held).as_str() == reason)?;
+            .position(|(_, held)| wire_reason(*held) == reason)?;
         let (_, held) = self.held_ends.remove(index);
         Some(crate::compaction::compaction_end_unsuccessful(
             wire_reason(held),
@@ -1463,15 +1464,44 @@ fn wire_reason(reason: CompactionReason) -> WireCompactionReason {
     }
 }
 
+/// A `compaction_outcome` row's details.
+#[derive(serde::Deserialize)]
+struct OutcomeDetails {
+    #[serde(default)]
+    reported: Value,
+    #[serde(default)]
+    outcome: Option<OutcomeKind>,
+    #[serde(default)]
+    reason: Option<WireCompactionReason>,
+}
+
+#[derive(serde::Deserialize, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+enum OutcomeKind {
+    Skipped,
+    Failed,
+    Cancelled,
+    #[serde(other)]
+    Other,
+}
+
+/// The details of a `compaction_outcome` row; `None` for any other row.
+fn outcome_details(row: &CustomMessage) -> Option<OutcomeDetails> {
+    if row.custom_type != COMPACTION_OUTCOME_CUSTOM_TYPE {
+        return None;
+    }
+    OutcomeDetails::deserialize(row.details.as_ref()?).ok()
+}
+
 /// The `compaction_end` that reports a run's failed overflow recovery,
 /// after its `compaction_outcome` row (TS `_checkCompaction`
 /// reported state: no result, no retry, the row's text as the error).
 fn reported_overflow_end(row: &CustomMessage) -> Option<SessionEvent> {
-    let details = row.details.as_ref()?;
-    let reported = row.custom_type == "compaction_outcome"
-        && details["reported"] == true
-        && details["reason"] == "overflow"
-        && details["outcome"] == "failed";
+    let reported = outcome_details(row).is_some_and(|details| {
+        details.reported == Value::Bool(true)
+            && details.reason == Some(WireCompactionReason::Overflow)
+            && details.outcome == Some(OutcomeKind::Failed)
+    });
     reported.then(|| SessionEvent::CompactionEnd {
         reason: WireCompactionReason::Overflow,
         result: None,

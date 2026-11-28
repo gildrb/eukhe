@@ -245,7 +245,7 @@ fn tool_result_message(message: &ToolResultMessage, supports_images: bool) -> Js
         .content
         .iter()
         .filter_map(|part| match part {
-            UserContentBlock::Text(text) => Some(sanitize_surrogates(&text.text).into_owned()),
+            UserContentBlock::Text(text) => Some(sanitize_surrogates(&text.text)),
             UserContentBlock::Image(_) => None,
         })
         .collect::<Vec<_>>()

@@ -564,19 +564,19 @@ enum Composer {
 impl AgentsViewMode {
     fn new(mut options: AgentsViewOptions) -> Self {
         let theme = options.theme.clone();
-        let query = options.query.clone().unwrap_or_default();
+        let query = options.query.take().unwrap_or_default();
         // A notice with lines to show (the refusal families) renders as
         // the dismissible panel; a single-line notice keeps the hint-line
         // status.
-        let (status, notice) = match options.status_message.clone() {
+        let (status, notice) = match options.status_message.take() {
             Some(message) if message.contains('\n') => (None, Some(message)),
             // TS seeds the run's status with the carried line through
             // `setStatusMessage` (the default tone rule and the timer
             // apply to it, exactly like any later line).
             status => (status.as_deref().map(Status::transient), None),
         };
-        let pending_ancestors =
-            (!options.expanded_ancestors.is_empty()).then(|| options.expanded_ancestors.clone());
+        let pending_ancestors = (!options.expanded_ancestors.is_empty())
+            .then(|| std::mem::take(&mut options.expanded_ancestors));
         let selected_identity = options.selected_row_identity.clone();
         let selected_key = options.selected_key.clone();
         let keybindings = options.keybindings.clone();
@@ -855,7 +855,7 @@ async fn run_agents_view_surface(
     // The double-Ctrl+C force-quit guard: same contract as the session
     // loop (see `interactive::run_interactive`).
     let exit_guard = crate::exit_guard::ExitGuard::new();
-    let mut mode = AgentsViewMode::new(options.clone());
+    let mut mode = AgentsViewMode::new(options);
     mode.exit_guard = exit_guard.clone();
 
     mode.roster = roster;
@@ -881,8 +881,8 @@ async fn run_agents_view_surface(
         ui_tx.clone(),
         exit_guard.clone(),
         &surface_mounted,
-        options.show_hardware_cursor,
-        options.screen_mode,
+        mode.options.show_hardware_cursor,
+        mode.options.screen_mode,
     )?;
     // The first frame renders from the live roster the moment the surface
     // mounts (TS `applySessionList(this.rosterStore.summaries(), true)`

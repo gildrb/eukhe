@@ -30,7 +30,7 @@ mod data;
 pub use data::{
     default_heartbeat_name, format_timestamp, next_run_label, parse_heartbeat_job,
     parse_heartbeats, scope_heartbeats, session_label, single_line, sort_heartbeats, source_label,
-    HeartbeatEntry, HeartbeatJob,
+    DeliveryMode, HeartbeatEntry, HeartbeatJob, JobSource, JobStatus,
 };
 
 // The cron interpreter (the field vocabulary, the day names, and the

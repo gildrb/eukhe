@@ -283,7 +283,7 @@ impl SpeedClock {
     /// Before the first response nothing shows the added prompt: no count
     /// runs (`None`).
     pub(crate) fn prompt_added(
-        &mut self,
+        &self,
         count: impl FnOnce() -> u64 + Send + 'static,
     ) -> Option<JoinHandle<()>> {
         self.last_output?;

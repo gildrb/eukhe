@@ -210,7 +210,7 @@ impl RpcChild {
 
     /// Read frames until the response `id` answers; returns the response
     /// with the events seen before it, in order.
-    fn wait_response(&mut self, id: &str, timeout: Duration) -> (Value, Vec<Value>) {
+    fn wait_response(&self, id: &str, timeout: Duration) -> (Value, Vec<Value>) {
         let deadline = Instant::now() + timeout;
         let mut events = Vec::new();
         loop {
@@ -241,7 +241,7 @@ impl RpcChild {
 
     /// Read frames until one event of `event_type` arrives (the
     /// event-gated wait: never a fixed sleep).
-    fn wait_event(&mut self, event_type: &str, timeout: Duration) -> Value {
+    fn wait_event(&self, event_type: &str, timeout: Duration) -> Value {
         let deadline = Instant::now() + timeout;
         loop {
             let timeout_left = deadline.saturating_duration_since(Instant::now());
@@ -1514,7 +1514,7 @@ impl CorpusRpcChild {
 
     /// Read frames until `id`'s response, returning the frames seen
     /// before it, in order.
-    fn wait_response(&mut self, id: &str, timeout: Duration) -> (Value, Vec<Value>) {
+    fn wait_response(&self, id: &str, timeout: Duration) -> (Value, Vec<Value>) {
         let deadline = Instant::now() + timeout;
         let mut events = Vec::new();
         let frames = self.frames.as_ref().expect("reader started");
@@ -1540,7 +1540,7 @@ impl CorpusRpcChild {
 
     /// Read frames until the first event of `kind`, returning it with
     /// the frames seen before it (responses included), in order.
-    fn wait_event(&mut self, kind: &str, timeout: Duration) -> (Value, Vec<Value>) {
+    fn wait_event(&self, kind: &str, timeout: Duration) -> (Value, Vec<Value>) {
         let deadline = Instant::now() + timeout;
         let mut before = Vec::new();
         let frames = self.frames.as_ref().expect("reader started");

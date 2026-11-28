@@ -37,7 +37,7 @@ pub fn check_daemon_socket_dir(socket_path: &Path) -> Result<()> {
 pub fn worker_socket_path(supervisor_socket_path: &Path, worker_id: &str) -> PathBuf {
     supervisor_socket_path
         .parent()
-        .unwrap_or(Path::new(""))
+        .unwrap_or_else(|| Path::new(""))
         .join(format!(
             "{}{}.sock",
             worker_socket_prefix(supervisor_socket_path),

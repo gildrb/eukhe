@@ -196,14 +196,10 @@ impl Inner {
             let Some(position) = g.late_handlers.iter().position(|(id, _)| id == request_id) else {
                 return false;
             };
-            let callback = g
-                .late_handlers
-                .remove(position)
-                .expect("position checked")
-                .1;
+            let entry = g.late_handlers.remove(position).expect("position checked");
+            let callback = entry.1.clone();
             // Refresh recency, matching the TS map delete+set.
-            g.late_handlers
-                .push_back((request_id.to_string(), callback.clone()));
+            g.late_handlers.push_back(entry);
             callback
         };
         callback(message);

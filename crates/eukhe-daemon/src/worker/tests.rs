@@ -50,7 +50,7 @@ async fn created(dir: &Path, script: Value) -> Arc<Worker> {
 
 /// The session event of one outbound frame.
 fn session_event(frame: &OutboundFrame) -> Option<Value> {
-    if frame.outbound_type != "session_event" {
+    if frame.outbound_type != crate::worker::OutboundType::SessionEvent {
         return None;
     }
     let mut payload: Value = serde_json::from_slice(&frame.payload).ok()?;

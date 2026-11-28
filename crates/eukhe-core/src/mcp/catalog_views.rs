@@ -459,16 +459,16 @@ pub fn mcp_login_eligibility(
             )
         })
     {
-        return match service.and_then(|service| service.setup.reason.clone()) {
-            Some(reason) => deny(&reason),
+        return match service.and_then(|service| service.setup.reason.as_deref()) {
+            Some(reason) => deny(reason),
             None => deny("This service does not use automatic OAuth login."),
         };
     }
     if service.is_some_and(|service| service.setup.status == SetupStatus::RequiresSetup)
         && config.is_none()
     {
-        return match service.and_then(|service| service.setup.reason.clone()) {
-            Some(reason) => deny(&reason),
+        return match service.and_then(|service| service.setup.reason.as_deref()) {
+            Some(reason) => deny(reason),
             None => deny("This service requires setup before OAuth login."),
         };
     }
@@ -499,11 +499,7 @@ pub fn mcp_login_eligibility(
     let repair_endpoint = match &exact_record {
         Some(record) => bound_endpoint
             .filter(|bound| bound == &record.endpoint)
-            .or_else(|| {
-                verified_endpoint
-                    .clone()
-                    .filter(|verified| verified == &record.endpoint)
-            }),
+            .or_else(|| verified_endpoint.filter(|verified| verified == &record.endpoint)),
         None => bound_endpoint,
     };
     if add_account

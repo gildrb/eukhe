@@ -240,14 +240,19 @@ pub fn create_agent_observe_message_preview(
 fn user_content_text(content: &eukhe_types::ai::UserContent) -> String {
     match content {
         eukhe_types::ai::UserContent::Text(text) => text.clone(),
-        eukhe_types::ai::UserContent::Blocks(blocks) => blocks
-            .iter()
-            .filter_map(|block| match block {
-                eukhe_types::ai::UserContentBlock::Text(text) => Some(text.text.clone()),
-                _ => None,
-            })
-            .collect::<String>(),
+        eukhe_types::ai::UserContent::Blocks(blocks) => blocks_text(blocks),
     }
+}
+
+/// The text blocks of `blocks`, concatenated.
+fn blocks_text(blocks: &[eukhe_types::ai::UserContentBlock]) -> String {
+    blocks
+        .iter()
+        .filter_map(|block| match block {
+            eukhe_types::ai::UserContentBlock::Text(text) => Some(&*text.text),
+            _ => None,
+        })
+        .collect()
 }
 
 fn observe_message_text(message: &eukhe_types::session::AgentMessage) -> String {
@@ -258,17 +263,15 @@ fn observe_message_text(message: &eukhe_types::session::AgentMessage) -> String 
             .content
             .iter()
             .filter_map(|block| match block {
-                eukhe_types::ai::AssistantContentBlock::Text(text) => Some(text.text.clone()),
+                eukhe_types::ai::AssistantContentBlock::Text(text) => Some(&*text.text),
                 eukhe_types::ai::AssistantContentBlock::Thinking(thinking) => {
-                    Some(thinking.thinking.clone())
+                    Some(&*thinking.thinking)
                 }
                 eukhe_types::ai::AssistantContentBlock::ToolCall(_) => None,
             })
             .collect::<String>(),
-        AgentMessage::ToolResult(message) => user_content_text(
-            &eukhe_types::ai::UserContent::Blocks(message.content.clone()),
-        ),
-        AgentMessage::BashExecution(message) => [message.command.clone(), message.output.clone()]
+        AgentMessage::ToolResult(message) => blocks_text(&message.content),
+        AgentMessage::BashExecution(message) => [&*message.command, &*message.output]
             .into_iter()
             .filter(|text| !text.is_empty())
             .collect::<Vec<_>>()
@@ -299,9 +302,9 @@ pub fn register_agent_observe_host_handlers<C: AgentObserveController + 'static>
     handlers.register(
         "agent_observe.list",
         host_handler({
-            let controller = controller.clone();
+            let controller = std::sync::Arc::clone(&controller);
             move |_payload| {
-                let controller = controller.clone();
+                let controller = std::sync::Arc::clone(&controller);
                 Box::pin(async move {
                     let agents = controller.list_agents().await?;
                     Ok(json!({
@@ -314,9 +317,9 @@ pub fn register_agent_observe_host_handlers<C: AgentObserveController + 'static>
     handlers.register(
         "agent_observe.get",
         host_handler({
-            let controller = controller.clone();
+            let controller = std::sync::Arc::clone(&controller);
             move |payload| {
-                let controller = controller.clone();
+                let controller = std::sync::Arc::clone(&controller);
                 Box::pin(async move {
                     let Some(target) = payload.data.get("target").and_then(Value::as_str) else {
                         return Err(anyhow::anyhow!("agent_observe.get target must be a string"));
@@ -332,7 +335,7 @@ pub fn register_agent_observe_host_handlers<C: AgentObserveController + 'static>
     handlers.register(
         "agent_observe.recent",
         host_handler(move |payload| {
-            let controller = controller.clone();
+            let controller = std::sync::Arc::clone(&controller);
             Box::pin(async move {
                 let Some(target) = payload.data.get("target").and_then(Value::as_str) else {
                     return Err(anyhow::anyhow!(

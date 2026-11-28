@@ -70,6 +70,31 @@ impl DirectLink {
     }
 }
 
+/// The fields of a worker frame header the client routes on.
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct FrameHeader<'a> {
+    #[serde(default)]
+    outbound_type: Option<OutboundType>,
+    #[serde(default, borrow)]
+    request_id: Option<&'a str>,
+}
+
+impl<'a> FrameHeader<'a> {
+    fn of(header: &'a Value) -> Option<Self> {
+        serde::Deserialize::deserialize(header).ok()
+    }
+}
+
+#[derive(serde::Deserialize, Clone, Copy)]
+#[serde(rename_all = "snake_case")]
+enum OutboundType {
+    DaemonHello,
+    Response,
+    #[serde(other)]
+    Other,
+}
+
 /// The client's direct-transport state: the retained event-channel sender
 /// (spawning direct reader pumps needs one; `close` drops it so the UI's
 /// event channel closes with the last reader) and the live link. Held by
@@ -143,8 +168,8 @@ pub(crate) fn read_session_transport_ticket(
     data: &Value,
     active_session_id: &str,
 ) -> Result<DaemonPeerTransportTicket> {
-    let ticket: DaemonPeerTransportTicket =
-        serde_json::from_value(data.clone()).context("invalid direct transport ticket")?;
+    let ticket = <DaemonPeerTransportTicket as serde::Deserialize>::deserialize(data)
+        .context("invalid direct transport ticket")?;
     if ticket.purpose != "session_client"
         || ticket.socket_path.is_empty()
         || ticket.worker_instance_id.is_empty()
@@ -192,7 +217,7 @@ pub(crate) fn supervisor_supports_direct(hello: &Value) -> bool {
 // would scatter the single flow.
 #[allow(clippy::too_many_lines)]
 pub(crate) async fn connect_direct(
-    ticket: &DaemonPeerTransportTicket,
+    ticket: DaemonPeerTransportTicket,
     shared: Arc<Shared>,
     event_tx: mpsc::UnboundedSender<DaemonClientEvent>,
 ) -> Result<DirectLink> {
@@ -217,17 +242,32 @@ pub(crate) async fn connect_direct(
         .map_err(|_| anyhow!("timed out waiting for the session worker hello"))?
         .context("session worker closed before its hello")?
         .ok_or_else(|| anyhow!("session worker closed before its hello"))?;
-    if hello.header.get("outboundType").and_then(Value::as_str) != Some("daemon_hello") {
+    if !matches!(
+        FrameHeader::of(&hello.header),
+        Some(FrameHeader {
+            outbound_type: Some(OutboundType::DaemonHello),
+            ..
+        })
+    ) {
         bail!("unexpected first frame from the session worker");
     }
 
-    let request_id = format!("direct_peer_{}", ticket.grant_id);
+    let DaemonPeerTransportTicket {
+        grant_id,
+        token,
+        worker_instance_id,
+        purpose,
+        active_session_id,
+        socket_path,
+        ..
+    } = ticket;
+    let request_id = format!("direct_peer_{grant_id}");
     let presentation = DaemonPeerCommand::PeerAuth {
         id: Some(request_id.clone()),
-        grant_id: ticket.grant_id.clone(),
-        token: ticket.token.clone(),
-        worker_instance_id: ticket.worker_instance_id.clone(),
-        purpose: ticket.purpose.clone(),
+        grant_id,
+        token,
+        worker_instance_id,
+        purpose,
         rest: Map::default(),
     };
     let frame = framing::encode_private_frame(
@@ -251,7 +291,7 @@ pub(crate) async fn connect_direct(
     )
     .await
     .map_err(|_| anyhow!("timed out waiting for the peer_auth response"))??;
-    if claim.active_session_id != ticket.active_session_id {
+    if claim.active_session_id != active_session_id {
         bail!("peer_auth admitted the wrong session");
     }
 
@@ -275,28 +315,20 @@ pub(crate) async fn connect_direct(
         let shared = Arc::clone(&shared);
         let event_tx = event_tx.clone();
         let alive = Arc::clone(&alive);
-        let active_session_id = ticket.active_session_id.clone();
+        let active_session_id = active_session_id.clone();
         let request_prefix = request_prefix.clone();
         tokio::spawn(async move {
             while let Ok(Some(frame)) = reader.read_frame().await {
-                let header_type = frame
-                    .header
-                    .get("outboundType")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default()
-                    .to_string();
-                if header_type == "response" {
+                if let Some(FrameHeader {
+                    outbound_type: Some(OutboundType::Response),
+                    request_id,
+                }) = FrameHeader::of(&frame.header)
+                {
                     if let Ok(response) = serde_json::from_slice::<
                         eukhe_types::daemon::DaemonResponse,
                     >(&frame.payload)
                     {
-                        let request_id = frame
-                            .header
-                            .get("requestId")
-                            .and_then(Value::as_str)
-                            .unwrap_or_default()
-                            .to_string();
-                        shared.resolve(&request_id, response);
+                        shared.resolve(request_id.unwrap_or_default(), response);
                     }
                 } else if let Some(event) = client_event_from_json(&frame.payload) {
                     let _ = event_tx.send(event);
@@ -312,15 +344,13 @@ pub(crate) async fn connect_direct(
             // shutdown reaches this EOF; only an unmarked exit is the
             // worker's own death, which arms the re-attach loop.
             if alive.swap(false, Ordering::SeqCst) {
-                let _ = event_tx.send(DaemonClientEvent::DirectLinkLost {
-                    active_session_id: active_session_id.clone(),
-                });
+                let _ = event_tx.send(DaemonClientEvent::DirectLinkLost { active_session_id });
             }
         });
     }
     Ok(DirectLink {
-        active_session_id: ticket.active_session_id.clone(),
-        socket_path: ticket.socket_path.clone(),
+        active_session_id,
+        socket_path,
         request_prefix,
         writer: frame_tx,
         alive,
@@ -340,9 +370,13 @@ async fn read_peer_auth_response<R: tokio::io::AsyncRead + Unpin>(
         else {
             bail!("session worker closed during peer_auth");
         };
-        if frame.header.get("outboundType").and_then(Value::as_str) != Some("response")
-            || frame.header.get("requestId").and_then(Value::as_str) != Some(request_id)
-        {
+        if !matches!(
+            FrameHeader::of(&frame.header),
+            Some(FrameHeader {
+                outbound_type: Some(OutboundType::Response),
+                request_id: Some(id),
+            }) if id == request_id
+        ) {
             continue;
         }
         let response: eukhe_types::daemon::DaemonResponse = serde_json::from_slice(&frame.payload)?;
@@ -542,7 +576,7 @@ mod tests {
         tokio::spawn(async move { spawn_mock_worker(listener).await });
         let shared = Arc::new(crate::daemon_client::Shared::default());
         let (event_tx, event_rx) = mpsc::unbounded_channel();
-        let link = connect_direct(&ticket, shared, event_tx)
+        let link = connect_direct(ticket, shared, event_tx)
             .await
             .expect("direct link");
         (link, event_rx, dir)

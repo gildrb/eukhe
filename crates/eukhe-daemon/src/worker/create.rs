@@ -4,6 +4,7 @@
 //! storage whose run was interrupted resumes that run (`open_session`
 //! calls `resume()`): no prompt replay, no queue snapshot.
 
+use super::session_core::RuntimeKind;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -977,9 +978,9 @@ impl Worker {
                 core.cwd.clone_from(&params.cwd);
                 core.rlm_depth = params.rlm_depth.unwrap_or(0);
                 core.runtime_kind = if params.rlm_child_id.is_some() {
-                    "subagent".to_string()
+                    RuntimeKind::Subagent
                 } else {
-                    "top-level".to_string()
+                    RuntimeKind::TopLevel
                 };
                 core.rlm_child_id.clone_from(&params.rlm_child_id);
                 core.parent_active_session_id

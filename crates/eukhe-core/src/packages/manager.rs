@@ -255,7 +255,7 @@ impl PackageManager {
                     SourceScope::from(scope),
                     &manager.cwd,
                     &manager.agent_dir,
-                    manager.settings.get_npm_command().as_ref(),
+                    manager.settings.get_npm_command().as_deref(),
                 ),
                 ParsedSource::Local(local) => {
                     let resolved = manager.resolve_path(&local.path);
@@ -344,12 +344,12 @@ impl PackageManager {
     ) -> Result<bool> {
         let current: Vec<serde_json::Value> =
             self.document_packages_for_scope(scope).unwrap_or_default();
+        let current_len = current.len();
         let next: Vec<serde_json::Value> = current
-            .iter()
+            .into_iter()
             .filter(|existing| !self.package_sources_match(existing, source, scope))
-            .cloned()
             .collect();
-        if next.len() == current.len() {
+        if next.len() == current_len {
             return Ok(false);
         }
         self.set_packages_for_scope(scope, next)?;
@@ -364,11 +364,12 @@ impl PackageManager {
         for scope in [UserOrProject::User, UserOrProject::Project] {
             for entry in self.document_packages_for_scope(scope).unwrap_or_default() {
                 let (source, filtered) = split_entry(&entry);
+                let installed_path = self.get_installed_path(&source, scope);
                 packages.push(ConfiguredPackage {
-                    source: source.clone(),
+                    source,
                     scope,
                     filtered,
-                    installed_path: self.get_installed_path(&source, scope),
+                    installed_path,
                 });
             }
         }
@@ -530,12 +531,13 @@ impl PackageManager {
         if let Some(root) = &self.global_npm_root {
             return Ok(root.clone());
         }
-        let (program, args) = npm::npm_command(self.settings.get_npm_command().as_ref());
-        let root = npm::discover_global_npm_root(&program, &args)?;
+        let configured = self.settings.get_npm_command();
+        let (program, args) = npm::npm_command(configured.as_deref());
+        let root = npm::discover_global_npm_root(program, args)?;
         Ok(root)
     }
 
-    fn install_npm(&mut self, source: &NpmSource, scope: SourceScope) -> Result<()> {
+    fn install_npm(&self, source: &NpmSource, scope: SourceScope) -> Result<()> {
         if scope == SourceScope::User {
             self.run_npm_command(&["install", "-g", &source.spec], None)?;
             return Ok(());
@@ -550,7 +552,7 @@ impl PackageManager {
         Ok(())
     }
 
-    fn uninstall_npm(&mut self, source: &NpmSource, scope: SourceScope) -> Result<()> {
+    fn uninstall_npm(&self, source: &NpmSource, scope: SourceScope) -> Result<()> {
         if scope == SourceScope::User {
             self.run_npm_command(&["uninstall", "-g", &source.name], None)?;
             return Ok(());
@@ -575,51 +577,35 @@ impl PackageManager {
 
     /// `npm view <name> version --json`.
     pub(super) fn latest_npm_version(&self, name: &str) -> Result<String> {
-        let (program, args) = npm::npm_command(self.settings_npm_command().as_ref());
-        npm::latest_npm_version(&program, &args, name)
+        let configured = self.settings_npm_command();
+        let (program, args) = npm::npm_command(configured.as_deref());
+        npm::latest_npm_version(program, args, name)
     }
 
     /// Batched npm install (`install -g specs` / project `--prefix` install).
-    pub(super) fn install_npm_batch(
-        &mut self,
-        specs: &[String],
-        scope: UserOrProject,
-    ) -> Result<()> {
+    pub(super) fn install_npm_batch(&self, specs: &[String], scope: UserOrProject) -> Result<()> {
         if scope == UserOrProject::User {
-            let specs: Vec<String> = specs.to_vec();
-            self.run_npm_command(
-                &{
-                    let mut args = vec!["install".to_string(), "-g".to_string()];
-                    args.extend(specs);
-                    args
-                }
-                .iter()
-                .map(String::as_str)
-                .collect::<Vec<_>>(),
-                None,
-            )?;
+            let mut args = Vec::with_capacity(specs.len() + 2);
+            args.extend(["install", "-g"]);
+            args.extend(specs.iter().map(String::as_str));
+            self.run_npm_command(&args, None)?;
             return Ok(());
         }
         let install_root = npm::project_npm_root(&self.cwd);
         npm::ensure_npm_project(&install_root)?;
         let install_root_str = install_root.display().to_string();
-        let mut args = vec!["install".to_string()];
-        args.extend(specs.iter().cloned());
-        args.push("--prefix".to_string());
-        args.push(install_root_str);
-        self.run_npm_command(&args.iter().map(String::as_str).collect::<Vec<_>>(), None)?;
+        let mut args = Vec::with_capacity(specs.len() + 3);
+        args.push("install");
+        args.extend(specs.iter().map(String::as_str));
+        args.extend(["--prefix", &install_root_str]);
+        self.run_npm_command(&args, None)?;
         Ok(())
     }
 
-    fn run_npm_command(&mut self, args: &[&str], cwd: Option<&Path>) -> Result<()> {
-        let (program, configured) = npm::npm_command(self.settings.get_npm_command().as_ref());
-        let mut full_args: Vec<String> = configured;
-        full_args.extend(args.iter().map(std::string::ToString::to_string));
-        super::process::run_command(
-            &program,
-            &full_args.iter().map(String::as_str).collect::<Vec<_>>(),
-            cwd,
-        )
+    fn run_npm_command(&self, args: &[&str], cwd: Option<&Path>) -> Result<()> {
+        let configured = self.settings.get_npm_command();
+        let (program, prefix) = npm::npm_command(configured.as_deref());
+        super::process::run_command(program, &npm::argv(prefix, args), cwd)
     }
 }
 
@@ -832,7 +818,7 @@ mod tests {
     fn progress_events_report_start_and_error() {
         let (_dir, mut manager) = setup();
         let events = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
-        let sink = events.clone();
+        let sink = std::sync::Arc::clone(&events);
         manager.set_progress_callback(Box::new(move |event| {
             sink.lock().unwrap().push((
                 event.kind,

@@ -94,12 +94,12 @@ fn scope_word(scope: SourceScope) -> &'static str {
 fn display_name(path: &Path, resource_type: ResourceType) -> String {
     let file_name = path
         .file_name()
-        .map(|name| name.to_string_lossy().to_string())
+        .map(|name| name.to_string_lossy().into_owned())
         .unwrap_or_default();
     let parent_folder = path
         .parent()
         .and_then(|parent| parent.file_name())
-        .map(|name| name.to_string_lossy().to_string())
+        .map(|name| name.to_string_lossy().into_owned())
         .unwrap_or_default();
     if resource_type == ResourceType::Skills && file_name == "SKILL.md" {
         return parent_folder;
@@ -250,7 +250,7 @@ fn top_level_pattern(cwd: &Path, agent_dir: &Path, item: &ResourceItem) -> Strin
         item.metadata
             .base_dir
             .as_deref()
-            .unwrap_or_else(|| item.path.parent().unwrap_or(Path::new("")))
+            .unwrap_or_else(|| item.path.parent().unwrap_or_else(|| Path::new("")))
             .to_path_buf()
     } else if item.metadata.scope == SourceScope::Project {
         cwd.join(crate::settings::CONFIG_DIR_NAME)
@@ -289,11 +289,12 @@ fn toggle_package_resource(
     if entry.is_string() {
         entry = serde_json::json!({ "source": source });
     }
-    let base = item
-        .metadata
-        .base_dir
-        .clone()
-        .unwrap_or_else(|| item.path.parent().unwrap_or(Path::new("")).to_path_buf());
+    let base = item.metadata.base_dir.clone().unwrap_or_else(|| {
+        item.path
+            .parent()
+            .unwrap_or_else(|| Path::new(""))
+            .to_path_buf()
+    });
     let pattern = relative_path(&base, &item.path);
     let array_key = resource_array_key(item.resource_type);
     let current = entry
@@ -399,7 +400,7 @@ fn relative_path(base: &Path, target: &Path) -> String {
         parts.push("..".to_string());
     }
     for component in &target_components[shared..] {
-        parts.push(component.as_os_str().to_string_lossy().to_string());
+        parts.push(component.as_os_str().to_string_lossy().into_owned());
     }
     if parts.is_empty() {
         return ".".to_string();

@@ -486,16 +486,16 @@ pub fn resolve_cli_model(
         }
     }
 
-    let candidates: Vec<&Model> = match &provider {
+    // Scope to the candidate slice for pattern parsing.
+    let candidates: std::borrow::Cow<'_, [Model]> = match &provider {
         Some(provider) => all_models
             .iter()
             .filter(|model| model.provider == *provider)
+            .cloned()
             .collect(),
-        None => all_models.iter().collect(),
+        None => std::borrow::Cow::Borrowed(all_models),
     };
-    // Scope to the candidate slice for pattern parsing.
-    let candidate_refs: Vec<Model> = candidates.into_iter().cloned().collect();
-    let parsed = parse_model_pattern(&pattern, &candidate_refs, true, provider.as_deref());
+    let parsed = parse_model_pattern(&pattern, &candidates, true, provider.as_deref());
     if let Some(model) = parsed.model {
         return ResolveCliModelResult {
             model: Some(model.clone()),

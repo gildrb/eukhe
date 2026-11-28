@@ -501,13 +501,13 @@ fn object_type(schema: &Map<String, Value>, context: &mut Context<'_>) -> String
         Some(Value::Array(required)) => required,
         _ => &[],
     };
-    let mut names: Vec<&String> = properties.keys().collect();
+    let mut names: Vec<&str> = properties.keys().map(String::as_str).collect();
     // JS `sort()` compares UTF-16 code units.
     names.sort_by(|left, right| left.encode_utf16().cmp(right.encode_utf16()));
     let mut members: Vec<String> = names
         .iter()
         .map(|name| {
-            let optional = if required.iter().any(|entry| entry == name.as_str()) {
+            let optional = if required.iter().any(|entry| entry == name) {
                 ""
             } else {
                 "?"
@@ -515,7 +515,7 @@ fn object_type(schema: &Map<String, Value>, context: &mut Context<'_>) -> String
             format!(
                 "{}{optional}: {};",
                 property_key(name),
-                to_type(&properties[name.as_str()], context)
+                to_type(properties.get::<str>(name).unwrap_or(&Value::Null), context)
             )
         })
         .collect();
@@ -534,7 +534,7 @@ fn object_type(schema: &Map<String, Value>, context: &mut Context<'_>) -> String
     let comments: Vec<Vec<String>> = names
         .iter()
         .map(|name| {
-            let property = &properties[name.as_str()];
+            let property = properties.get::<str>(name).unwrap_or(&Value::Null);
             let mut lines: Vec<String> = description_of(property)
                 .split(is_line_terminator)
                 .map(str::trim)

@@ -313,7 +313,7 @@ pub(crate) fn job_json(job: &Job) -> Value {
     let mut entry = json!({
         "id": job.id().as_str(),
         "kind": job.kind().name(),
-        "elapsed_ms": u64::try_from(job.elapsed().as_millis()).unwrap_or(u64::MAX),
+        "elapsed_ms": elapsed_ms(job),
         "state": "running",
     });
     if let Some(result) = job.result() {
@@ -321,6 +321,10 @@ pub(crate) fn job_json(job: &Job) -> Value {
         entry["output"] = json!(result.output);
     }
     entry
+}
+
+fn elapsed_ms(job: &Job) -> u64 {
+    u64::try_from(job.elapsed().as_millis()).unwrap_or(u64::MAX)
 }
 
 /// The kernel's reply for a wait's end.
@@ -342,14 +346,15 @@ pub(crate) fn served_text(ended: &Ended, holder: &Job) -> String {
     );
     match ended {
         Ended::Job(job) => {
-            let entry = job_json(job);
+            let result = job.result();
+            let result = result.as_ref();
             format!(
                 "{note}\nJob {} ({}) {} after {} ms:\n{}",
                 job.id(),
                 job.kind().name(),
-                entry["state"].as_str().unwrap_or("running"),
-                entry["elapsed_ms"],
-                entry["output"].as_str().unwrap_or_default()
+                result.map_or("running", |result| result.status.label()),
+                elapsed_ms(job),
+                result.map_or("", |result| result.output.as_str())
             )
         }
         Ended::Message => {

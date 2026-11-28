@@ -6,6 +6,7 @@ use eukhe_bend::rules::model_facts;
 use serde_json::json;
 
 use super::compat::ResolvedCompat;
+use super::tags::ReasoningDetailType;
 use crate::api::cache_breakpoints::has_assistant_cache_breakpoint;
 use crate::api::constrained_sampling::{
     get_grammar_tool_input, get_json_schema_tool_parameters, resolve_grammar_constrained_sampling,
@@ -21,8 +22,9 @@ use crate::utils::diagnostics::Thrown;
 use crate::utils::hash::short_hash;
 use crate::utils::js::{js_trim, json_stringify, utf16_len, utf16_prefix};
 use crate::utils::sanitize_unicode::sanitize_surrogates;
-use crate::utils::text::{render_system_message_update, split_system_prompt};
+use crate::utils::text::{join_with, render_system_message_update, split_system_prompt};
 use crate::utils::transcript::{resolve_transcript, resolve_transcript_tools, TranscriptTools};
+use crate::utils::wire_type::{parse_tag, wire_type};
 
 /// TS `ConvertCompletionsMessagesOptions`.
 #[derive(Debug, Clone, Default)]
@@ -72,17 +74,21 @@ pub(crate) fn is_openai_reasoning_detail(detail: &JsonValue) -> bool {
     if !has_valid_common_reasoning_detail_fields(detail) {
         return false;
     }
-    match detail.get("type").and_then(JsonValue::as_str) {
-        Some("reasoning.summary") => detail.get("summary").is_some_and(JsonValue::is_string),
-        Some("reasoning.encrypted") => detail.get("data").is_some_and(JsonValue::is_string),
-        Some("reasoning.text") => {
+    match object_type(detail) {
+        Some(ReasoningDetailType::Summary) => {
+            detail.get("summary").is_some_and(JsonValue::is_string)
+        }
+        Some(ReasoningDetailType::Encrypted) => {
+            detail.get("data").is_some_and(JsonValue::is_string)
+        }
+        Some(ReasoningDetailType::Text) => {
             detail.get("text").is_some_and(JsonValue::is_string)
                 && matches!(
                     detail.get("signature"),
                     None | Some(JsonValue::Null | JsonValue::String(_))
                 )
         }
-        _ => false,
+        None => false,
     }
 }
 
@@ -103,7 +109,7 @@ fn parse_legacy_encrypted_reasoning_detail(signature: Option<&str>) -> Option<Js
     let signature = signature.filter(|signature| !signature.is_empty())?;
     let parsed: JsonValue = serde_json::from_str(signature).ok()?;
     let valid = is_openai_reasoning_detail(&parsed)
-        && parsed.get("type").and_then(JsonValue::as_str) == Some("reasoning.encrypted")
+        && wire_type(&parsed) == Some(ReasoningDetailType::Encrypted)
         && parsed
             .get("id")
             .and_then(JsonValue::as_str)
@@ -158,10 +164,12 @@ pub(crate) fn append_openai_reasoning_detail(details: &mut Vec<JsonValue>, detai
     let Some(source) = detail.as_object() else {
         return;
     };
-    let detail_type = source.get("type").and_then(JsonValue::as_str);
+    let detail_type = object_type(source);
     if let Some(last) = details.last_mut().and_then(JsonValue::as_object_mut) {
-        let last_type = last.get("type").and_then(JsonValue::as_str);
-        if detail_type == Some("reasoning.text") && last_type == Some("reasoning.text") {
+        let last_type = object_type(last);
+        if detail_type == Some(ReasoningDetailType::Text)
+            && last_type == Some(ReasoningDetailType::Text)
+        {
             append_text_field(last, source, "text");
             if !js_truthy(last.get("signature")) {
                 assign_from(last, source, "signature");
@@ -169,13 +177,23 @@ pub(crate) fn append_openai_reasoning_detail(details: &mut Vec<JsonValue>, detai
             fill_missing_common_reasoning_detail_fields(last, source);
             return;
         }
-        if detail_type == Some("reasoning.summary") && last_type == Some("reasoning.summary") {
+        if detail_type == Some(ReasoningDetailType::Summary)
+            && last_type == Some(ReasoningDetailType::Summary)
+        {
             append_text_field(last, source, "summary");
             fill_missing_common_reasoning_detail_fields(last, source);
             return;
         }
     }
     details.push(detail.clone());
+}
+
+/// A reasoning detail object's `type`.
+fn object_type(object: &JsonObject) -> Option<ReasoningDetailType> {
+    object
+        .get("type")
+        .and_then(JsonValue::as_str)
+        .and_then(parse_tag)
 }
 
 /// TS `normalizeToolCallId` inside `convertMessages`.
@@ -529,11 +547,12 @@ fn convert_assistant(
     if let Some(first_thinking) = non_empty_thinking_blocks.first() {
         if compat.requires_thinking_as_text {
             // Convert thinking blocks to plain text (no tags to avoid model mimicking them).
-            let thinking_text = non_empty_thinking_blocks
-                .iter()
-                .map(|block| sanitize_surrogates(&block.thinking).into_owned())
-                .collect::<Vec<_>>()
-                .join("\n\n");
+            let thinking_text = join_with(
+                "\n\n",
+                non_empty_thinking_blocks
+                    .iter()
+                    .map(|block| sanitize_surrogates(&block.thinking)),
+            );
             let mut content = vec![json!({ "type": "text", "text": thinking_text })];
             content.extend(assistant_text_parts.iter().map(text_part));
             assistant_msg.insert("content".into(), JsonValue::Array(content));

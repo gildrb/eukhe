@@ -132,7 +132,7 @@ impl<'s> Engine<'_, 's> {
             ok &= self.error_if(cx, path, schema, condition, value)?;
         }
         if let Some(negated) = keywords::not(schema) {
-            ok &= self.check_not(&mut cx.check, negated, value)?
+            ok &= self.check_not(&cx.check, negated, value)?
                 || cx.add_error(error("not", path, "must not be valid".to_owned()));
         }
         if let Some(schemas) = keywords::all_of(schema) {
@@ -565,7 +565,7 @@ impl<'s> Engine<'_, 's> {
     }
 
     fn error_string(
-        &mut self,
+        &self,
         cx: &mut ErrorContext,
         path: &str,
         schema: &'s JsValue,

@@ -796,7 +796,7 @@ impl SessionUi {
 
     /// The active model's provider from the daemon's state (TS
     /// `getCurrentModel().provider`); best-effort, silent on failure.
-    pub(crate) async fn current_model_provider(&mut self) -> Option<String> {
+    pub(crate) async fn current_model_provider(&self) -> Option<String> {
         let state = self
             .bounded_request(
                 Duration::from_millis(UI_REQUEST_TIMEOUT_MS),

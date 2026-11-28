@@ -208,8 +208,11 @@ pub(crate) fn resolve_session_resources(
     let skill_paths = if options.no_skills {
         merge_paths(&[], &options.additional_skill_paths, &options.cwd)
     } else {
-        let primary = [options.additional_skill_paths.clone(), enabled_skills].concat();
-        merge_paths(&primary, &[], &options.cwd)
+        merge_paths(
+            &options.additional_skill_paths,
+            &enabled_skills,
+            &options.cwd,
+        )
     };
 
     Ok(ResolutionOutput {

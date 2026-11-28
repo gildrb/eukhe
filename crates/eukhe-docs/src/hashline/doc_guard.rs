@@ -537,7 +537,7 @@ fn breaches(old: &str, new: &str, origins: &[Option<usize>]) -> Vec<Breach> {
         }
         let now = now.map(|line| label(new_lines[line]));
         let at = origin + 1;
-        found.entry(item).or_insert(Breach {
+        found.entry(item).or_insert_with(|| Breach {
             item: label(old_lines[item]),
             first: first + 1,
             last: last + 1,

@@ -20,7 +20,7 @@ use serde_json::{json, Value};
 use super::*;
 use crate::autonomous::AgentAutonomousConfig;
 use crate::durable::directors::{director_state, DirectorState, DIRECTOR_NOTICE_CUSTOM_TYPE};
-use crate::durable::entries::{CustomEntryData, CustomStateData, CUSTOM_ENTRY, CUSTOM_STATE_ENTRY};
+use crate::durable::entries::{CustomEntryData, CUSTOM_ENTRY, CUSTOM_STATE_ENTRY};
 use crate::durable::messages::REFINEMENT_AUDIT_CUSTOM_TYPE;
 use crate::durable::{open_session, ModelRequest, SessionConfig, SessionStorage};
 
@@ -555,15 +555,14 @@ async fn global_refine_records_its_rows_and_the_applied_count() {
             false
         )
     );
-    let audits: Vec<CustomStateData> = fixture
+    let audits = fixture
         .entries()
         .await
         .into_iter()
         .filter_map(|entry| CUSTOM_STATE_ENTRY.narrow(entry).expect("narrow"))
-        .map(|entry| entry.data().clone())
-        .filter(|data| data.custom_type == REFINEMENT_AUDIT_CUSTOM_TYPE)
-        .collect();
-    assert_eq!(audits.len(), 1);
+        .filter(|entry| entry.data().custom_type == REFINEMENT_AUDIT_CUSTOM_TYPE)
+        .count();
+    assert_eq!(audits, 1);
     fixture.close().await;
 }
 

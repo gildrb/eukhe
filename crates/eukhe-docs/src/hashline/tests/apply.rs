@@ -357,7 +357,7 @@ fn named_register_gap_paste_warns_and_does_nothing_when_empty() {
     };
     let mut clipboard = Clipboard::default();
     let mut warnings = Vec::new();
-    let lines = vec!["a".into()];
+    let lines = vec!["a"];
     let resolved = resolve_clipboard_edits(&[paste], &lines, &mut clipboard, &mut |warning| {
         warnings.push(warning);
     })
@@ -379,13 +379,8 @@ fn empty_named_span_paste_is_rejected() {
         line_num: 4,
         index: 0,
     };
-    let error = resolve_clipboard_edits(
-        &[paste],
-        &["a".into()],
-        &mut Clipboard::default(),
-        &mut |_| {},
-    )
-    .unwrap_err();
+    let error = resolve_clipboard_edits(&[paste], &["a"], &mut Clipboard::default(), &mut |_| {})
+        .unwrap_err();
     assert!(error
         .to_string()
         .contains("pasting it over a range would delete those lines"));

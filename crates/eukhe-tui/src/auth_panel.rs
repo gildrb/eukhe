@@ -623,10 +623,10 @@ impl AuthPanel {
     /// provider-supplied URL cannot ride the clipboard channel as a
     /// second input source.
     fn copy_auth_url(&mut self, sink: &mut crate::clipboard::OscSink) {
-        let Some(url) = self.auth_url.clone() else {
+        let Some(url) = self.auth_url.as_deref() else {
             return;
         };
-        let url = scrub_controls(&url).replace('\n', "");
+        let url = scrub_controls(url).replace('\n', "");
         self.copy_status = match crate::clipboard::copy_to_clipboard(&url, sink) {
             Ok(crate::clipboard::CopyOutcome::Confirmed) => Some(CopyStatus::Copied),
             Ok(crate::clipboard::CopyOutcome::Requested) => Some(CopyStatus::Requested),
@@ -647,7 +647,7 @@ impl AuthPanel {
     /// Mark the driving flow's cancel signal (TS the dialog's abort):
     /// a running login ends between its poll steps; a signal that was
     /// never armed is a flow that owns no cancel path.
-    fn mark_flow_cancelled(&mut self) {
+    fn mark_flow_cancelled(&self) {
         if let Some(cancel) = &self.flow_cancel {
             cancel.mark();
         }

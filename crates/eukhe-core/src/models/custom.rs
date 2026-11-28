@@ -395,14 +395,15 @@ impl ProviderConfig {
         for definition in self.models.iter().flatten() {
             let api = (definition.api.as_deref())
                 .or(self.api.as_deref())
-                .or(defaults.map(|(api, _)| api));
+                .or_else(|| defaults.map(|(api, _)| api));
             let base_url = (definition.base_url.as_deref())
                 .or(self.base_url.as_deref())
-                .or(defaults.map(|(_, base_url)| base_url));
+                .or_else(|| defaults.map(|(_, base_url)| base_url));
             let (Some(api), Some(base_url)) = (api, base_url) else {
                 continue;
             };
-            let cost = definition.cost.clone().unwrap_or_default();
+            let default_cost = ModelCostConfig::default();
+            let cost = definition.cost.as_ref().unwrap_or(&default_cost);
             let mut object = Map::new();
             object.insert("id".to_owned(), json!(definition.id));
             object.insert(
@@ -419,7 +420,7 @@ impl ProviderConfig {
             if let Some(map) = &definition.thinking_level_map {
                 object.insert("thinkingLevelMap".to_owned(), json!(map));
             }
-            object.insert("input".to_owned(), inputs(definition.input.as_ref()));
+            object.insert("input".to_owned(), inputs(definition.input.as_deref()));
             object.insert(
                 "cost".to_owned(),
                 json!({
@@ -436,14 +437,14 @@ impl ProviderConfig {
                 "contextWindow".to_owned(),
                 json!(definition
                     .context_window
-                    .or(reference.map(|limits| limits.context_window))
+                    .or_else(|| reference.map(|limits| limits.context_window))
                     .unwrap_or(128_000)),
             );
             object.insert(
                 "maxTokens".to_owned(),
                 json!(definition
                     .max_tokens
-                    .or(reference.map(|limits| limits.max_tokens))
+                    .or_else(|| reference.map(|limits| limits.max_tokens))
                     .unwrap_or(16_384)),
             );
             if let Some(headers) = definition.headers.as_ref().filter(|h| !h.is_empty()) {
@@ -535,7 +536,7 @@ impl ModelOverride {
             });
         }
         if let Some(input) = &self.input {
-            object.insert("input".to_owned(), inputs(Some(input)));
+            object.insert("input".to_owned(), inputs(Some(input.as_slice())));
         }
         if let Some(window) = self.context_window {
             object.insert("contextWindow".to_owned(), json!(window));
@@ -608,7 +609,7 @@ fn merge_compat(object: &mut Map<String, Value>, over: &Value) {
 }
 
 /// The input modalities: anything but "image" is text; unset is text only.
-fn inputs(values: Option<&Vec<String>>) -> Value {
+fn inputs(values: Option<&[String]>) -> Value {
     values.map_or_else(
         || json!(["text"]),
         |items| {

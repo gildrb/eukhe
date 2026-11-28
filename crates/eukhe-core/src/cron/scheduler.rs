@@ -290,7 +290,7 @@ impl<H: AgentCronSchedulerHooks + 'static> AgentCronScheduler<H> {
             }
         }
         timer.take();
-        let core = self.core.clone();
+        let core = Arc::clone(&self.core);
         let handle = tokio::spawn(async move {
             loop {
                 // The wake is registered before the store read (the
@@ -446,7 +446,7 @@ mod tests {
         // started timer would race the manual passes for the same due
         // job — the timer task would claim the first dispatch, and the
         // manual pass would find nothing due).
-        let scheduler = Arc::new(AgentCronScheduler::new(store.clone(), hooks.clone()));
+        let scheduler = Arc::new(AgentCronScheduler::new(Arc::clone(&store), hooks));
         // The first pass panics inside its spawned task (the flag must
         // not stay wedged).
         let first = tokio::time::timeout(
@@ -518,7 +518,7 @@ mod tests {
             runs: Arc::new(AtomicUsize::new(0)),
             block_first: AtomicBool::new(true),
         });
-        let scheduler = AgentCronScheduler::new(store.clone(), hooks.clone());
+        let scheduler = AgentCronScheduler::new(Arc::clone(&store), Arc::clone(&hooks));
         // The job is created already-due: the timer fires immediately on
         // start. The pass parks inside its first delivery.
         store
@@ -701,7 +701,7 @@ mod tests {
             error: std::sync::Mutex::new(Some("model route gone".to_string())),
             now: std::sync::Mutex::new(t1),
         });
-        let scheduler = AgentCronScheduler::new(store.clone(), hooks.clone());
+        let scheduler = AgentCronScheduler::new(Arc::clone(&store), Arc::clone(&hooks));
         // No `start()`: the timer task would race the explicit `run_due`
         // calls below (both re-read the mutable clock), so this test
         // drives the claim-dispatch-record loop directly.

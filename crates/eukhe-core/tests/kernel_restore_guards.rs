@@ -260,7 +260,7 @@ async fn failed_restore_keeps_the_on_disk_payload_through_the_debounced_snapshot
     wait_out_debounce(400).await;
     assert_eq!(
         file_bytes(&snapshot_path),
-        b"not-a-snapshot".to_vec(),
+        b"not-a-snapshot",
         "the debounced snapshot must not clobber the on-disk payload"
     );
     assert!(
@@ -411,7 +411,7 @@ async fn zero_debounce_after_a_failed_restore_still_cannot_clobber_the_payload()
 
     assert_eq!(
         file_bytes(&snapshot_path),
-        b"not-a-snapshot".to_vec(),
+        b"not-a-snapshot",
         "the zero-debounce auto-snapshot must not clobber the on-disk payload"
     );
     assert!(!manifest_path.exists());

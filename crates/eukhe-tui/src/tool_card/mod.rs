@@ -31,7 +31,7 @@ use crate::{Line, Span};
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ToolCallCard {
     pub id: String,
-    pub name: String,
+    pub name: ToolName,
     pub args: Value,
     /// `tool_execution_start` seen (live only; replayed cards infer it from
     /// the result).
@@ -49,6 +49,77 @@ pub struct ToolCallCard {
     /// result frames are dropped (TS `resetPendingToolState` removed the
     /// component from the pending map the same way).
     pub aborted: bool,
+}
+
+/// A tool call's name: the tools whose cards render their own way, else
+/// the name as sent.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ToolName {
+    Python,
+    /// The REPL's name in sessions stored before `python`.
+    Ipython,
+    Bash,
+    Edit,
+    WorkerAssign,
+    WorkerForward,
+    Other(String),
+}
+
+impl Default for ToolName {
+    fn default() -> Self {
+        Self::Other(String::new())
+    }
+}
+
+impl ToolName {
+    /// The wire name.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::Python => "python",
+            Self::Ipython => "ipython",
+            Self::Bash => "bash",
+            Self::Edit => "edit",
+            Self::WorkerAssign => "worker_assign",
+            Self::WorkerForward => "worker_forward",
+            Self::Other(name) => name,
+        }
+    }
+
+    /// A `python` cell, under either of its names.
+    #[must_use]
+    pub fn is_python(&self) -> bool {
+        matches!(self, Self::Python | Self::Ipython)
+    }
+}
+
+impl From<&str> for ToolName {
+    fn from(name: &str) -> Self {
+        match name {
+            "python" => Self::Python,
+            "ipython" => Self::Ipython,
+            "bash" => Self::Bash,
+            "edit" => Self::Edit,
+            "worker_assign" => Self::WorkerAssign,
+            "worker_forward" => Self::WorkerForward,
+            other => Self::Other(other.to_string()),
+        }
+    }
+}
+
+impl From<String> for ToolName {
+    fn from(name: String) -> Self {
+        match Self::from(name.as_str()) {
+            Self::Other(_) => Self::Other(name),
+            known => known,
+        }
+    }
+}
+
+impl std::fmt::Display for ToolName {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
 }
 
 /// The wire JSON of one content block, as the cards read it (every field,
@@ -181,12 +252,17 @@ pub fn render_tool_card(
     width: usize,
     show_images: bool,
 ) -> Vec<Line> {
-    match card.name.as_str() {
-        // `ipython`: the REPL's name in sessions stored before `python`.
-        "python" | "ipython" => ipython::render(card, frame, detail, theme, width, show_images),
-        "bash" => bash::render(card, frame, detail, theme, width, show_images),
-        "worker_assign" | "worker_forward" => worker::render(card, frame, theme, width),
-        _ => generic::render(card, frame, detail, theme, width, show_images),
+    match card.name {
+        ToolName::Python | ToolName::Ipython => {
+            ipython::render(card, frame, detail, theme, width, show_images)
+        }
+        ToolName::Bash => bash::render(card, frame, detail, theme, width, show_images),
+        ToolName::WorkerAssign | ToolName::WorkerForward => {
+            worker::render(card, frame, theme, width)
+        }
+        ToolName::Edit | ToolName::Other(_) => {
+            generic::render(card, frame, detail, theme, width, show_images)
+        }
     }
 }
 
@@ -195,10 +271,12 @@ pub fn render_tool_card(
 /// usage footer counts its failed calls by the same mark.
 #[must_use]
 pub(crate) fn marks_failed(card: &ToolCallCard) -> bool {
-    match card.name.as_str() {
-        "python" | "ipython" => ipython::failed(card),
-        "bash" => bash::failed(card),
-        _ => card.result.as_ref().is_some_and(|result| result.is_error),
+    match card.name {
+        ToolName::Python | ToolName::Ipython => ipython::failed(card),
+        ToolName::Bash => bash::failed(card),
+        ToolName::Edit | ToolName::WorkerAssign | ToolName::WorkerForward | ToolName::Other(_) => {
+            card.result.as_ref().is_some_and(|result| result.is_error)
+        }
     }
 }
 

@@ -1,3 +1,4 @@
+use bytes::Bytes;
 use futures::StreamExt;
 use reqwest::header::HeaderMap;
 use serde_json::json;
@@ -6,10 +7,10 @@ use super::sse::{sse_json_stream, LineDecoder, SseDecoder};
 use super::{api_error_message, status_error};
 use crate::utils::diagnostics::{ErrorObject, SdkValue};
 
-fn body(chunks: &[&str]) -> futures::stream::BoxStream<'static, Result<Vec<u8>, reqwest::Error>> {
-    let chunks: Vec<Result<Vec<u8>, reqwest::Error>> = chunks
+fn body(chunks: &[&str]) -> futures::stream::BoxStream<'static, Result<Bytes, reqwest::Error>> {
+    let chunks: Vec<Result<Bytes, reqwest::Error>> = chunks
         .iter()
-        .map(|chunk| Ok(chunk.as_bytes().to_vec()))
+        .map(|chunk| Ok(Bytes::copy_from_slice(chunk.as_bytes())))
         .collect();
     futures::stream::iter(chunks).boxed()
 }
@@ -78,8 +79,10 @@ async fn a_utf8_sequence_split_across_chunks_survives() {
         .position(|&byte| byte >= 0x80)
         .expect("multibyte")
         + 1;
-    let chunks: Vec<Result<Vec<u8>, reqwest::Error>> =
-        vec![Ok(bytes[..split].to_vec()), Ok(bytes[split..].to_vec())];
+    let chunks: Vec<Result<Bytes, reqwest::Error>> = vec![
+        Ok(Bytes::copy_from_slice(&bytes[..split])),
+        Ok(Bytes::copy_from_slice(&bytes[split..])),
+    ];
     let events: Vec<_> = sse_json_stream(
         futures::stream::iter(chunks).boxed(),
         HeaderMap::new(),

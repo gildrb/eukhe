@@ -47,7 +47,7 @@ const VIEW_COMMAND_DESCRIPTIONS: [(&str, &str, Option<&str>, bool); 2] = [
 fn reply_autocomplete_provider(
     summary: &Value,
     fallback_cwd: &std::path::Path,
-) -> Box<dyn crate::autocomplete::AutocompleteProvider + Send> {
+) -> crate::autocomplete::CombinedAutocompleteProvider {
     let registry = SlashCommandRegistry::builtin_cached();
     let mut commands: Vec<crate::autocomplete::SlashCommandEntry> = SESSION_SLASH_COMMAND_NAMES
         .iter()
@@ -68,9 +68,8 @@ fn reply_autocomplete_provider(
         commands.push(crate::autocomplete::SlashCommandEntry {
             name: name.to_string(),
             aliases: builtin
-                .map(|command| command.aliases.to_vec())
-                .unwrap_or_default()
-                .iter()
+                .into_iter()
+                .flat_map(|command| command.aliases.iter())
                 .map(ToString::to_string)
                 .collect(),
             description: Some(description.to_string()),
@@ -86,9 +85,7 @@ fn reply_autocomplete_provider(
         .and_then(Value::as_str)
         .filter(|cwd| !cwd.is_empty())
         .map_or_else(|| fallback_cwd.to_path_buf(), std::path::PathBuf::from);
-    Box::new(crate::autocomplete::CombinedAutocompleteProvider::new(
-        commands, base,
-    ))
+    crate::autocomplete::CombinedAutocompleteProvider::new(commands, base)
 }
 
 /// The reply target (TS `replyTarget`): the row's key

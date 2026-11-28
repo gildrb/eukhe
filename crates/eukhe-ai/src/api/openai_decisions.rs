@@ -29,6 +29,7 @@ use crate::types::ClassifierOptions;
 use crate::utils::diagnostics::Thrown;
 use crate::utils::error_body::{format_provider_error, normalize_provider_error};
 use crate::utils::js::json_stringify;
+use crate::utils::wire_type::parse_tag;
 
 const LABEL: &str = "OpenAI Decisions";
 
@@ -153,13 +154,26 @@ fn choice_probabilities(
     Ok(probabilities)
 }
 
+/// An answer object's `type`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum AnswerType {
+    Refusal,
+    Choice,
+    Score,
+    Predicate,
+}
+
 fn parse_answer(
     id: &str,
     question: &ClassifierQuestion,
     answer: &JsonObject,
 ) -> Result<ClassifierAnswer, Thrown> {
-    let answer_type = answer.get("type").and_then(JsonValue::as_str);
-    if answer_type == Some("refusal") {
+    let answer_type: Option<AnswerType> = answer
+        .get("type")
+        .and_then(JsonValue::as_str)
+        .and_then(parse_tag);
+    if answer_type == Some(AnswerType::Refusal) {
         return Err(error(format!("{LABEL} refused to answer {id}")));
     }
     let confidence = || {
@@ -172,7 +186,7 @@ fn parse_answer(
     match question {
         ClassifierQuestion::Choice { .. } => {
             let choice = answer.get("choice").and_then(JsonValue::as_str);
-            let (Some("choice"), Some(choice)) = (answer_type, choice) else {
+            let (Some(AnswerType::Choice), Some(choice)) = (answer_type, choice) else {
                 return Err(error(format!(
                     "{LABEL} did not return a choice answer for {id}"
                 )));
@@ -184,7 +198,7 @@ fn parse_answer(
             })
         }
         ClassifierQuestion::Score { .. } => {
-            if answer_type != Some("score") {
+            if answer_type != Some(AnswerType::Score) {
                 return Err(error(format!(
                     "{LABEL} did not return a score answer for {id}"
                 )));
@@ -195,7 +209,7 @@ fn parse_answer(
             })
         }
         ClassifierQuestion::Bool { .. } => {
-            if answer_type != Some("predicate") {
+            if answer_type != Some(AnswerType::Predicate) {
                 return Err(error(format!(
                     "{LABEL} did not return a predicate answer for {id}"
                 )));

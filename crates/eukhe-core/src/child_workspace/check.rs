@@ -199,9 +199,9 @@ fn whole_ms(elapsed: Duration) -> u64 {
 /// The narrowest check of `touched` under `dir`: every kind detected,
 /// joined with `&&`; `None` when none is.
 pub(super) fn detect(dir: &Path, touched: &[PathBuf]) -> Option<String> {
-    let relative: Vec<PathBuf> = touched
+    let relative: Vec<&Path> = touched
         .iter()
-        .map(|path| path.strip_prefix(dir).unwrap_or(path).to_path_buf())
+        .map(|path| path.strip_prefix(dir).unwrap_or(path))
         .collect();
     let crates: BTreeSet<String> = relative
         .iter()

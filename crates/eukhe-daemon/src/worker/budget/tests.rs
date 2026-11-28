@@ -107,7 +107,7 @@ async fn next_budget_update(events: &mut broadcast::Receiver<Arc<OutboundFrame>>
             .await
             .expect("no budget_update came")
             .expect("event pump");
-        if frame.outbound_type == "session_event" {
+        if frame.outbound_type == crate::worker::OutboundType::SessionEvent {
             let mut payload: Value = serde_json::from_slice(&frame.payload).expect("a JSON frame");
             let event = payload["event"].take();
             if event["type"] == "budget_update" {

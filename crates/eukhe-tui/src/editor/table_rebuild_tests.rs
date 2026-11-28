@@ -34,10 +34,10 @@ fn item(value: &str) -> CompletionItem {
 /// An editor over three builtin commands and the given skills.
 fn ed(skills: &[&str]) -> Editor {
     let mut e = Editor::new();
-    e.set_autocomplete_provider(Box::new(CombinedAutocompleteProvider::new(
+    e.set_autocomplete_provider(CombinedAutocompleteProvider::new(
         vec![command("session"), command("settings"), command("skills")],
         std::env::current_dir().unwrap_or_default(),
-    )));
+    ));
     e.set_autocomplete_skill_commands(skills.iter().map(|name| command(name)).collect());
     e
 }

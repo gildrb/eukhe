@@ -116,8 +116,8 @@ pub fn get_current_tools<M: TranscriptMessage>(messages: &[M]) -> Vec<Tool> {
 /// [`get_current_tools`].
 #[must_use]
 pub fn get_current_system_message<M: TranscriptMessage>(messages: &[M]) -> Option<SystemMessage> {
-    let mut content: Vec<String> = Vec::new();
-    let mut sections: IndexMap<String, String> = IndexMap::new();
+    let mut content = String::new();
+    let mut sections: IndexMap<&str, &str> = IndexMap::new();
     let mut timestamp: Option<u64> = None;
     for message in messages {
         let Some(message) = message.as_system_message() else {
@@ -126,15 +126,18 @@ pub fn get_current_system_message<M: TranscriptMessage>(messages: &[M]) -> Optio
         timestamp.get_or_insert(message.timestamp);
         let text = message.content.content_text(DEFAULT_CONTENT_SEPARATOR);
         if !text.is_empty() {
-            content.push(text);
+            if !content.is_empty() {
+                content.push_str("\n\n");
+            }
+            content.push_str(&text);
         }
         for (name, value) in message.sections.iter().flatten() {
             match value {
                 None => {
-                    sections.shift_remove(name);
+                    sections.shift_remove(name.as_str());
                 }
                 Some(value) => {
-                    sections.insert(name.clone(), value.clone());
+                    sections.insert(name, value);
                 }
             }
         }
@@ -144,11 +147,11 @@ pub fn get_current_system_message<M: TranscriptMessage>(messages: &[M]) -> Optio
         return None;
     }
     Some(SystemMessage {
-        content: SystemContent::Text(content.join("\n\n")),
+        content: SystemContent::Text(content),
         sections: (!sections.is_empty()).then(|| {
             sections
                 .into_iter()
-                .map(|(name, value)| (name, Some(value)))
+                .map(|(name, value)| (name.to_owned(), Some(value.to_owned())))
                 .collect()
         }),
         tools_added: (!tools.is_empty()).then_some(tools),

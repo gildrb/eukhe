@@ -16,6 +16,15 @@ use crate::utils::event_stream::AssistantMessageEventStream;
 use crate::utils::js::{js_to_string, json_stringify};
 use crate::utils::json_parse::{parse_streaming_json_object, parse_tool_call_arguments};
 use crate::utils::sanitize_unicode::sanitize_surrogates;
+use crate::utils::wire_type::parse_tag;
+
+/// A content chunk's `type`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum ChunkType {
+    Thinking,
+    Text,
+}
 
 /// The open text or thinking block (always the last content block).
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -244,8 +253,12 @@ impl ChatStreamState<'_> {
                         "Cannot read properties of null (reading 'type')",
                     ))
                 }
-                JsonValue::Object(chunk) => match chunk.get("type").and_then(JsonValue::as_str) {
-                    Some("thinking") => {
+                JsonValue::Object(chunk) => match chunk
+                    .get("type")
+                    .and_then(JsonValue::as_str)
+                    .and_then(parse_tag)
+                {
+                    Some(ChunkType::Thinking) => {
                         let parts = match chunk.get("thinking") {
                             Some(JsonValue::Array(parts)) => parts.as_slice(),
                             _ => &[],
@@ -259,14 +272,14 @@ impl ChatStreamState<'_> {
                             self.append_thinking(delta);
                         }
                     }
-                    Some("text") => {
+                    Some(ChunkType::Text) => {
                         let text = text_or_empty(chunk.get("text"));
                         let delta = sanitize_surrogates(&text).into_owned();
                         if !delta.is_empty() {
                             self.append_text(delta);
                         }
                     }
-                    _ => {}
+                    None => {}
                 },
                 JsonValue::Bool(_) | JsonValue::Number(_) | JsonValue::Array(_) => {}
             }

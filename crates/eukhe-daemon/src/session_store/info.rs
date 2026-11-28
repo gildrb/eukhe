@@ -4,9 +4,10 @@
 //! most-recent-session lookup.
 
 use super::{
-    fs, info_sidecar, list_sessions, normalize_state_status, Cow, Deserialize, HashMap, Path,
-    PathBuf, Serialize, SessionHeader, Usage, Value,
+    fs, info_sidecar, list_sessions, normalize_state_status, Cow, Deserialize, EntryType, HashMap,
+    Path, PathBuf, Serialize, SessionHeader, Usage, Value,
 };
+use crate::types::MessageRole;
 
 /// Port of `readSessionInfo`'s fold (single pass, no resume cache): the durable
 /// metadata the daemon list surfaces for one session file.
@@ -388,8 +389,8 @@ pub(super) struct SessionInfoMessage<'a> {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct SessionInfoEntry<'a> {
-    #[serde(borrow, rename = "type")]
-    pub(super) type_: Cow<'a, str>,
+    #[serde(rename = "type")]
+    pub(super) type_: EntryType,
     #[serde(borrow, rename = "id")]
     pub(super) id: Cow<'a, str>,
     #[serde(borrow, rename = "timestamp")]
@@ -704,12 +705,12 @@ pub(super) fn fold_scan_entry(acc: &mut SessionScanAccumulator, raw: &str) -> Op
     let Ok(entry) = serde_json::from_str::<SessionInfoEntry>(trimmed) else {
         return Some(());
     };
-    match entry.type_.as_ref() {
-        "session" => {
+    match entry.type_ {
+        EntryType::Session => {
             let parsed: SessionHeader = serde_json::from_str(trimmed).ok()?;
             acc.header = Some(parsed);
         }
-        "session_info" => {
+        EntryType::SessionInfo => {
             // The borrowed span reads exactly what `Value::as_str` read:
             // a present non-string parses back to `None`, the same
             // absent-as-`None` the owned `Value` gave (the only reader of
@@ -720,7 +721,7 @@ pub(super) fn fold_scan_entry(acc: &mut SessionScanAccumulator, raw: &str) -> Op
                 .filter(|n| !n.is_empty())
                 .map(str::to_string);
         }
-        "session_state" => {
+        EntryType::SessionState => {
             if let Some(status) = entry
                 .state
                 .and_then(|raw| serde_json::from_str::<Value>(raw.get()).ok())
@@ -731,7 +732,7 @@ pub(super) fn fold_scan_entry(acc: &mut SessionScanAccumulator, raw: &str) -> Op
                 acc.state = Some(normalize_state_status(status));
             }
         }
-        "model_change" => {
+        EntryType::ModelChange => {
             // The abort arm keeps its exact semantics: a `model_change`
             // without a string provider or modelId (absent, or present but
             // not a string) aborts the scan — `raw_string` returns `None`
@@ -741,7 +742,7 @@ pub(super) fn fold_scan_entry(acc: &mut SessionScanAccumulator, raw: &str) -> Op
                 raw_string(entry.model_id)?.into_owned(),
             ));
         }
-        "thinking_level_change" => {
+        EntryType::ThinkingLevelChange => {
             if let Some(level) = raw_string(entry.thinking_level)
                 .as_deref()
                 .map(str::trim)
@@ -750,42 +751,41 @@ pub(super) fn fold_scan_entry(acc: &mut SessionScanAccumulator, raw: &str) -> Op
                 acc.thinking_level = Some(level.to_string());
             }
         }
-        "child_usage_attributed" => {
+        EntryType::ChildUsageAttributed => {
             acc.usage_scan.fold_child_attribution(
                 entry.target_id.as_deref(),
                 entry.child_usage.map(Usage::from),
                 entry.aggregate_usage.map(Usage::from),
             );
         }
-        "compaction" | "branch_summary" => {
+        EntryType::Compaction | EntryType::BranchSummary => {
             acc.usage_scan
                 .fold_summarization(entry.usage.map(Usage::from));
         }
-        "message" => {
+        EntryType::Message => {
             acc.message_count += 1;
             if let Some(message) = entry.message {
                 // The role span parses back on the read the fold always
                 // made; a non-string role parses to `None` here exactly as
                 // `Value::as_str` returned `None` for it before.
-                let role = raw_string(message.role);
-                let role = role.as_deref();
+                let role = raw_string(message.role).as_deref().map(MessageRole::parse);
                 acc.usage_scan
                     .fold_message(&entry.id, role, message.usage.map(Usage::from));
-                if role == Some("assistant") {
+                if role == Some(MessageRole::Assistant) {
                     if let (Some(provider), Some(model_id)) =
                         (raw_string(message.provider), raw_string(message.model))
                     {
-                        acc.model = Some((provider.to_string(), model_id.to_string()));
+                        acc.model = Some((provider.into_owned(), model_id.into_owned()));
                     }
                 }
-                if matches!(role, Some("user" | "assistant")) {
+                if matches!(role, Some(MessageRole::User | MessageRole::Assistant)) {
                     if let Some(timestamp) = raw_u64(message.timestamp) {
                         acc.last_activity_ms =
                             Some(acc.last_activity_ms.unwrap_or(0).max(timestamp));
                     }
                 }
-                if (role == Some("user") && acc.first_message.is_empty())
-                    || (matches!(role, Some("user" | "assistant"))
+                if (role == Some(MessageRole::User) && acc.first_message.is_empty())
+                    || (matches!(role, Some(MessageRole::User | MessageRole::Assistant))
                         && acc.search_text_chars < SESSION_LIST_SEARCH_TEXT_MAX_CHARS)
                 {
                     // The text reads the `content` span the typed parse
@@ -793,10 +793,13 @@ pub(super) fn fold_scan_entry(acc: &mut SessionScanAccumulator, raw: &str) -> Op
                     // `Value` walk plus every string it materializes) paid
                     // for one field the fold never otherwise touches.
                     let text = message_content_text(message.content);
-                    if role == Some("user") && acc.first_message.is_empty() && !text.is_empty() {
+                    if role == Some(MessageRole::User)
+                        && acc.first_message.is_empty()
+                        && !text.is_empty()
+                    {
                         acc.first_message.clone_from(&text);
                     }
-                    if matches!(role, Some("user" | "assistant")) {
+                    if matches!(role, Some(MessageRole::User | MessageRole::Assistant)) {
                         acc.search_text_chars = append_capped_search_text(
                             &mut acc.all_messages_text,
                             &text,
@@ -806,7 +809,11 @@ pub(super) fn fold_scan_entry(acc: &mut SessionScanAccumulator, raw: &str) -> Op
                 }
             }
         }
-        _ => {}
+        EntryType::CustomMessage
+        | EntryType::Custom
+        | EntryType::ServiceTierChange
+        | EntryType::Label
+        | EntryType::Other(_) => {}
     }
     Some(())
 }

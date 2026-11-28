@@ -53,6 +53,7 @@ use self::convert::Converter;
 pub use self::js_value::JsErrorKind;
 use self::js_value::{strict_equals, string_to_number, JsError, JsObject, JsValue};
 use crate::utils::js::{js_trim, json_stringify_pretty, number_to_js_string};
+use crate::utils::text::join_with;
 
 /// Errors of [`validate_tool_call`] / [`validate_tool_arguments`]; `Display`
 /// is the TS `Error.message`.
@@ -147,7 +148,10 @@ pub fn validate_tool_arguments(
 
 /// [`validate_tool_arguments`] on the current thread's stack.
 fn validate_here(tool: &Tool, tool_call: &ToolCall) -> Result<JsonValue, ValidationError> {
-    let source = tool.parameters.typebox().unwrap_or(tool.parameters.json());
+    let source = tool
+        .parameters
+        .typebox()
+        .unwrap_or_else(|| tool.parameters.json());
     let schema = JsValue::from_json(source);
     let mut validators = Validators::default();
     let mut args = JsValue::Object(JsValue::object_from_json(&tool_call.arguments));
@@ -160,12 +164,13 @@ fn validate_here(tool: &Tool, tool_call: &ToolCall) -> Result<JsonValue, Validat
     if validator.check(&args)? {
         return Ok(args.to_json());
     }
-    let errors = validator
-        .errors(&args)?
-        .iter()
-        .map(|error| format!("  - {}: {}", format_validation_path(error), error.message))
-        .collect::<Vec<_>>()
-        .join("\n");
+    let errors = join_with(
+        "\n",
+        validator
+            .errors(&args)?
+            .iter()
+            .map(|error| format!("  - {}: {}", format_validation_path(error), error.message)),
+    );
     let errors = if errors.is_empty() {
         "Unknown validation error".to_owned()
     } else {
@@ -609,7 +614,7 @@ pub fn check_value(
     schema: &ToolSchema,
     value: &JsonValue,
 ) -> Result<Option<Option<SchemaCheckError>>, ValidationError> {
-    let source = JsValue::from_json(schema.typebox().unwrap_or(schema.json()));
+    let source = JsValue::from_json(schema.typebox().unwrap_or_else(|| schema.json()));
     let validator = Validator::compile(&source)?;
     let value = JsValue::from_json(value);
     if validator.check(&value)? {

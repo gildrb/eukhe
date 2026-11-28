@@ -369,7 +369,7 @@ fn bash(id: &str, command: &str, status: &str, started_at: Option<&str>) -> Bash
         command: command.to_string(),
         pid: None,
         started_at: started_at.map(str::to_string),
-        status: status.to_string(),
+        status: crate::bash_view::BashStatus::parse(status.to_string()),
         exit_code: None,
         duration_ms: None,
     }

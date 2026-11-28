@@ -201,7 +201,7 @@ pub enum RetryStartReason {
 
 /// Decode one session event.
 #[must_use]
-pub fn event_to_update(event: &SessionEvent) -> TurnUpdate {
+pub fn event_to_update(event: SessionEvent) -> TurnUpdate {
     match event {
         SessionEvent::AgentStart => TurnUpdate::RunStarted,
         SessionEvent::TurnStart => TurnUpdate::TurnStarted,
@@ -209,7 +209,7 @@ pub fn event_to_update(event: &SessionEvent) -> TurnUpdate {
         SessionEvent::TurnEnd { answer, error } => TurnUpdate::TurnEnded {
             outcome: turn_outcome(answer.as_ref(), error.as_deref()),
         },
-        SessionEvent::PromptProgress { progress } => TurnUpdate::PromptProgress(*progress),
+        SessionEvent::PromptProgress { progress } => TurnUpdate::PromptProgress(progress),
         SessionEvent::MessageStart {
             message,
             assistant_message_event,
@@ -220,9 +220,9 @@ pub fn event_to_update(event: &SessionEvent) -> TurnUpdate {
                 None => TurnUpdate::StatusUpdate,
             },
             AgentMessage::Assistant(message) => TurnUpdate::AssistantMessage {
-                message: Box::new(message.clone()),
+                message: Box::new(message),
                 streaming: true,
-                stream_event: assistant_message_event.clone(),
+                stream_event: assistant_message_event,
                 output_tokens: None,
             },
             // Custom rows arrive as a message_start + message_end pair
@@ -258,10 +258,10 @@ pub fn event_to_update(event: &SessionEvent) -> TurnUpdate {
             output_tokens,
         } => match message {
             AgentMessage::Assistant(message) => TurnUpdate::AssistantMessage {
-                message: Box::new(message.clone()),
+                message: Box::new(message),
                 streaming: true,
-                stream_event: Some(assistant_message_event.clone()),
-                output_tokens: *output_tokens,
+                stream_event: Some(assistant_message_event),
+                output_tokens,
             },
             AgentMessage::User(_)
             | AgentMessage::ToolResult(_)
@@ -272,7 +272,7 @@ pub fn event_to_update(event: &SessionEvent) -> TurnUpdate {
         },
         SessionEvent::MessageEnd { message } => match message {
             AgentMessage::Assistant(message) => TurnUpdate::AssistantMessage {
-                message: Box::new(message.clone()),
+                message: Box::new(message),
                 streaming: false,
                 stream_event: None,
                 output_tokens: None,
@@ -290,17 +290,17 @@ pub fn event_to_update(event: &SessionEvent) -> TurnUpdate {
             tool_name,
             args,
         } => TurnUpdate::ToolExecutionStart {
-            tool_call_id: tool_call_id.clone(),
-            tool_name: tool_name.clone(),
-            args: args.clone(),
+            tool_call_id,
+            tool_name,
+            args,
         },
         SessionEvent::ToolExecutionUpdate {
             tool_call_id,
             partial_result,
             ..
         } => TurnUpdate::ToolExecutionUpdate {
-            tool_call_id: tool_call_id.clone(),
-            partial: partial_result.clone(),
+            tool_call_id,
+            partial: partial_result,
         },
         SessionEvent::ToolExecutionEnd {
             tool_call_id,
@@ -308,9 +308,9 @@ pub fn event_to_update(event: &SessionEvent) -> TurnUpdate {
             is_error,
             ..
         } => TurnUpdate::ToolExecutionEnd {
-            tool_call_id: tool_call_id.clone(),
-            result: result.clone(),
-            is_error: *is_error,
+            tool_call_id,
+            result,
+            is_error,
         },
         SessionEvent::AutoRetryStart {
             attempt,
@@ -319,14 +319,12 @@ pub fn event_to_update(event: &SessionEvent) -> TurnUpdate {
             error_message,
             failover,
         } => TurnUpdate::AutoRetryStart {
-            attempt: saturating_u32(*attempt),
+            attempt: saturating_u32(attempt),
             max_attempts: max_attempts.map(saturating_u32),
-            delay_ms: *delay_ms,
-            error_message: error_message.clone(),
+            delay_ms,
+            error_message,
             reason: match failover {
-                Some(Failover { backup_model, .. }) => RetryStartReason::Backup {
-                    backup_model: backup_model.clone(),
-                },
+                Some(Failover { backup_model, .. }) => RetryStartReason::Backup { backup_model },
                 None => RetryStartReason::Quick,
             },
         },
@@ -336,21 +334,21 @@ pub fn event_to_update(event: &SessionEvent) -> TurnUpdate {
             final_error,
             restored_model,
         } => TurnUpdate::AutoRetryEnd {
-            success: *success,
-            attempt: saturating_u32(*attempt),
-            final_error: final_error.clone(),
-            restored_model: restored_model.clone(),
+            success,
+            attempt: saturating_u32(attempt),
+            final_error,
+            restored_model,
         },
         SessionEvent::CompactionStart {
             reason,
             custom_instructions,
         } => TurnUpdate::CompactionStart {
-            reason: *reason,
-            custom_instructions: custom_instructions.clone(),
+            reason,
+            custom_instructions,
         },
-        SessionEvent::CompactionSummaryDelta { delta } => TurnUpdate::CompactionSummaryDelta {
-            delta: delta.clone(),
-        },
+        SessionEvent::CompactionSummaryDelta { delta } => {
+            TurnUpdate::CompactionSummaryDelta { delta }
+        }
         SessionEvent::CompactionEnd {
             reason,
             result,
@@ -360,52 +358,38 @@ pub fn event_to_update(event: &SessionEvent) -> TurnUpdate {
             custom_instructions,
             ..
         } => TurnUpdate::CompactionEnd {
-            reason: *reason,
-            result: result.clone(),
-            custom_instructions: custom_instructions.clone(),
-            aborted: *aborted,
-            error_message: error_message.clone(),
-            error_severity: *error_severity,
+            reason,
+            result,
+            custom_instructions,
+            aborted,
+            error_message,
+            error_severity,
         },
-        SessionEvent::SessionInfoChanged { name } => {
-            TurnUpdate::SessionInfoChanged { name: name.clone() }
+        SessionEvent::SessionInfoChanged { name } => TurnUpdate::SessionInfoChanged { name },
+        SessionEvent::ServiceTierChanged { service_tier } => {
+            TurnUpdate::ServiceTierChanged { tier: service_tier }
         }
-        SessionEvent::ServiceTierChanged { service_tier } => TurnUpdate::ServiceTierChanged {
-            tier: *service_tier,
-        },
         SessionEvent::SessionActionUpdate { actions } => {
-            TurnUpdate::QueueUpdated(queued_messages(actions))
+            TurnUpdate::QueueUpdated(queued_messages(&actions))
         }
-        SessionEvent::UnknownEffectsUpdate { effects } => {
-            TurnUpdate::UnknownEffectsUpdate(effects.clone())
-        }
-        SessionEvent::RunReport { ran, unknown } => run_report_text(&RunReport {
-            ran: ran.clone(),
-            unknown: unknown.clone(),
-        })
-        .map_or(TurnUpdate::StatusUpdate, TurnUpdate::RunReport),
-        SessionEvent::LoopUpdate { r#loop } => TurnUpdate::LoopUpdate(r#loop.clone()),
-        SessionEvent::BudgetUpdate { budget } => {
-            TurnUpdate::BudgetUpdate(budget.clone().map(Box::new))
-        }
-        SessionEvent::PlanUsage { text, .. } => TurnUpdate::PlanUsage(text.clone()),
-        SessionEvent::CheckUpdate { check, text } => TurnUpdate::CheckUpdate {
-            check: check.clone(),
-            text: text.clone(),
-        },
-        SessionEvent::MemoryUpdate { update } => TurnUpdate::MemoryUpdate(update.clone()),
+        SessionEvent::UnknownEffectsUpdate { effects } => TurnUpdate::UnknownEffectsUpdate(effects),
+        SessionEvent::RunReport { ran, unknown } => run_report_text(&RunReport { ran, unknown })
+            .map_or(TurnUpdate::StatusUpdate, TurnUpdate::RunReport),
+        SessionEvent::LoopUpdate { r#loop } => TurnUpdate::LoopUpdate(r#loop),
+        SessionEvent::BudgetUpdate { budget } => TurnUpdate::BudgetUpdate(budget.map(Box::new)),
+        SessionEvent::PlanUsage { text, .. } => TurnUpdate::PlanUsage(text),
+        SessionEvent::CheckUpdate { check, text } => TurnUpdate::CheckUpdate { check, text },
+        SessionEvent::MemoryUpdate { update } => TurnUpdate::MemoryUpdate(update),
         SessionEvent::BashStart {
             command,
             exclude_from_context,
             run,
         } => TurnUpdate::BashStart {
-            command: command.clone(),
-            exclude_from_context: *exclude_from_context,
-            run: run.clone(),
+            command,
+            exclude_from_context,
+            run,
         },
-        SessionEvent::BashOutput { chunk } => TurnUpdate::BashOutput {
-            chunk: chunk.clone(),
-        },
+        SessionEvent::BashOutput { chunk } => TurnUpdate::BashOutput { chunk },
         SessionEvent::BashEnd {
             exit_code,
             cancelled,
@@ -415,17 +399,15 @@ pub fn event_to_update(event: &SessionEvent) -> TurnUpdate {
             error_message,
             run,
         } => TurnUpdate::BashEnd {
-            exit_code: *exit_code,
-            cancelled: *cancelled,
-            output: output.clone(),
-            omitted: *omitted,
-            artifact: artifact.clone(),
-            error_message: error_message.clone(),
-            run: run.clone(),
+            exit_code,
+            cancelled,
+            output,
+            omitted,
+            artifact,
+            error_message,
+            run,
         },
-        SessionEvent::AcceptanceUpdate { acceptance } => {
-            TurnUpdate::AcceptanceUpdate(acceptance.clone())
-        }
+        SessionEvent::AcceptanceUpdate { acceptance } => TurnUpdate::AcceptanceUpdate(acceptance),
         // `/effects` reads the ledger when asked: an update shows nothing.
         SessionEvent::RanEffectsUpdate { .. }
         | SessionEvent::RefineComplete { .. }

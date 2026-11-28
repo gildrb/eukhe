@@ -16,6 +16,23 @@ use eukhe_ai::auth::oauth::oauth_identity;
 use eukhe_ai::auth::OAuthCredential;
 use serde_json::{Map, Value};
 
+/// A credential's `type`: the two this file reads, or another.
+#[derive(serde::Deserialize, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+enum CredentialKind {
+    Oauth,
+    ApiKey,
+    #[serde(other)]
+    Other,
+}
+
+/// The `type` of `credential`; `None` when absent or not a string.
+fn credential_kind(credential: &Map<String, Value>) -> Option<CredentialKind> {
+    credential
+        .get("type")
+        .and_then(|kind| <CredentialKind as serde::Deserialize>::deserialize(kind).ok())
+}
+
 /// The key of a provider entry's account list.
 const ACCOUNTS: &str = "accounts";
 /// The key of an account's identity.
@@ -106,18 +123,18 @@ impl AccountSelector {
 /// API key (`key ...<last 6>`), empty otherwise.
 #[must_use]
 pub fn identity_of(provider: &str, credential: &Map<String, Value>) -> String {
-    match credential.get("type").and_then(Value::as_str) {
-        Some("oauth") => {
-            serde_json::from_value::<OAuthCredential>(Value::Object(credential.clone()))
+    match credential_kind(credential) {
+        Some(CredentialKind::Oauth) => {
+            <OAuthCredential as serde::Deserialize>::deserialize(credential)
                 .map(|credential| oauth_identity(provider, &credential))
                 .unwrap_or_default()
         }
-        Some("api_key") => credential
+        Some(CredentialKind::ApiKey) => credential
             .get("key")
             .and_then(Value::as_str)
             .map(key_identity)
             .unwrap_or_default(),
-        Some(_) | None => String::new(),
+        Some(CredentialKind::Other) | None => String::new(),
     }
 }
 
@@ -225,11 +242,14 @@ pub fn migrated_entries(document: &Map<String, Value>) -> Vec<(String, Value)> {
         .filter(|(provider, _)| !provider.starts_with(MCP_PREFIX))
         .filter_map(|(provider, entry)| {
             let object = entry.as_object()?;
-            match object.get("type").and_then(Value::as_str) {
-                Some("api_key" | "oauth") if !object.contains_key(ACCOUNTS) => {
+            match credential_kind(object) {
+                Some(CredentialKind::ApiKey | CredentialKind::Oauth)
+                    if !object.contains_key(ACCOUNTS) =>
+                {
                     Some((provider.clone(), entry_of(&accounts_of(provider, entry))))
                 }
-                Some(_) | None => None,
+                Some(CredentialKind::ApiKey | CredentialKind::Oauth | CredentialKind::Other)
+                | None => None,
             }
         })
         .collect()

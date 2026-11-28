@@ -71,9 +71,11 @@ pub(crate) async fn ran_commands(
         let page = conversation
             .entries(ConversationEntryQuery::default(), PAGE, cursor, cx)
             .await?;
-        for entry in &page.items {
-            if let Some((job, end)) = job_settled(entry) {
-                settled.entry(job).or_insert(end);
+        for entry in page.items {
+            if entry.kind == CUSTOM_ENTRY.kind() {
+                if let Some((job, end)) = job_settled(entry) {
+                    settled.entry(job).or_insert(end);
+                }
             } else if let Some(run) = bash_run(entry) {
                 if runs.len() == MAX_RUNS {
                     earlier = true;
@@ -91,32 +93,29 @@ pub(crate) async fn ran_commands(
 }
 
 /// The run a tool result of the `bash` tool records.
-fn bash_run(entry: &EntryRecord) -> Option<Run> {
+fn bash_run(entry: EntryRecord) -> Option<Run> {
     if entry.kind != TOOL_RESULT_ENTRY.kind() {
         return None;
     }
-    let Some(Message::ToolResult(result)) = entry.model.as_ref()?.first() else {
+    let Some(Message::ToolResult(result)) = entry.model?.into_iter().next() else {
         return None;
     };
     if result.tool_name != BASH_NAME {
         return None;
     }
-    let details = result.details.as_ref()?;
+    let details = result.details?;
     if details.get("version").and_then(Value::as_str) != Some(BASH_VERSION) {
         return None;
     }
     Some(Run {
-        details: details.clone(),
+        details,
         output: blocks_text(&result.content),
     })
 }
 
 /// The job and its end a `job_settled` row records.
-fn job_settled(entry: &EntryRecord) -> Option<(String, Settled)> {
-    if entry.kind != CUSTOM_ENTRY.kind() {
-        return None;
-    }
-    let custom = CUSTOM_ENTRY.narrow(entry.clone()).ok().flatten()?;
+fn job_settled(entry: EntryRecord) -> Option<(String, Settled)> {
+    let custom = CUSTOM_ENTRY.narrow(entry).ok().flatten()?;
     let data = custom.data();
     if data.custom_type != JOB_SETTLED_CUSTOM_TYPE {
         return None;

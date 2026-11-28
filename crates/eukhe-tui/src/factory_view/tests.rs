@@ -20,7 +20,7 @@ fn kb() -> KeybindingsManager {
 }
 
 /// Rendered rows as trimmed plain text (tmux-capture shape).
-fn frame_text(view: &mut FactoryView) -> Vec<String> {
+fn frame_text(view: &FactoryView) -> Vec<String> {
     view.render(&theme(), 110, &kb())
         .iter()
         .map(|line| {
@@ -33,7 +33,7 @@ fn frame_text(view: &mut FactoryView) -> Vec<String> {
 }
 
 /// One span row's styles, for the highlighting assertions.
-fn frame_spans(view: &mut FactoryView) -> Vec<Vec<crate::Span>> {
+fn frame_spans(view: &FactoryView) -> Vec<Vec<crate::Span>> {
     view.render(&theme(), 110, &kb())
 }
 
@@ -273,8 +273,8 @@ fn parsing_tolerates_both_wire_spellings() {
 /// edge marked.
 #[test]
 fn the_diagram_renders_states_edges_and_the_fired_marker() {
-    let mut view = FactoryView::new(parse_factory_runs(&runs_response(&scripted_snapshot())), 40);
-    let rows = frame_text(&mut view);
+    let view = FactoryView::new(parse_factory_runs(&runs_response(&scripted_snapshot())), 40);
+    let rows = frame_text(&view);
     let joined = rows.join("\n");
     assert!(
         joined.contains("factory: review-loop -- running"),
@@ -325,8 +325,8 @@ fn the_diagram_renders_per_stage_agent_occupancy() {
         Some(2),
         "the kernel's queued count parses"
     );
-    let mut view = FactoryView::new(runs, 40);
-    let rows = frame_text(&mut view);
+    let view = FactoryView::new(runs, 40);
+    let rows = frame_text(&view);
     let joined = rows.join("\n");
     assert!(
         joined.contains("reviewing (3 run - 2 queued)"),
@@ -353,8 +353,8 @@ fn the_diagram_renders_per_stage_agent_occupancy() {
         2,
         "queued derives from the instance rows"
     );
-    let mut view = FactoryView::new(runs, 40);
-    let rows = frame_text(&mut view);
+    let view = FactoryView::new(runs, 40);
+    let rows = frame_text(&view);
     assert!(
         rows.join("\n").contains("reviewing (3 run - 2 queued)"),
         "the fallback renders the same occupancy"
@@ -366,8 +366,8 @@ fn the_diagram_renders_per_stage_agent_occupancy() {
 /// fails this test (the mutation check on the diagram's highlighting).
 #[test]
 fn active_nodes_paint_bright_and_pending_paints_dim() {
-    let mut view = FactoryView::new(parse_factory_runs(&runs_response(&scripted_snapshot())), 40);
-    let rows = frame_spans(&mut view);
+    let view = FactoryView::new(parse_factory_runs(&runs_response(&scripted_snapshot())), 40);
+    let rows = frame_spans(&view);
     let accent = theme().fg_style(ThemeColor::Accent);
     let dim = theme().fg_style(ThemeColor::Dim);
     let styled = |rows: &Vec<crate::Span>, style: crate::Style, text: &str| {
@@ -412,8 +412,8 @@ fn a_terminal_entry_with_running_instances_stays_bright() {
     snapshot["nodes"][1]["queued"] = json!(0);
     snapshot["usage"]["running"] = json!(1);
     snapshot["activeNodes"] = json!(["reviewing"]);
-    let mut view = FactoryView::new(parse_factory_runs(&runs_response(&snapshot)), 40);
-    let rows = frame_spans(&mut view);
+    let view = FactoryView::new(parse_factory_runs(&runs_response(&snapshot)), 40);
+    let rows = frame_spans(&view);
     let accent = theme().fg_style(ThemeColor::Accent);
     let bright = rows.iter().any(|row| {
         row.iter()
@@ -423,7 +423,7 @@ fn a_terminal_entry_with_running_instances_stays_bright() {
         bright,
         "the running sibling keeps the failed entry's row bright"
     );
-    let text = frame_text(&mut view);
+    let text = frame_text(&view);
     assert!(
         text.join("\n").contains("reviewing (1 run - 0 queued)"),
         "the occupancy label still shows the in-flight sibling"
@@ -444,8 +444,8 @@ fn a_multi_entry_state_with_an_in_flight_entry_stays_bright() {
         { "index": 0, "status": "running", "error": null },
         { "index": 1, "status": "done", "error": null },
     ]);
-    let mut view = FactoryView::new(parse_factory_runs(&runs_response(&snapshot)), 40);
-    let rows = frame_spans(&mut view);
+    let view = FactoryView::new(parse_factory_runs(&runs_response(&snapshot)), 40);
+    let rows = frame_spans(&view);
     let accent = theme().fg_style(ThemeColor::Accent);
     let bright = rows.iter().any(|row| {
         row.iter()
@@ -524,7 +524,7 @@ fn daemon_text_never_carries_terminal_control_sequences() {
     // text is the only thing that reaches a span.
     let mut view = FactoryView::new(runs, 40);
     view.set_error(Some("boom\x1b]52;c;evil\x07".to_string()));
-    let rows = frame_text(&mut view);
+    let rows = frame_text(&view);
     for row in &rows {
         assert!(
             !has_control(row),
@@ -546,16 +546,16 @@ fn daemon_text_never_carries_terminal_control_sequences() {
 #[test]
 fn a_malformed_cached_reply_mounts_with_the_error_not_a_silent_empty() {
     // A malformed cache mounts with the error line painted.
-    let mut view = FactoryView::from_reply(&json!({ "machine": {} }), 40);
-    let joined = frame_text(&mut view).join("\n");
+    let view = FactoryView::from_reply(&json!({ "machine": {} }), 40);
+    let joined = frame_text(&view).join("\n");
     assert!(
         joined.contains("Error: malformed factory reply (no runs list)"),
         "the malformed cache reports itself at mount: {joined}"
     );
     // A real empty reply (the runs list present) mounts clean: the
     // genuine empty state, no error line.
-    let mut view = FactoryView::from_reply(&json!({ "runs": [] }), 40);
-    let joined = frame_text(&mut view).join("\n");
+    let view = FactoryView::from_reply(&json!({ "runs": [] }), 40);
+    let joined = frame_text(&view).join("\n");
     assert!(
         joined.contains("No live factory runs."),
         "an empty runs list is the real empty state: {joined}"
@@ -565,8 +565,8 @@ fn a_malformed_cached_reply_mounts_with_the_error_not_a_silent_empty() {
         "a real empty state never reports a malformed lane: {joined}"
     );
     // A good cache mounts its runs with no error line.
-    let mut view = FactoryView::from_reply(&two_run_response(), 40);
-    let joined = frame_text(&mut view).join("\n");
+    let view = FactoryView::from_reply(&two_run_response(), 40);
+    let joined = frame_text(&view).join("\n");
     assert!(
         joined.contains("factory: second-run"),
         "the cached runs mount newest-first: {joined}"
@@ -596,8 +596,8 @@ fn the_fired_edge_identity_includes_the_guard() {
         { "from": "reviewing", "to": "fixing", "seq": 9,
           "when": { "output": "verdict", "path": "approved", "op": "eq", "value": false } }
     ]);
-    let mut view = FactoryView::new(parse_factory_runs(&runs_response(&snapshot)), 40);
-    let rows = frame_text(&mut view);
+    let view = FactoryView::new(parse_factory_runs(&runs_response(&snapshot)), 40);
+    let rows = frame_text(&view);
     // Both sibling edges render; the fired `>>` sits ONLY on the row of
     // the guard that fired -- the sibling row with the same from+to
     // carries no marker.
@@ -622,8 +622,8 @@ fn the_fired_edge_identity_includes_the_guard() {
 /// The empty state and the key hint.
 #[test]
 fn the_empty_state_names_the_surface() {
-    let mut view = FactoryView::new(Vec::new(), 40);
-    let rows = frame_text(&mut view);
+    let view = FactoryView::new(Vec::new(), 40);
+    let rows = frame_text(&view);
     let joined = rows.join("\n");
     assert!(joined.contains("No live factory runs."), "{joined}");
     assert!(joined.contains("await rlm.factory.run"), "{joined}");
@@ -674,7 +674,7 @@ fn the_key_loop_resolves_the_orchestration_actions() {
     // exactly stop, the block names the run, and the hint flips to the
     // action grammar.
     assert_eq!(view.handle_key("enter", &kb()), FactoryViewAction::None);
-    let rows = frame_text(&mut view);
+    let rows = frame_text(&view);
     let joined = rows.join("\n");
     assert!(joined.contains("actions: second-run"), "{joined}");
     assert!(joined.contains("> Stop the run"), "{joined}");
@@ -690,7 +690,7 @@ fn the_key_loop_resolves_the_orchestration_actions() {
     let _ = view.handle_key("enter", &kb());
     assert_eq!(view.handle_key("escape", &kb()), FactoryViewAction::None);
     assert!(
-        frame_text(&mut view).join("\n").contains("Enter actions"),
+        frame_text(&view).join("\n").contains("Enter actions"),
         "Esc returns the feed's hint"
     );
     // The real key id for the Escape key is "escape" (`key_event_to_id`)
@@ -710,7 +710,7 @@ fn the_key_loop_resolves_the_orchestration_actions() {
     paused[0].state = Some("paused".to_string());
     let mut view = FactoryView::new(paused, 40);
     let _ = view.handle_key("enter", &kb());
-    let rows = frame_text(&mut view);
+    let rows = frame_text(&view);
     let joined = rows.join("\n");
     assert!(joined.contains("> Resume the run"), "{joined}");
     assert!(joined.contains("Stop the run"), "{joined}");
@@ -737,7 +737,7 @@ fn the_key_loop_resolves_the_orchestration_actions() {
     let mut view = FactoryView::new(terminal, 40);
     assert_eq!(view.handle_key("enter", &kb()), FactoryViewAction::None);
     assert!(
-        !frame_text(&mut view).join("\n").contains("actions: "),
+        !frame_text(&view).join("\n").contains("actions: "),
         "a terminal run opens no action rows"
     );
 }
@@ -754,7 +754,7 @@ fn apply_runs_lights_the_marker_only_on_notice_worthy_changes() {
     // The same snapshot: no change.
     let changed = view.apply_runs(parse_factory_runs(&runs_response(&scripted_snapshot())));
     assert!(!changed, "an identical snapshot changes nothing");
-    let rows = frame_text(&mut view);
+    let rows = frame_text(&view);
     assert!(
         !rows.join("\n").contains("changed"),
         "the marker stays off for an identical snapshot"
@@ -765,7 +765,7 @@ fn apply_runs_lights_the_marker_only_on_notice_worthy_changes() {
     settled["nodes"][1]["instances"][0]["status"] = json!("done");
     let changed = view.apply_runs(parse_factory_runs(&runs_response(&settled)));
     assert!(changed, "a state/instance change is notice-worthy");
-    let rows = frame_text(&mut view);
+    let rows = frame_text(&view);
     assert!(
         rows.join("\n").contains("changed"),
         "the changed marker lights on the state change"
@@ -773,7 +773,7 @@ fn apply_runs_lights_the_marker_only_on_notice_worthy_changes() {
     // The marker decays on the next unchanged cycle.
     let changed = view.apply_runs(parse_factory_runs(&runs_response(&settled)));
     assert!(!changed);
-    let rows = frame_text(&mut view);
+    let rows = frame_text(&view);
     assert!(
         !rows.join("\n").contains("changed"),
         "the marker decays once quiescent"
@@ -787,7 +787,7 @@ fn apply_runs_lights_the_marker_only_on_notice_worthy_changes() {
         !changed,
         "an elapsed-only bump is not a notice-worthy change"
     );
-    let rows = frame_text(&mut view);
+    let rows = frame_text(&view);
     assert!(
         !rows.join("\n").contains("changed"),
         "the clock keeps the changed marker off"
@@ -813,7 +813,7 @@ fn the_runs_list_reads_newest_first_and_opens_on_the_newest_run() {
         "the parsed list reads newest-first"
     );
     // The page opens with the newest run selected.
-    let mut view = FactoryView::new(runs, 40);
+    let view = FactoryView::new(runs, 40);
     assert_eq!(
         view.selected_run().map(|run| run.run_id.clone()),
         Some("run-def67890".to_string()),
@@ -821,7 +821,7 @@ fn the_runs_list_reads_newest_first_and_opens_on_the_newest_run() {
     );
     // The rendered frame: the newest run's panel is the first panel and
     // the older run renders below it.
-    let rows = frame_text(&mut view);
+    let rows = frame_text(&view);
     let joined = rows.join("\n");
     let first_header = rows
         .iter()
@@ -901,16 +901,16 @@ fn multiple_runs_keep_the_selection_on_the_same_run() {
 /// `.max(6)` floor overflowed the dock on short terminals).
 #[test]
 fn the_degenerate_budget_still_honors_the_viewport() {
-    let mut one_row = FactoryView::new(parse_factory_runs(&runs_response(&scripted_snapshot())), 1);
-    let rows = frame_text(&mut one_row);
+    let one_row = FactoryView::new(parse_factory_runs(&runs_response(&scripted_snapshot())), 1);
+    let rows = frame_text(&one_row);
     assert_eq!(rows.len(), 1, "a 1-row viewport renders exactly one row");
     assert!(
         rows[0].contains("close"),
         "the tail-clip keeps the hint: {:?}",
         rows[0]
     );
-    let mut two_rows = FactoryView::new(parse_factory_runs(&two_run_response()), 2);
-    let rows = frame_text(&mut two_rows);
+    let two_rows = FactoryView::new(parse_factory_runs(&two_run_response()), 2);
+    let rows = frame_text(&two_rows);
     assert_eq!(rows.len(), 2, "a 2-row viewport renders exactly two rows");
     assert!(
         rows[1].contains("close"),
@@ -930,8 +930,8 @@ fn the_degenerate_budget_still_honors_the_viewport() {
 /// the selected run's header).
 #[test]
 fn the_budget_window_keeps_the_hint_and_the_selected_panel() {
-    let mut view = FactoryView::new(parse_factory_runs(&two_run_response()), 8);
-    let rows = frame_text(&mut view);
+    let view = FactoryView::new(parse_factory_runs(&two_run_response()), 8);
+    let rows = frame_text(&view);
     let joined = rows.join("\n");
     // The budget contract: never more than the viewport asked for.
     assert!(
@@ -959,7 +959,7 @@ fn the_budget_window_keeps_the_hint_and_the_selected_panel() {
     // panel instead.
     let mut selected_older = FactoryView::new(parse_factory_runs(&two_run_response()), 8);
     let _ = selected_older.handle_key("down", &kb());
-    let rows = frame_text(&mut selected_older);
+    let rows = frame_text(&selected_older);
     let joined = rows.join("\n");
     assert!(
         rows.len() <= 8,
@@ -1378,11 +1378,11 @@ fn panel_rows<'a>(rows: &'a [String], name: &str) -> &'a [String] {
 /// in-flight and resident nodes.
 #[test]
 fn a_complex_machine_renders_its_whole_shape() {
-    let mut view = FactoryView::new(
+    let view = FactoryView::new(
         parse_factory_runs(&runs_response(&pr_manager_run("run-pm1", "pr run"))),
         60,
     );
-    let rows = frame_text(&mut view);
+    let rows = frame_text(&view);
     let joined = rows.join("\n");
     assert!(
         joined.contains("factory: pr run -- running"),
@@ -1431,7 +1431,7 @@ fn a_complex_machine_renders_its_whole_shape() {
     assert_eq!(fired, 2, "both fired edges carry the marker: {joined}");
     // The live highlighting: the in-flight review and the resident
     // watchdog paint accent; the never-entered states paint dim.
-    let spans = frame_spans(&mut view);
+    let spans = frame_spans(&view);
     let accent = theme().fg_style(ThemeColor::Accent);
     let dim = theme().fg_style(ThemeColor::Dim);
     let accent_span = |text: &str| {
@@ -1554,7 +1554,7 @@ fn selection_stays_on_the_same_run_across_a_many_run_churn() {
 #[test]
 fn fifteen_panels_window_to_the_focus_on_a_small_viewport() {
     let mut view = FactoryView::new(parse_factory_runs(&world_response()), 26);
-    let rows = frame_text(&mut view);
+    let rows = frame_text(&view);
     assert!(
         rows.len() <= 26,
         "fifteen panels never exceed the viewport: {:?}",
@@ -1577,7 +1577,7 @@ fn fifteen_panels_window_to_the_focus_on_a_small_viewport() {
     for _ in 0..7 {
         let _ = view.handle_key("down", &kb());
     }
-    let rows = frame_text(&mut view);
+    let rows = frame_text(&view);
     let joined = rows.join("\n");
     assert!(rows.len() <= 26, "the windowed frame stays in budget");
     assert!(
@@ -1593,12 +1593,12 @@ fn fifteen_panels_window_to_the_focus_on_a_small_viewport() {
         "the hint still paints after the slide"
     );
     // Degenerate budgets honor the viewport exactly.
-    let mut one_row = FactoryView::new(parse_factory_runs(&world_response()), 1);
-    let rows = frame_text(&mut one_row);
+    let one_row = FactoryView::new(parse_factory_runs(&world_response()), 1);
+    let rows = frame_text(&one_row);
     assert_eq!(rows.len(), 1);
     assert!(rows[0].contains("close"), "{:?}", rows[0]);
-    let mut three_rows = FactoryView::new(parse_factory_runs(&world_response()), 3);
-    let rows = frame_text(&mut three_rows);
+    let three_rows = FactoryView::new(parse_factory_runs(&world_response()), 3);
+    let rows = frame_text(&three_rows);
     assert_eq!(rows.len(), 3);
     assert!(rows[2].contains("close"), "{:?}", rows[2]);
 }
@@ -1633,7 +1633,7 @@ fn the_refresh_tick_lights_only_notice_worthy_changes_across_many_runs() {
     // lights on THAT run alone, and its occupancy label drops to
     // 2 run.
     assert!(view.apply_runs(parse_factory_runs(&w02_settled(2))));
-    let rows = frame_text(&mut view);
+    let rows = frame_text(&view);
     assert_eq!(changed_headers(&mut view), 1, "exactly one run changed");
     let panel = panel_rows(&rows, "factory: world-run-2");
     assert!(
@@ -1649,7 +1649,7 @@ fn the_refresh_tick_lights_only_notice_worthy_changes_across_many_runs() {
     );
     // One instance deeper: 1 run, still exactly one marker.
     assert!(view.apply_runs(parse_factory_runs(&w02_settled(1))));
-    let rows = frame_text(&mut view);
+    let rows = frame_text(&view);
     assert_eq!(changed_headers(&mut view), 1);
     assert!(
         panel_rows(&rows, "factory: world-run-2")
@@ -1661,7 +1661,7 @@ fn the_refresh_tick_lights_only_notice_worthy_changes_across_many_runs() {
     // moves to the newly fired transition, the review stage drains
     // (no occupancy fragment), and the active node moves to fix.
     assert!(view.apply_runs(parse_factory_runs(&w02_entry_fired())));
-    let rows = frame_text(&mut view);
+    let rows = frame_text(&view);
     assert_eq!(changed_headers(&mut view), 1, "still exactly one run");
     let panel = panel_rows(&rows, "factory: world-run-2");
     let fired_edge = panel
@@ -1678,7 +1678,7 @@ fn the_refresh_tick_lights_only_notice_worthy_changes_across_many_runs() {
     );
     // The active-node highlighting follows the settling: the entered
     // fix stage paints accent, the settled review stage does not.
-    let spans = frame_spans(&mut view);
+    let spans = frame_spans(&view);
     let accent = theme().fg_style(ThemeColor::Accent);
     let accent_ids: Vec<String> = spans
         .iter()
@@ -1692,7 +1692,7 @@ fn the_refresh_tick_lights_only_notice_worthy_changes_across_many_runs() {
         accent_ids.iter().any(|id| id == "fix"),
         "the entered fix stage paints accent: {accent_ids:?}"
     );
-    let rows = frame_text(&mut view);
+    let rows = frame_text(&view);
     let panel = panel_rows(&rows, "factory: world-run-2");
     let panel_start = rows
         .iter()
@@ -1731,7 +1731,7 @@ fn orchestration_targets_the_focused_run_among_many() {
         Some("run-w07".to_string())
     );
     let _ = view.handle_key("enter", &kb());
-    let rows = frame_text(&mut view);
+    let rows = frame_text(&view);
     assert!(
         rows.join("\n").contains("actions: world-run-7"),
         "the action rows name the focused run"
@@ -1751,7 +1751,7 @@ fn orchestration_targets_the_focused_run_among_many() {
         Some("run-w07".to_string()),
         "stopping a run never loses the selection"
     );
-    let rows = frame_text(&mut view);
+    let rows = frame_text(&view);
     assert!(
         panel_rows(&rows, "factory: world-run-7")
             .iter()
@@ -1768,7 +1768,7 @@ fn orchestration_targets_the_focused_run_among_many() {
         Some("run-w09".to_string())
     );
     let _ = view.handle_key("enter", &kb());
-    let rows = frame_text(&mut view);
+    let rows = frame_text(&view);
     let joined = rows.join("\n");
     assert!(joined.contains("actions: world-run-9"), "{joined}");
     assert!(joined.contains("> Resume the run"), "{joined}");
@@ -1793,7 +1793,7 @@ fn orchestration_targets_the_focused_run_among_many() {
     );
     let _ = view.handle_key("enter", &kb());
     view.apply_runs(parse_factory_runs(&world_w09_resumed()));
-    let rows = frame_text(&mut view);
+    let rows = frame_text(&view);
     let joined = rows.join("\n");
     assert!(
         joined.contains("actions: world-run-9"),
@@ -1822,7 +1822,7 @@ fn orchestration_targets_the_focused_run_among_many() {
         Some("run-w11".to_string())
     );
     let _ = view.handle_key("enter", &kb());
-    let rows = frame_text(&mut view);
+    let rows = frame_text(&view);
     let joined = rows.join("\n");
     assert!(joined.contains("actions: world-run-11"), "{joined}");
     assert!(
@@ -1845,7 +1845,7 @@ fn orchestration_targets_the_focused_run_among_many() {
     );
     assert_eq!(view.handle_key("enter", &kb()), FactoryViewAction::None);
     assert!(
-        !frame_text(&mut view).join("\n").contains("actions: "),
+        !frame_text(&view).join("\n").contains("actions: "),
         "a terminal run opens no action rows"
     );
 }
@@ -1879,7 +1879,7 @@ fn rapid_churn_keeps_the_folded_page_coherent() {
     assert_eq!(view.selected, 12, "five new runs folded in on top");
     // Exactly the four changed runs light the marker -- the burst's new
     // runs paint none, the untouched runs none.
-    let rows = frame_text(&mut view);
+    let rows = frame_text(&view);
     let marked: Vec<&String> = rows
         .iter()
         .filter(|row| row.contains("* changed"))
@@ -1927,7 +1927,7 @@ fn rapid_churn_keeps_the_folded_page_coherent() {
     );
     let _ = view.handle_key("enter", &kb());
     assert!(
-        frame_text(&mut view)
+        frame_text(&view)
             .join("\n")
             .contains("actions: world-run-19"),
         "the keypress after the fold opens the head's rows"

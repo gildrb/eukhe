@@ -463,7 +463,12 @@ pub fn edit_storage_data(
         None => (AuthStorageData::default(), config::Read::Missing, None),
         Some(content) => match parse_storage_data(Some(content)) {
             Ok(data) => {
-                let read = config::Read::Parsed(data.0.clone().into_iter().collect());
+                let read = config::Read::Parsed(
+                    data.0
+                        .iter()
+                        .map(|(key, value)| (key.clone(), value.clone()))
+                        .collect(),
+                );
                 (data, read, None)
             }
             Err(error) => (

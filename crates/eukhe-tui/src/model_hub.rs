@@ -172,7 +172,7 @@ impl List {
         self.filtered = if self.search.value().trim().is_empty() {
             all
         } else {
-            crate::fuzzy::fuzzy_filter(&all, self.search.value(), |at| texts[*at].clone())
+            crate::fuzzy::fuzzy_filter(&all, self.search.value(), |at| texts[*at].as_str())
         };
         self.selected = self.selected.min(self.filtered.len().saturating_sub(1));
     }

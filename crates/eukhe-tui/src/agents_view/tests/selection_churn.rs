@@ -114,12 +114,12 @@ fn selected_session_gone_keeps_the_bounded_position() {
         mode.handle_key("down");
     }
     assert_eq!(mode.rows[mode.selected].title, "session 4");
-    let shrunk: Vec<serde_json::Value> = roster
-        .into_iter()
+    let shrunk = roster
+        .iter()
         .filter(|entry| entry["agentId"] != serde_json::json!("s4"))
-        .collect();
+        .count();
     mode.apply_roster_update(Vec::new(), vec!["s4".to_string()], false);
-    assert_eq!(mode.roster.len(), shrunk.len());
+    assert_eq!(mode.roster.len(), shrunk);
     // The identity and its keys are gone: the selection keeps the
     // bounded index (the row that now occupies the slot), not 0.
     assert_eq!(mode.selected, 3);

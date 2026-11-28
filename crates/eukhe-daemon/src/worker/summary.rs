@@ -11,6 +11,7 @@ use super::{
     EventPump, Map, Mutex, OutboundFrame, Result, SessionActionSnapshot, SessionCore, SessionSlot,
     Value, Worker,
 };
+use crate::types::{message_role, MessageRole};
 
 use eukhe_chord::context::BACKGROUND_CONTEXT;
 use eukhe_core::durable::directors::run_left;
@@ -574,7 +575,7 @@ pub(super) fn first_message(view: &ShownView) -> Option<String> {
         .filter(|entry| entry.kind == USER_ENTRY.kind())
         .map(AsRef::as_ref)
         .filter_map(entry_wire_message)
-        .find(|message| crate::types::message_role(message) == Some("user"))
+        .find(|message| message_role(message) == Some(MessageRole::User))
         .map(|message| crate::types::message_text(&message))
 }
 
@@ -602,16 +603,21 @@ pub(crate) struct NoteCandidates {
 /// The task text one wire message carries: a user message's text, or an
 /// `agent_message` row's `details.message`.
 fn task_text(message: &Value) -> Option<String> {
-    let text = match crate::types::message_role(message)? {
-        "user" => crate::types::message_text(message),
-        "custom" if message.get("customType").and_then(Value::as_str) == Some("agent_message") => {
+    let text = match message_role(message)? {
+        MessageRole::User => crate::types::message_text(message),
+        MessageRole::Custom
+            if message.get("customType").and_then(Value::as_str) == Some("agent_message") =>
+        {
             message
                 .get("details")?
                 .get("message")?
                 .as_str()?
                 .to_string()
         }
-        _ => return None,
+        MessageRole::Assistant
+        | MessageRole::ToolResult
+        | MessageRole::Custom
+        | MessageRole::Other => return None,
     };
     (!text.trim().is_empty()).then_some(text)
 }
@@ -619,7 +625,7 @@ fn task_text(message: &Value) -> Option<String> {
 /// The final report one wire message carries: an assistant message that
 /// stopped with text, timed by its timestamp.
 fn report_note(message: &Value) -> Option<TimedNote> {
-    if crate::types::message_role(message) != Some("assistant")
+    if message_role(message) != Some(MessageRole::Assistant)
         || message.get("stopReason").and_then(Value::as_str) != Some("stop")
     {
         return None;
@@ -758,7 +764,7 @@ pub(crate) fn session_summary(
         .map(|(mirror, meter)| crate::state_getters::mirror_context_usage(&mirror.entries, &meter));
     SessionSummary {
         id: core.active_session_id.clone(),
-        lifecycle: active_lifecycle(&core.runtime_kind, messages == 0, streaming).to_string(),
+        lifecycle: active_lifecycle(core.runtime_kind, messages == 0, streaming).to_string(),
         activity: if streaming || compacting {
             "working"
         } else {
@@ -824,7 +830,7 @@ pub(crate) fn session_summary(
         model,
         model_fallback_message: None,
         accounts: std::collections::BTreeMap::new(),
-        runtime_kind: Some(core.runtime_kind.clone()),
+        runtime_kind: Some(core.runtime_kind.as_str().to_owned()),
         unfinished_action_count: Some(0),
         anthropic_warning_shown: core.created.then_some(core.anthropic_warning_shown),
         workers: view

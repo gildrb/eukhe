@@ -120,16 +120,15 @@ impl Inner {
                     let _ = waiter.send(fields);
                     return;
                 }
-                let status = fields
-                    .get("status")
-                    .and_then(Value::as_str)
-                    .unwrap_or("error");
+                let failed = match super::ReplyStatus::of(&fields) {
+                    super::ReplyStatus::Ok => false,
+                    super::ReplyStatus::Failed(_) => true,
+                };
                 let execution = lock(&self.guarded).active_execution.clone();
                 if let Some(execution) = execution.filter(|e| e.request_id == id) {
                     {
                         let mut buffers = lock(&execution.buffers);
-                        buffers.done_fields = Some(fields.clone());
-                        if status != "ok" && buffers.status == ExecuteStatus::Ok {
+                        if failed && buffers.status == ExecuteStatus::Ok {
                             buffers.status = ExecuteStatus::Error;
                             // State requests report failures as a done reason
                             // without an error event.
@@ -143,6 +142,7 @@ impl Inner {
                                 }
                             }
                         }
+                        buffers.done_fields = Some(fields);
                     }
                     self.finish_active_execution(&execution);
                     return;
@@ -184,7 +184,7 @@ impl Inner {
             }
             return;
         }
-        let execution = matching.expect("filter guarantees presence").clone();
+        let execution = matching.expect("filter guarantees presence");
         let settled = lock(&execution.buffers).settled;
         if settled && self.dispatch_late_sent_agent_message(id, data) {
             return;

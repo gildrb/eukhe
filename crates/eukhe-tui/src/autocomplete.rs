@@ -71,64 +71,6 @@ pub struct CompletionResult {
     pub cursor_col: usize,
 }
 
-/// Provider contract mirroring TS `AutocompleteProvider` (synchronous).
-pub trait AutocompleteProvider: Send {
-    fn get_suggestions(
-        &self,
-        lines: &[String],
-        cursor_line: usize,
-        cursor_col: usize,
-        force: bool,
-    ) -> Option<SuggestionLookup>;
-    fn apply_completion(
-        &self,
-        lines: &[String],
-        cursor_line: usize,
-        cursor_col: usize,
-        item: &CompletionItem,
-        prefix: &str,
-    ) -> CompletionResult;
-    fn should_trigger_file_completion(
-        &self,
-        _lines: &[String],
-        _cursor_line: usize,
-        _cursor_col: usize,
-    ) -> bool {
-        true
-    }
-    /// Replace the hidden-command set (the model-eligibility filter). A
-    /// default no-op so providers without command listings keep working.
-    fn set_hidden_commands(&mut self, _hidden: std::collections::HashSet<String>) {}
-    /// Replace the session's `skill:` commands (TS appends them to the
-    /// command list). A default no-op for providers without command
-    /// listings.
-    fn set_skill_commands(&mut self, _skills: Vec<SlashCommandEntry>) {}
-    /// Replace the argument completions below one command path (TS
-    /// `command.getArgumentCompletions`): `path` is the path's names
-    /// with one space between them (`"tier"`, `"workflows size"`); each
-    /// item's value is a path of its own below it. Answers whether the
-    /// command table changed. A default no-op for providers without
-    /// argument completions.
-    fn set_argument_completions(
-        &mut self,
-        _path: &'static str,
-        _items: Vec<CompletionItem>,
-    ) -> bool {
-        false
-    }
-    /// Replace the agent-family `@name` completions offered at prompt
-    /// start. A default no-op for providers without agent mentions.
-    fn set_agent_mentions(&mut self, _items: Vec<CompletionItem>) {}
-    /// Replace the live values of one argument source (the open effects'
-    /// ids). A default no-op for providers without argument texts.
-    fn set_live_values(&mut self, _source: LiveValues, _items: Vec<CompletionItem>) {}
-    /// The slash-command table the menus, the keys and the dispatch share
-    /// (`command_paths`); none for providers without commands.
-    fn command_table(&self) -> Option<&CommandTable> {
-        None
-    }
-}
-
 /// Slash-command context (port of slash-command-context.ts): which part of
 /// a `/command args` line the cursor is in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -159,15 +101,14 @@ pub fn get_slash_command_context(
     cursor_line: usize,
     cursor_col: usize,
 ) -> Option<SlashContext> {
-    let line: Vec<char> = lines.get(cursor_line)?.chars().collect();
-    let before: Vec<char> = line[..cursor_col.min(line.len())].to_vec();
+    let before: Vec<char> = lines.get(cursor_line)?.chars().take(cursor_col).collect();
     let trimmed_start: String = before.iter().skip_while(|c| c.is_whitespace()).collect();
     if cursor_line == 0 && trimmed_start.starts_with('/') {
         let trimmed: Vec<char> = trimmed_start.chars().collect();
         let separator_index = trimmed.iter().position(|c| *c == ' ' || *c == '\t');
-        let command_token: Vec<char> = match separator_index {
-            Some(index) => trimmed[..index].to_vec(),
-            None => trimmed.clone(),
+        let command_token = match separator_index {
+            Some(index) => &trimmed[..index],
+            None => &trimmed[..],
         };
         if command_token[1..].contains(&'/') {
             return None;
@@ -920,9 +861,10 @@ impl CombinedAutocompleteProvider {
     }
 
     fn rebuild_table(&mut self) {
-        let mut commands = self.commands.clone();
-        commands.extend(self.skill_commands.iter().cloned());
-        self.table = CommandTable::build(&commands, &self.arguments);
+        self.table = CommandTable::build(
+            self.commands.iter().chain(&self.skill_commands),
+            &self.arguments,
+        );
     }
 
     /// Replace the hidden-command set (the caller recomputes model
@@ -976,7 +918,7 @@ impl CombinedAutocompleteProvider {
             return Vec::new();
         }
         let query = at_prefix.strip_prefix('@').unwrap_or(at_prefix);
-        fuzzy_filter(&self.agent_mentions, query, |item| item.label.clone())
+        fuzzy_filter(&self.agent_mentions, query, |item| item.label.as_str())
     }
 
     /// The slash-name suggestions for a typed prefix (fuzzy filter over
@@ -1093,40 +1035,22 @@ impl CombinedAutocompleteProvider {
     }
 }
 
-impl AutocompleteProvider for CombinedAutocompleteProvider {
-    fn set_hidden_commands(&mut self, hidden: std::collections::HashSet<String>) {
-        self.hidden = hidden;
-    }
-
-    fn set_skill_commands(&mut self, skills: Vec<SlashCommandEntry>) {
-        CombinedAutocompleteProvider::set_skill_commands(self, skills);
-    }
-
-    fn set_argument_completions(&mut self, path: &'static str, items: Vec<CompletionItem>) -> bool {
-        CombinedAutocompleteProvider::set_argument_completions(self, path, items)
-    }
-
-    fn command_table(&self) -> Option<&CommandTable> {
-        Some(&self.table)
-    }
-
-    fn set_agent_mentions(&mut self, items: Vec<CompletionItem>) {
+impl CombinedAutocompleteProvider {
+    /// Replace the agent-family `@name` completions offered at prompt
+    /// start.
+    pub fn set_agent_mentions(&mut self, items: Vec<CompletionItem>) {
         self.agent_mentions = items;
     }
 
-    fn set_live_values(&mut self, source: LiveValues, items: Vec<CompletionItem>) {
-        CombinedAutocompleteProvider::set_live_values(self, source, items);
-    }
-
-    fn get_suggestions(
+    /// The menu suggestions at the cursor (TS `getSuggestions`).
+    pub fn get_suggestions(
         &self,
         lines: &[String],
         cursor_line: usize,
         cursor_col: usize,
         force: bool,
     ) -> Option<SuggestionLookup> {
-        let line: Vec<char> = lines.get(cursor_line)?.chars().collect();
-        let before: Vec<char> = line[..cursor_col.min(line.len())].to_vec();
+        let before: Vec<char> = lines.get(cursor_line)?.chars().take(cursor_col).collect();
         if let Some(at_prefix) = extract_at_prefix(&before) {
             let agents = self.agent_mention_suggestions(cursor_line, &before, &at_prefix);
             return Some(SuggestionLookup::Searching(fuzzy_file_search::spawn(
@@ -1187,7 +1111,9 @@ impl AutocompleteProvider for CombinedAutocompleteProvider {
         }))
     }
 
-    fn apply_completion(
+    /// The lines and cursor after accepting `item` (TS `applyCompletion`).
+    #[must_use]
+    pub fn apply_completion(
         &self,
         lines: &[String],
         cursor_line: usize,
@@ -1227,16 +1153,17 @@ impl AutocompleteProvider for CombinedAutocompleteProvider {
         }
         apply_file_completion(lines, cursor_line, cursor_col, item, prefix)
     }
+}
 
-    fn should_trigger_file_completion(
-        &self,
-        lines: &[String],
-        cursor_line: usize,
-        cursor_col: usize,
-    ) -> bool {
-        get_slash_command_context(lines, cursor_line, cursor_col)
-            .is_none_or(|context| context.kind != SlashKind::Name)
-    }
+/// Whether a forced request may open file completion: never in a slash
+/// command's name.
+pub(crate) fn should_trigger_file_completion(
+    lines: &[String],
+    cursor_line: usize,
+    cursor_col: usize,
+) -> bool {
+    get_slash_command_context(lines, cursor_line, cursor_col)
+        .is_none_or(|context| context.kind != SlashKind::Name)
 }
 #[cfg(test)]
 mod tests;

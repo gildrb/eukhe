@@ -2,7 +2,7 @@
 //! maintenance - the push-side `by_id`/`leaf_id` bookkeeping and the live
 //! and end-of-load child-usage attribution folds.
 
-use super::{HashMap, SessionEntry, SessionFile, Value};
+use super::{EntryType, HashMap, SessionEntry, SessionFile, Value};
 
 /// `applyChildUsageAttributions` (TS `core/session-manager.ts`): fold each
 /// `child_usage_attributed` entry's `aggregateUsage` into its target
@@ -17,20 +17,19 @@ use super::{HashMap, SessionEntry, SessionFile, Value};
 pub(super) fn fold_child_usage_attributions(entries: &mut [SessionEntry]) {
     let mut assistant_rows: HashMap<&str, usize> = HashMap::new();
     for (index, entry) in entries.iter().enumerate() {
-        if entry.type_ == "message"
+        if entry.type_ == EntryType::Message
             && entry
                 .fields
                 .get("message")
-                .and_then(|message| message.get("role"))
-                .and_then(Value::as_str)
-                == Some("assistant")
+                .and_then(crate::types::message_role)
+                == Some(crate::types::MessageRole::Assistant)
         {
             assistant_rows.insert(entry.id.as_str(), index);
         }
     }
     let mut folds: Vec<(usize, Value)> = Vec::new();
     for entry in entries.iter() {
-        if entry.type_ != "child_usage_attributed" {
+        if entry.type_ != EntryType::ChildUsageAttributed {
             continue;
         }
         let Some(row) = entry
@@ -74,7 +73,7 @@ impl SessionFile {
     /// end-of-load fold re-applies idempotently (the fold SETS the
     /// aggregate) and also catches forward references in foreign files.
     pub(super) fn push_index(&mut self, entry: SessionEntry) {
-        if entry.type_ == "child_usage_attributed" {
+        if entry.type_ == EntryType::ChildUsageAttributed {
             self.fold_live_attribution(&entry);
         }
         self.by_id.insert(entry.id.clone(), self.entries.len());

@@ -13,7 +13,113 @@ use crate::theme::{ColorMode, Theme, ThemeBg, ThemeColor};
 use crate::width::wrap_line;
 use crate::width::{str_width, truncate_line, wrap_text};
 use crate::{Line, Span};
+use serde::Deserialize;
 use serde_json::Value;
+
+/// One refinement's message scope (`details.scope`).
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum Scope {
+    Local,
+    Global,
+}
+
+impl Scope {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Local => "local",
+            Self::Global => "global",
+        }
+    }
+}
+
+/// One edit's action (`edits[].action`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum EditAction {
+    Create,
+    Update,
+    Delete,
+}
+
+impl EditAction {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Create => "create",
+            Self::Update => "update",
+            Self::Delete => "delete",
+        }
+    }
+}
+
+/// The edited harness component (`edits[].kind`): free text, with
+/// `memory` the one kind that pluralizes irregularly.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum EditKind<'a> {
+    Memory,
+    Other(&'a str),
+}
+
+impl<'a> EditKind<'a> {
+    fn parse(kind: &'a str) -> Self {
+        match kind {
+            "memory" => Self::Memory,
+            other => Self::Other(other),
+        }
+    }
+
+    fn as_str(self) -> &'a str {
+        match self {
+            Self::Memory => "memory",
+            Self::Other(kind) => kind,
+        }
+    }
+}
+
+/// The required envelope of a refinement outcome's details.
+#[derive(Deserialize)]
+struct OutcomeHead<'a> {
+    #[serde(borrow)]
+    summary: &'a str,
+    scope: Scope,
+}
+
+/// The required fields of one edit.
+#[derive(Deserialize)]
+struct EditHead<'a> {
+    action: EditAction,
+    #[serde(borrow)]
+    kind: &'a str,
+    #[serde(borrow)]
+    id: &'a str,
+    applied: bool,
+}
+
+/// One decoded edit: its typed head over the raw entry, whose
+/// `before`/`after`/field values stay opaque display data.
+struct Edit<'a> {
+    action: EditAction,
+    kind: EditKind<'a>,
+    id: &'a str,
+    applied: bool,
+    raw: &'a Value,
+}
+
+impl<'a> Edit<'a> {
+    fn parse(raw: &'a Value) -> Option<Self> {
+        if !raw.is_object() {
+            return None;
+        }
+        let head = EditHead::deserialize(raw).ok()?;
+        Some(Self {
+            action: head.action,
+            kind: EditKind::parse(head.kind),
+            id: head.id,
+            applied: head.applied,
+            raw,
+        })
+    }
+}
 
 /// TS `isRefinementOutcomeMessage` (summary + scope + applied-edit list)
 /// with the full outcome shape; malformed payloads render the notice.
@@ -21,76 +127,53 @@ pub(crate) fn refinement_outcome_entries(
     content: &eukhe_types::ai::UserContent,
     details: &Value,
 ) -> Vec<ChatEntry> {
-    let summary = details.get("summary").and_then(Value::as_str);
-    let scope_ok = matches!(
-        details.get("scope").and_then(Value::as_str),
-        Some("local" | "global")
-    );
-    let edits = details.get("edits").and_then(Value::as_array);
-    let valid = matches!(content, eukhe_types::ai::UserContent::Text(_))
-        && summary.is_some()
-        && scope_ok
-        && edits.is_some_and(|edits| {
-            edits.iter().all(|edit| {
-                matches!(
-                    edit.get("action").and_then(Value::as_str),
-                    Some("create" | "update" | "delete")
-                ) && edit.get("kind").is_some_and(Value::is_string)
-                    && edit.get("id").is_some_and(Value::is_string)
-                    && edit.get("applied").is_some_and(Value::is_boolean)
-            })
+    let head = details
+        .is_object()
+        .then(|| OutcomeHead::deserialize(details).ok())
+        .flatten();
+    let edits = details
+        .get("edits")
+        .and_then(Value::as_array)
+        .and_then(|edits| {
+            edits
+                .iter()
+                .map(Edit::parse)
+                .collect::<Option<Vec<Edit<'_>>>>()
         });
-    if !valid {
+    let (Some(head), Some(edits), eukhe_types::ai::UserContent::Text(_)) = (head, edits, content)
+    else {
         return vec![ChatEntry::Status {
             text: "[Malformed refinement outcome message]".to_string(),
             kind: StatusKind::Error,
         }];
-    }
-    // Validity guarantees the array; the empty fallback only satisfies the
-    // borrow checker.
-    let no_edits: Vec<Value> = Vec::new();
-    let edits = edits.unwrap_or(&no_edits);
-    let applied: Vec<&Value> = edits
-        .iter()
-        .filter(|edit| edit.get("applied").and_then(Value::as_bool) == Some(true))
-        .collect();
-    let rollback_of = details.get("rollbackOf").and_then(Value::as_str);
-    let outcome = refinement_outcome_line(edits, &applied, rollback_of);
-    let header = if outcome.starts_with("Harness refined -") {
-        "Harness refined".to_string()
-    } else {
-        outcome.clone()
     };
+    let applied: Vec<&Edit<'_>> = edits.iter().filter(|edit| edit.applied).collect();
+    let rollback_of = details.get("rollbackOf").and_then(Value::as_str);
+    let outcome = refinement_outcome_line(edits.len(), &applied, rollback_of);
+    let scope = head.scope.as_str();
     let meta = format!(
-        "{outcome} - Refinement {} - {}{}",
+        "{outcome} - Refinement {} - {scope}{}",
         details
             .get("refinementId")
             .and_then(Value::as_str)
             .unwrap_or(""),
-        details
-            .get("scope")
-            .and_then(Value::as_str)
-            .unwrap_or("local"),
         rollback_of
             .map(|id| format!(" - rollback of {id}"))
             .unwrap_or_default()
     );
+    let header = if outcome.starts_with("Harness refined -") {
+        "Harness refined".to_string()
+    } else {
+        outcome
+    };
     vec![ChatEntry::RefinementOutcome(Box::new(
         RefinementOutcomeRow {
             header,
-            summary: summary.unwrap_or_default().to_string(),
+            summary: head.summary.to_string(),
             meta,
             edits: edits
                 .iter()
-                .map(|edit| {
-                    refinement_edit_row(
-                        edit,
-                        details
-                            .get("scope")
-                            .and_then(Value::as_str)
-                            .unwrap_or("local"),
-                    )
-                })
+                .map(|edit| refinement_edit_row(edit, scope))
                 .collect(),
         },
     ))]
@@ -98,8 +181,8 @@ pub(crate) fn refinement_outcome_entries(
 
 /// TS `refinementHeader`: the outcome line over the applied edit list.
 fn refinement_outcome_line(
-    edits: &[Value],
-    applied: &[&Value],
+    edit_count: usize,
+    applied: &[&Edit<'_>],
     rollback_of: Option<&str>,
 ) -> String {
     let operation = if rollback_of.is_some() {
@@ -107,28 +190,22 @@ fn refinement_outcome_line(
     } else {
         "Harness refinement"
     };
-    if edits.is_empty() {
+    if edit_count == 0 {
         return if rollback_of.is_some() {
             "Harness rollback unchanged - no edits applied".to_string()
         } else {
             "Harness unchanged - no edits applied".to_string()
         };
     }
-    if applied.is_empty() {
-        return format!("{operation} failed - 0/{} edits applied", edits.len());
-    }
+    let [first, ..] = applied else {
+        return format!("{operation} failed - 0/{edit_count} edits applied");
+    };
     let count = applied.len();
-    if count < edits.len() {
+    if count < edit_count {
         return if rollback_of.is_some() {
-            format!(
-                "Harness partially rolled back - {count}/{} edits applied",
-                edits.len()
-            )
+            format!("Harness partially rolled back - {count}/{edit_count} edits applied")
         } else {
-            format!(
-                "Harness partially refined - {count}/{} edits applied",
-                edits.len()
-            )
+            format!("Harness partially refined - {count}/{edit_count} edits applied")
         };
     }
     if rollback_of.is_some() {
@@ -137,64 +214,49 @@ fn refinement_outcome_line(
             if count == 1 { "" } else { "s" }
         );
     }
-    let first_kind = applied[0].get("kind").and_then(Value::as_str).unwrap_or("");
-    let same_kind = applied
-        .iter()
-        .all(|edit| edit.get("kind").and_then(Value::as_str) == Some(first_kind));
-    if same_kind {
-        // TS: `memory` pluralizes to `memories`, every other kind just
-        // appends `s`; mixed actions collapse to `changed`.
-        let kind = if first_kind == "memory" {
-            if count == 1 {
-                "memory".to_string()
-            } else {
-                "memories".to_string()
-            }
-        } else if count == 1 {
-            first_kind.to_string()
-        } else {
-            format!("{first_kind}s")
-        };
-        let same_action = applied
-            .iter()
-            .all(|edit| edit.get("action") == applied[0].get("action"));
-        let action = match (
-            same_action,
-            applied[0].get("action").and_then(Value::as_str),
-        ) {
-            (true, Some("create")) => "created",
-            (true, Some("update")) => "updated",
-            (true, Some("delete")) => "deleted",
-            _ => "changed",
-        };
-        return format!("Harness refined - {count} {kind} {action}");
+    if !applied.iter().all(|edit| edit.kind == first.kind) {
+        return format!("Harness refined - {count} edits applied");
     }
-    format!("Harness refined - {count} edits applied")
+    // TS: `memory` pluralizes to `memories`, every other kind just
+    // appends `s`; mixed actions collapse to `changed`.
+    let action = if applied.iter().all(|edit| edit.action == first.action) {
+        match first.action {
+            EditAction::Create => "created",
+            EditAction::Update => "updated",
+            EditAction::Delete => "deleted",
+        }
+    } else {
+        "changed"
+    };
+    match (first.kind, count) {
+        (EditKind::Memory, 1) => format!("Harness refined - 1 memory {action}"),
+        (EditKind::Memory, _) => format!("Harness refined - {count} memories {action}"),
+        (EditKind::Other(kind), 1) => format!("Harness refined - 1 {kind} {action}"),
+        (EditKind::Other(kind), _) => format!("Harness refined - {count} {kind}s {action}"),
+    }
 }
 
 /// TS `editLabel`/`editFieldRows` for one edit; `editScope(edit, fallback)`
 /// takes the edit's own scope, else the message scope.
-fn refinement_edit_row(edit: &Value, fallback_scope: &str) -> RefinementEditRow {
-    let scope = edit
+fn refinement_edit_row(edit: &Edit<'_>, fallback_scope: &str) -> RefinementEditRow {
+    let raw = edit.raw;
+    let scope = raw
         .get("after")
         .and_then(|after| after.get("scope"))
         .and_then(Value::as_str)
         .or_else(|| {
-            edit.get("before")
+            raw.get("before")
                 .and_then(|before| before.get("scope"))
                 .and_then(Value::as_str)
         })
-        .unwrap_or(fallback_scope)
-        .to_string();
-    let applied = edit.get("applied").and_then(Value::as_bool) == Some(true);
-    let action = edit.get("action").and_then(Value::as_str).unwrap_or("");
-    let kind = edit.get("kind").and_then(Value::as_str).unwrap_or("");
-    let id = edit.get("id").and_then(Value::as_str).unwrap_or("");
-    let label = if applied {
-        let verb = match action {
-            "create" => "Created",
-            "update" => "Updated",
-            _ => "Deleted",
+        .unwrap_or(fallback_scope);
+    let kind = edit.kind.as_str();
+    let id = edit.id;
+    let label = if edit.applied {
+        let verb = match edit.action {
+            EditAction::Create => "Created",
+            EditAction::Update => "Updated",
+            EditAction::Delete => "Deleted",
         };
         vec![
             LabelPart {
@@ -207,7 +269,8 @@ fn refinement_edit_row(edit: &Value, fallback_scope: &str) -> RefinementEditRow 
             },
         ]
     } else {
-        let error = edit
+        let action = edit.action.as_str();
+        let error = raw
             .get("error")
             .and_then(Value::as_str)
             .map(|error| format!(": {error}"))
@@ -219,7 +282,7 @@ fn refinement_edit_row(edit: &Value, fallback_scope: &str) -> RefinementEditRow 
     };
     RefinementEditRow {
         label,
-        reason: edit
+        reason: raw
             .get("reason")
             .and_then(Value::as_str)
             .map(str::to_string),
@@ -228,35 +291,27 @@ fn refinement_edit_row(edit: &Value, fallback_scope: &str) -> RefinementEditRow 
 }
 
 /// The editable harness fields shown per edit, in display order (TS
-/// `EDIT_FIELDS`).
-const EDIT_FIELDS: [&str; 6] = [
-    "title",
-    "content",
-    "path",
-    "reference",
-    "arguments",
-    "metadata",
+/// `EDIT_FIELDS`), with their display labels.
+const EDIT_FIELDS: [(&str, &str); 6] = [
+    ("title", "Title"),
+    ("content", "Description"),
+    ("path", "Path"),
+    ("reference", "Reference"),
+    ("arguments", "Arguments"),
+    ("metadata", "Metadata"),
 ];
 
 /// TS `fieldValueLines`: strings split on newlines, objects one JSON row,
 /// everything else (and empty values) no rows.
-fn field_value_lines(value: &Value) -> Vec<String> {
+fn field_value_lines(value: Option<&Value>) -> Vec<String> {
     match value {
-        Value::String(text) => {
-            if text.is_empty() {
-                Vec::new()
-            } else {
-                text.split('\n').map(str::to_string).collect()
-            }
+        Some(Value::String(text)) if !text.is_empty() => {
+            text.split('\n').map(str::to_string).collect()
         }
-        Value::Object(map) => {
-            if map.is_empty() {
-                Vec::new()
-            } else {
-                vec![serde_json::to_string(value).unwrap_or_default()]
-            }
+        Some(value @ Value::Object(map)) if !map.is_empty() => {
+            vec![serde_json::to_string(value).unwrap_or_default()]
         }
-        _ => Vec::new(),
+        Some(_) | None => Vec::new(),
     }
 }
 
@@ -264,10 +319,10 @@ fn field_value_lines(value: &Value) -> Vec<String> {
 fn entry_field_rows(entry: &Value) -> Vec<EditField> {
     EDIT_FIELDS
         .iter()
-        .filter_map(|key| {
-            let value = field_value_lines(entry.get(*key).unwrap_or(&Value::Null));
+        .filter_map(|(key, label)| {
+            let value = field_value_lines(entry.get(*key));
             (!value.is_empty()).then(|| EditField {
-                label: key_title_case(key),
+                label: (*label).to_string(),
                 value,
                 change: None,
             })
@@ -275,30 +330,15 @@ fn entry_field_rows(entry: &Value) -> Vec<EditField> {
         .collect()
 }
 
-/// `EDIT_FIELDS` display labels.
-fn key_title_case(key: &str) -> String {
-    match key {
-        "title" => "Title",
-        "content" => "Description",
-        "path" => "Path",
-        "reference" => "Reference",
-        "arguments" => "Arguments",
-        "metadata" => "Metadata",
-        other => other,
-    }
-    .to_string()
-}
-
 /// The edit fields for one edit (TS `editFieldRows`): failed edits show
 /// before/proposed, updates show -/+ changes for changed fields, create and
 /// delete show their value as added/removed rows.
-fn edit_field_rows(edit: &Value) -> Vec<EditField> {
-    let applied = edit.get("applied").and_then(Value::as_bool) == Some(true);
-    let before = edit.get("before").filter(|v| v.is_object());
-    let after = edit.get("after").filter(|v| v.is_object());
-    let action = edit.get("action").and_then(Value::as_str).unwrap_or("");
-    if !applied {
-        let proposed = after.map_or_else(|| entry_field_rows(edit), entry_field_rows);
+fn edit_field_rows(edit: &Edit<'_>) -> Vec<EditField> {
+    let raw = edit.raw;
+    let before = raw.get("before").filter(|v| v.is_object());
+    let after = raw.get("after").filter(|v| v.is_object());
+    if !edit.applied {
+        let proposed = entry_field_rows(after.unwrap_or(raw));
         return match before {
             None => proposed,
             Some(before) => {
@@ -309,67 +349,58 @@ fn edit_field_rows(edit: &Value) -> Vec<EditField> {
                         ..field
                     })
                     .collect();
-                rows.extend(
-                    proposed
-                        .into_iter()
-                        .map(|field| EditField {
-                            label: format!("Proposed {}", field.label),
-                            ..field
-                        })
-                        .collect::<Vec<_>>(),
-                );
+                rows.extend(proposed.into_iter().map(|field| EditField {
+                    label: format!("Proposed {}", field.label),
+                    ..field
+                }));
                 rows
             }
         };
     }
     if let (Some(before), Some(after)) = (before, after) {
         // TS `updateFieldRows`: one plain row per unchanged field, -/+ for
-        // changed ones.
+        // changed ones. Rows hold no newline, so row equality is the
+        // joined-text equality.
         return EDIT_FIELDS
             .iter()
-            .filter_map(|key| {
-                let removed = field_value_lines(before.get(*key).unwrap_or(&Value::Null));
-                let added = field_value_lines(after.get(*key).unwrap_or(&Value::Null));
+            .filter_map(|(key, label)| {
+                let removed = field_value_lines(before.get(*key));
+                let added = field_value_lines(after.get(*key));
                 if removed.is_empty() && added.is_empty() {
                     return None;
                 }
-                if removed.join("\n") == added.join("\n") {
+                let label = (*label).to_string();
+                if removed == added {
                     return Some(EditField {
-                        label: key_title_case(key),
+                        label,
                         value: added,
                         change: None,
                     });
                 }
                 Some(EditField {
-                    label: key_title_case(key),
+                    label,
                     value: Vec::new(),
                     change: Some((removed, added)),
                 })
             })
             .collect();
     }
-    let entry = after.or(before).unwrap_or(edit);
-    let fields = entry_field_rows(entry);
-    if action == "update" {
+    let fields = entry_field_rows(after.or(before).unwrap_or(raw));
+    // TS: delete moves the value to the removed rows, create to the added
+    // rows (one branch or the other, never both).
+    if edit.action == EditAction::Update {
         return fields;
     }
     fields
         .into_iter()
-        .map(|field| {
-            // TS: delete moves the value to the removed rows, create to
-            // the added rows (one branch or the other, never both).
-            let (removed, added) = if action == "delete" {
-                (field.value, Vec::new())
-            } else if action == "create" {
-                (Vec::new(), field.value)
-            } else {
-                (Vec::new(), Vec::new())
-            };
-            EditField {
-                label: field.label,
-                value: Vec::new(),
-                change: Some((removed, added)),
-            }
+        .map(|field| EditField {
+            label: field.label,
+            value: Vec::new(),
+            change: Some(match edit.action {
+                EditAction::Delete => (field.value, Vec::new()),
+                EditAction::Create => (Vec::new(), field.value),
+                EditAction::Update => (Vec::new(), Vec::new()),
+            }),
         })
         .collect()
 }
@@ -378,16 +409,16 @@ mod layout;
 pub(crate) use layout::render_refinement_outcome;
 
 /// One line-diff op over the field's removed/added values.
-enum DiffOp {
-    Context(String),
-    Removed(String),
-    Added(String),
+enum DiffOp<'a> {
+    Context(&'a str),
+    Removed(&'a str),
+    Added(&'a str),
 }
 
 /// Longest-common-subsequence line diff (the full-context form of the TS
 /// `diff` package's `diffLines`): equal runs stay in order, removals come
 /// before the additions that replace them.
-fn line_diff(removed: &[String], added: &[String]) -> Vec<DiffOp> {
+fn line_diff<'a>(removed: &'a [String], added: &'a [String]) -> Vec<DiffOp<'a>> {
     let mut table = vec![vec![0usize; added.len() + 1]; removed.len() + 1];
     for (i, r) in removed.iter().enumerate().rev() {
         for (j, a) in added.iter().enumerate().rev() {
@@ -402,23 +433,23 @@ fn line_diff(removed: &[String], added: &[String]) -> Vec<DiffOp> {
     let (mut i, mut j) = (0usize, 0usize);
     while i < removed.len() && j < added.len() {
         if removed[i] == added[j] {
-            ops.push(DiffOp::Context(removed[i].clone()));
+            ops.push(DiffOp::Context(&removed[i]));
             i += 1;
             j += 1;
         } else if table[i + 1][j] >= table[i][j + 1] {
-            ops.push(DiffOp::Removed(removed[i].clone()));
+            ops.push(DiffOp::Removed(&removed[i]));
             i += 1;
         } else {
-            ops.push(DiffOp::Added(added[j].clone()));
+            ops.push(DiffOp::Added(&added[j]));
             j += 1;
         }
     }
     while i < removed.len() {
-        ops.push(DiffOp::Removed(removed[i].clone()));
+        ops.push(DiffOp::Removed(&removed[i]));
         i += 1;
     }
     while j < added.len() {
-        ops.push(DiffOp::Added(added[j].clone()));
+        ops.push(DiffOp::Added(&added[j]));
         j += 1;
     }
     ops
@@ -527,11 +558,9 @@ mod tests {
         // before comparing to the total, so the helper passes only the
         // applied edits as the applied list.
         let line = |edits: Vec<serde_json::Value>, rollback: bool| {
-            let applied: Vec<&Value> = edits
-                .iter()
-                .filter(|edit| edit.get("applied").and_then(Value::as_bool) == Some(true))
-                .collect();
-            refinement_outcome_line(&edits, &applied, rollback.then_some("r"))
+            let edits: Vec<Edit<'_>> = edits.iter().filter_map(Edit::parse).collect();
+            let applied: Vec<&Edit<'_>> = edits.iter().filter(|edit| edit.applied).collect();
+            refinement_outcome_line(edits.len(), &applied, rollback.then_some("r"))
         };
         assert_eq!(
             line(

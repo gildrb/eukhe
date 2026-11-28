@@ -23,7 +23,7 @@ use futures::future::BoxFuture;
 use super::scratch::Scratch;
 use super::{changes, check_file, copy_of, run_check, verdict, Pass, Probe};
 use crate::autonomous::now_millis;
-use crate::durable::acceptance::evidence::{read_answer, Ran};
+use crate::durable::acceptance::evidence::{read_text_answer, Ran};
 use crate::durable::acceptance::{Judge, JudgeQuestion, JudgeReply, JudgeRequest};
 use crate::durable::budget::BudgetGate;
 
@@ -353,10 +353,7 @@ async fn attack(
             cx,
         )
         .await?;
-        match reply
-            .as_ref()
-            .map(|text| read_answer(&JudgeReply::Text(text.clone())))
-        {
+        match reply.as_deref().map(read_text_answer) {
             Ok(Answer::Yes) => Some(true),
             Ok(Answer::No) => Some(false),
             Ok(Answer::Unreadable | Answer::Unavailable | Answer::Stopped) | Err(_) => None,

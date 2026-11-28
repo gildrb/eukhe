@@ -762,7 +762,10 @@ mod tests {
     fn drain(receiver: &mut Receiver<Arc<OutboundFrame>>) -> Vec<Value> {
         let mut events = Vec::new();
         while let Ok(frame) = receiver.try_recv() {
-            assert_eq!(frame.outbound_type, "side_question_event");
+            assert_eq!(
+                frame.outbound_type,
+                crate::worker::OutboundType::SideQuestionEvent
+            );
             let payload: Value = serde_json::from_slice(&frame.payload).unwrap();
             events.push(payload["event"].clone());
         }

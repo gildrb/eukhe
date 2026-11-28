@@ -142,13 +142,13 @@ impl Summarizer for SettingsSummarizer {
     fn complete(&self, context: Context, mut started: ResponseStarted) -> SummarizerFuture {
         let agent_dir = self.agent_dir.clone();
         let admission = self.admission.clone();
-        let budget = self.budget.clone();
+        let budget = Arc::clone(&self.budget);
         Box::pin(async move {
             // Resolution reads settings and auth from disk and may refresh
             // an OAuth token with a blocking request: off the executor.
             let resolve_target = || {
                 let agent_dir = agent_dir.clone();
-                let budget = budget.clone();
+                let budget = Arc::clone(&budget);
                 async move {
                     let target = tokio::task::spawn_blocking(move || resolve(&agent_dir))
                         .await

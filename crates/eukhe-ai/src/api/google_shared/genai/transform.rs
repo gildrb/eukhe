@@ -11,6 +11,8 @@
 //! configs, `parameters` without `$schema`/`processJsonSchema`) are copied
 //! unchanged.
 
+use std::borrow::Cow;
+
 use eukhe_types::pi_ai::{JsonObject, JsonValue};
 use serde_json::json;
 
@@ -63,8 +65,10 @@ fn copy(from: &JsonObject, to: &mut JsonObject, key: &str) {
 }
 
 /// `getValueByPath` on a non-object yields `undefined` for every key.
-fn as_object(value: &JsonValue) -> JsonObject {
-    value.as_object().cloned().unwrap_or_default()
+pub(super) fn as_object(value: &JsonValue) -> Cow<'_, JsonObject> {
+    value
+        .as_object()
+        .map_or_else(|| Cow::Owned(JsonObject::new()), Cow::Borrowed)
 }
 
 /// `tModel(apiClient, model)`.
@@ -192,23 +196,28 @@ fn t_contents(value: &JsonValue) -> Result<Vec<JsonValue>, Thrown> {
     Ok(result)
 }
 
+/// The media part [`media_part_to_mldev`] converts.
+#[derive(Debug, Clone, Copy)]
+enum MediaPart {
+    /// `inlineData` (`blobToMldev`).
+    Inline,
+    /// `fileData` (`fileDataToMldev`).
+    File,
+}
+
 /// `blobToMldev` / `fileDataToMldev`: `displayName` is Vertex-only.
-fn blob_or_file_to_mldev(value: &JsonValue, keys: [&str; 2]) -> Result<JsonValue, Thrown> {
+fn media_part_to_mldev(value: &JsonValue, part: MediaPart) -> Result<JsonValue, Thrown> {
     let from = as_object(value);
-    let mut to = JsonObject::new();
-    if keys[0] == "data" {
-        copy(&from, &mut to, "data");
-        if defined(&from, "displayName") {
-            return Err(only_vertex("displayName"));
-        }
-        copy(&from, &mut to, "mimeType");
-    } else {
-        if defined(&from, "displayName") {
-            return Err(only_vertex("displayName"));
-        }
-        copy(&from, &mut to, keys[0]);
-        copy(&from, &mut to, keys[1]);
+    if defined(&from, "displayName") {
+        return Err(only_vertex("displayName"));
     }
+    let mut to = JsonObject::new();
+    let source = match part {
+        MediaPart::Inline => "data",
+        MediaPart::File => "fileUri",
+    };
+    copy(&from, &mut to, source);
+    copy(&from, &mut to, "mimeType");
     Ok(JsonValue::Object(to))
 }
 
@@ -252,7 +261,7 @@ fn part_to(value: &JsonValue, backend: Backend) -> Result<JsonValue, Thrown> {
     copy(&from, &mut to, "executableCode");
     if let Some(file_data) = present(&from, "fileData") {
         let file_data = match backend {
-            Backend::Mldev => blob_or_file_to_mldev(file_data, ["fileUri", "mimeType"])?,
+            Backend::Mldev => media_part_to_mldev(file_data, MediaPart::File)?,
             Backend::Vertex => file_data.clone(),
         };
         to.insert("fileData".into(), file_data);
@@ -267,7 +276,7 @@ fn part_to(value: &JsonValue, backend: Backend) -> Result<JsonValue, Thrown> {
     copy(&from, &mut to, "functionResponse");
     if let Some(inline_data) = present(&from, "inlineData") {
         let inline_data = match backend {
-            Backend::Mldev => blob_or_file_to_mldev(inline_data, ["data", "mimeType"])?,
+            Backend::Mldev => media_part_to_mldev(inline_data, MediaPart::Inline)?,
             Backend::Vertex => inline_data.clone(),
         };
         to.insert("inlineData".into(), inline_data);
@@ -351,7 +360,8 @@ fn is_js_truthy(value: &JsonValue) -> bool {
 
 /// `toolToMldev` / `toolToVertex`.
 fn tool_to(value: &JsonValue, backend: Backend) -> Result<JsonValue, Thrown> {
-    let from = as_object(&t_tool(value));
+    let tool = t_tool(value);
+    let from = as_object(&tool);
     let mut to = JsonObject::new();
     match backend {
         Backend::Mldev => {

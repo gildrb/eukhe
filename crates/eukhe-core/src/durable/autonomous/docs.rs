@@ -79,8 +79,8 @@ fn migrate_autonomous(value: &JsonObject, _from: u64) -> Result<AutonomousDocSta
         None => serde_json::Value::Null,
     };
     let mut state = serde_json::json!({
-        "enabled": old.get("enabled").cloned().unwrap_or(serde_json::json!(false)),
-        "continuationsUsed": old.get("continuationsUsed").cloned().unwrap_or(serde_json::json!(0)),
+        "enabled": old.get("enabled").cloned().unwrap_or(serde_json::Value::Bool(false)),
+        "continuationsUsed": old.get("continuationsUsed").cloned().unwrap_or_else(|| serde_json::json!(0)),
         "continuationPrompt": old
             .get("continuationPrompt")
             .cloned()

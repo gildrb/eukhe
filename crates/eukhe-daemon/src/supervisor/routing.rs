@@ -529,8 +529,8 @@ impl Supervisor {
         command: &DaemonCommand,
         client_id: &str,
         attached: &Arc<crate::supervisor::subscribers::ClientSubscriptions>,
-        command_id: String,
-        type_name: String,
+        command_id: &str,
+        type_name: &str,
         // The connection's raw outbound queue, when the caller is the
         // client connection dispatch itself: the byte relay hands the
         // spliced line to the connection writer directly. `None` (the
@@ -548,8 +548,8 @@ impl Supervisor {
         let Some(selector) = command_active_session_id(command) else {
             return (
                 vec![response_line(&response_failure(
-                    Some(&command_id),
-                    &type_name,
+                    Some(command_id),
+                    type_name,
                     &format!("Supervisor cannot route daemon command: {type_name}"),
                     None,
                 ))],
@@ -587,8 +587,8 @@ impl Supervisor {
                         attached.detach(&self.session_subscribers, &selector);
                         return (
                             vec![response_line(&response_success(
-                                Some(&command_id),
-                                &type_name,
+                                Some(command_id),
+                                type_name,
                                 None,
                             ))],
                             false,
@@ -647,8 +647,8 @@ impl Supervisor {
                             WakeRoute::Fallthrough(message) => {
                                 return (
                                     vec![response_line(&response_failure(
-                                        Some(&command_id),
-                                        &type_name,
+                                        Some(command_id),
+                                        type_name,
                                         &message,
                                         None,
                                     ))],
@@ -678,8 +678,8 @@ impl Supervisor {
                                 Ok(()) => {
                                     return (
                                         vec![response_line(&response_success(
-                                            Some(&command_id),
-                                            &type_name,
+                                            Some(command_id),
+                                            type_name,
                                             None,
                                         ))],
                                         false,
@@ -688,8 +688,8 @@ impl Supervisor {
                                 Err(error) => {
                                     return (
                                         vec![response_line(&response_failure(
-                                            Some(&command_id),
-                                            &type_name,
+                                            Some(command_id),
+                                            type_name,
                                             &format!("Failed to delete RLM subagent: {error:#}"),
                                             None,
                                         ))],
@@ -705,8 +705,8 @@ impl Supervisor {
                         let message = format!("Unknown active session: {selector}");
                         return (
                             vec![response_line(&response_failure(
-                                Some(&command_id),
-                                &type_name,
+                                Some(command_id),
+                                type_name,
                                 &message,
                                 None,
                             ))],
@@ -716,8 +716,8 @@ impl Supervisor {
                         let message = format!("Unknown active session: {selector}");
                         return (
                             vec![response_line(&response_failure(
-                                Some(&command_id),
-                                &type_name,
+                                Some(command_id),
+                                type_name,
                                 &message,
                                 None,
                             ))],
@@ -762,8 +762,8 @@ impl Supervisor {
             if let Err(error) = self.persist_stop_tombstone(&resident).await {
                 return (
                     vec![response_line(&response_failure(
-                        Some(&command_id),
-                        &type_name,
+                        Some(command_id),
+                        type_name,
                         &format!("Failed to persist the session stop: {error:#}"),
                         None,
                     ))],
@@ -793,8 +793,8 @@ impl Supervisor {
                 {
                     return (
                         vec![response_line(&response_failure(
-                            Some(&command_id),
-                            &type_name,
+                            Some(command_id),
+                            type_name,
                             &format!("Failed to delete RLM subagent: {error:#}"),
                             None,
                         ))],
@@ -809,8 +809,8 @@ impl Supervisor {
             Err(error) => {
                 return (
                     vec![response_line(&response_failure(
-                        Some(&command_id),
-                        &type_name,
+                        Some(command_id),
+                        type_name,
                         &error.to_string(),
                         None,
                     ))],
@@ -828,7 +828,7 @@ impl Supervisor {
             if let Some(object) = payload.as_object_mut() {
                 object.insert("activeSessionId".to_string(), json!(current));
             }
-            if worker_command == "reattach" {
+            if matches!(command, DaemonCommand::Reattach { .. }) {
                 worker_command = "attach";
             }
         }
@@ -941,7 +941,7 @@ impl Supervisor {
                 if hints_present && reply.relayed_payload().is_some_and(|p| echo.splices(p)) {
                     reply
                         .take_relayed_payload()
-                        .map(|payload| spliced_client_line(&command_id, echo, payload))
+                        .map(|payload| spliced_client_line(command_id, echo, payload))
                         .map(|line| (&*reply, line))
                 } else {
                     None
@@ -984,20 +984,15 @@ impl Supervisor {
         match response {
             Ok(reply) => {
                 let mut response = reply.typed().unwrap_or_else(|_| {
-                    response_failure(
-                        Some(&command_id),
-                        &type_name,
-                        "invalid worker response",
-                        None,
-                    )
+                    response_failure(Some(command_id), type_name, "invalid worker response", None)
                 });
                 // Worker replies carry no client request id; clients match
                 // responses by the id they sent, so stamp it back here.
-                response.id = Some(command_id.clone());
+                response.id = Some(command_id.to_owned());
                 // A rebound reattach routed as the worker's attach still
                 // answers as the command the client sent.
-                if rebound_to.is_some() && type_name == "reattach" {
-                    response.command = type_name.clone();
+                if rebound_to.is_some() && matches!(command, DaemonCommand::Reattach { .. }) {
+                    response.command = type_name.to_owned();
                 }
                 if let DaemonCommand::Attach { capabilities, .. }
                 | DaemonCommand::Reattach { capabilities, .. } = command
@@ -1160,8 +1155,8 @@ impl Supervisor {
                     {
                         return (
                             vec![response_line(&response_success(
-                                Some(&command_id),
-                                &type_name,
+                                Some(command_id),
+                                type_name,
                                 Some(json!({ "stopOutcome": outcome })),
                             ))],
                             false,
@@ -1170,8 +1165,8 @@ impl Supervisor {
                 }
                 (
                     vec![response_line(&response_failure(
-                        Some(&command_id),
-                        &type_name,
+                        Some(command_id),
+                        type_name,
                         &error.to_string(),
                         None,
                     ))],

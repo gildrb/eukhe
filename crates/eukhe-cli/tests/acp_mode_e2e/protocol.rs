@@ -67,7 +67,7 @@ fn acp_prompt_stream_completion_envelope_and_stop_reason_match_ts() {
         .as_str()
         .unwrap()
         .to_string();
-    wait_session_start(&mut client);
+    wait_session_start(&client);
 
     let prompt = client.request(
         "session/prompt",
@@ -313,7 +313,7 @@ fn acp_cancel_without_an_active_turn_is_a_noop() {
         .as_str()
         .unwrap()
         .to_string();
-    wait_session_start(&mut client);
+    wait_session_start(&client);
 
     client.notify("session/cancel", &json!({ "sessionId": session_id }));
     // The no-op cancel answers nothing; the session still closes cleanly.
@@ -510,7 +510,7 @@ fn acp_daemon_attached_cancels_mid_turn() {
         .as_str()
         .unwrap()
         .to_string();
-    wait_session_start(&mut client);
+    wait_session_start(&client);
     let prompt = client.request(
             "session/prompt",
             &json!({ "sessionId": session_id, "prompt": [{ "type": "text", "text": "a slow question" }] }),

@@ -9,6 +9,7 @@
 //! the streamed response was produced surfaces as
 //! `session_snapshot_failed` keyed by the same snapshot id.
 
+use crate::types::{message_role, BlockKind, MessageRole};
 use anyhow::{anyhow, Result};
 use eukhe_types::daemon::SnapshotPurpose;
 use serde_json::{json, Value};
@@ -48,11 +49,12 @@ impl SnapshotStreamEvents {
 /// supervisor's `normalizeCapabilities` does: unsupported entries are
 /// dropped and missing capabilities default to the standard pair.
 pub(crate) fn attach_client_capabilities(capabilities: Option<&[String]>) -> Vec<String> {
-    let capabilities = capabilities.map_or_else(
-        crate::protocol::default_client_capabilities,
-        |caps: &[String]| caps.to_vec(),
-    );
-    crate::protocol::normalize_client_capabilities(&capabilities)
+    match capabilities {
+        Some(capabilities) => crate::protocol::normalize_client_capabilities(capabilities),
+        None => crate::protocol::normalize_client_capabilities(
+            &crate::protocol::default_client_capabilities(),
+        ),
+    }
 }
 
 /// True when the client asked for chunked snapshot delivery.
@@ -83,14 +85,14 @@ pub(crate) fn wants_image_elision(capabilities: &[String]) -> bool {
 /// and clients without the capability all read the untouched form.
 pub(crate) fn elide_snapshot_image_payloads(messages: &mut [Value]) {
     for message in messages.iter_mut() {
-        if message.get("role").and_then(Value::as_str) != Some("toolResult") {
+        if message_role(message) != Some(MessageRole::ToolResult) {
             continue;
         }
         let Some(content) = message.get_mut("content").and_then(Value::as_array_mut) else {
             continue;
         };
         for block in content.iter_mut() {
-            let is_image = block.get("type").and_then(Value::as_str) == Some("image");
+            let is_image = BlockKind::of(block) == BlockKind::Image;
             // The immutable reads (payload length, the bounded-prefix
             // dimension parse) end here; the marker writes below borrow
             // the block mutably.

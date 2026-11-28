@@ -117,9 +117,10 @@ impl TreeList {
             } else {
                 Span::raw("")
             };
-            let label = node.data.label.as_ref().map_or(Span::raw(""), |label| {
-                theme.fg_span(ThemeColor::Warning, format!("[{label}] "))
-            });
+            let label = node.data.label.as_ref().map_or_else(
+                || Span::raw(""),
+                |label| theme.fg_span(ThemeColor::Warning, format!("[{label}] ")),
+            );
             let label_timestamp = if self.show_label_timestamps && node.data.label.is_some() {
                 node.data.label_timestamp.as_deref().map_or_else(
                     || Span::raw(""),

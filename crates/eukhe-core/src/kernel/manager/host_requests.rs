@@ -82,7 +82,7 @@ impl Inner {
         let held = BlockingWait::of(self, &data);
         let task = tokio::spawn(async move {
             let _held = held;
-            let result = inner.handle_host_request(&data, &origin).await;
+            let result = inner.handle_host_request(data, &origin).await;
             inner.send_host_reply(&request_id, result).await;
         });
         let mut g = lock(&self.guarded);
@@ -126,17 +126,18 @@ impl Inner {
 
     async fn handle_host_request(
         &self,
-        data: &Value,
+        data: Value,
         origin: &RequestOrigin,
     ) -> anyhow::Result<Value> {
-        let Some(obj) = data.as_object() else {
+        let Value::Object(mut payload) = data else {
             return Err(anyhow!("host request payload must be an object"));
         };
-        let request_type = obj
+        let request_type = payload
             .get("type")
             .and_then(Value::as_str)
             .filter(|t| !t.is_empty())
-            .ok_or_else(|| anyhow!("host request payload must have a string type"))?;
+            .ok_or_else(|| anyhow!("host request payload must have a string type"))?
+            .to_owned();
         // Tag the request with the cell that triggered it. A blocking call is
         // still the in-flight execution; detached spawns fire after the
         // scheduling cell goes idle, so fall back to that last cell's source.
@@ -167,7 +168,6 @@ impl Inner {
                     .and_then(|e| e.opts.signal.clone()),
             )
         };
-        let mut payload = obj.clone();
         if let Some(code) = &cell_source_code {
             payload.insert("cellSourceCode".to_string(), Value::String(code.clone()));
         }
@@ -183,7 +183,7 @@ impl Inner {
             KernelTransport::Wrapped(_) | KernelTransport::Local => None,
         };
         if let Some(path_map) = path_map {
-            if let Err(error) = path_map.fs_request_to_host(request_type, &mut payload) {
+            if let Err(error) = path_map.fs_request_to_host(&request_type, &mut payload) {
                 return Ok(json!({
                     "outcome": "rejected",
                     "version": FS_TRANSPORT_VERSION,
@@ -195,7 +195,7 @@ impl Inner {
         let mut result = if let Some(dispatch) = self.options.host_handlers.dispatch() {
             dispatch
                 .dispatch(KernelHostRequest {
-                    request_type: request_type.to_string(),
+                    request_type,
                     data: Value::Object(payload),
                     cell_source_code,
                     call,
@@ -206,8 +206,8 @@ impl Inner {
             let handler = self
                 .options
                 .host_handlers
-                .get(request_type)
-                .ok_or_else(|| host_request_unavailable(request_type))?
+                .get(&request_type)
+                .ok_or_else(|| host_request_unavailable(&request_type))?
                 .clone();
             handler(HostRequestPayload {
                 data: Value::Object(payload),

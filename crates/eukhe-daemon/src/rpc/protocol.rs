@@ -9,6 +9,7 @@
 //! `success(id, command, null)`), which the TS client library treats
 //! differently (`cycle_model`'s no-second-model answer).
 
+use crate::types::BlockKind;
 use eukhe_durable::harness::types::WhenBusy;
 use eukhe_types::pi_ai::{ImageContent, TextContent, UserContent, UserContentBlock};
 use serde_json::{json, Map, Value};
@@ -128,7 +129,7 @@ pub fn command_images(payload: &Value) -> Vec<ImageContent> {
     images
         .iter()
         .filter_map(|image| {
-            if image.get("type").and_then(Value::as_str) != Some("image") {
+            if BlockKind::of(image) != BlockKind::Image {
                 return None;
             }
             let data = image.get("data").and_then(Value::as_str)?;

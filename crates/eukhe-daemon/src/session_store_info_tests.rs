@@ -1,5 +1,7 @@
 //! Compare the streaming listing fold against the previous whole-file fold.
 use super::*;
+use crate::session_store::EntryType;
+use crate::types::MessageRole;
 use std::io::Write;
 
 fn legacy_read_session_info(path: &Path) -> Option<SessionInfo> {
@@ -22,12 +24,12 @@ fn legacy_read_session_info(path: &Path) -> Option<SessionInfo> {
         let Ok(entry) = serde_json::from_str::<SessionEntry>(trimmed) else {
             continue;
         };
-        match entry.type_.as_str() {
-            "session" => {
+        match entry.type_ {
+            EntryType::Session => {
                 let parsed: SessionHeader = serde_json::from_str(trimmed).ok()?;
                 header = Some(parsed);
             }
-            "session_info" => {
+            EntryType::SessionInfo => {
                 name = entry
                     .fields
                     .get("name")
@@ -36,7 +38,7 @@ fn legacy_read_session_info(path: &Path) -> Option<SessionInfo> {
                     .filter(|n| !n.is_empty())
                     .map(str::to_string);
             }
-            "session_state" => {
+            EntryType::SessionState => {
                 if let Some(status) = entry
                     .fields
                     .get("state")
@@ -46,7 +48,7 @@ fn legacy_read_session_info(path: &Path) -> Option<SessionInfo> {
                     state = Some(normalize_state_status(status));
                 }
             }
-            "model_change" => {
+            EntryType::ModelChange => {
                 model = Some((
                     entry.fields.get("provider")?.as_str()?.to_string(),
                     entry.fields.get("modelId")?.as_str()?.to_string(),
@@ -54,7 +56,7 @@ fn legacy_read_session_info(path: &Path) -> Option<SessionInfo> {
             }
             // The last persisted level wins, like `model_change`: a later
             // `set_thinking_level` overwrites the creation prefix.
-            "thinking_level_change" => {
+            EntryType::ThinkingLevelChange => {
                 if let Some(level) = entry
                     .fields
                     .get("thinkingLevel")
@@ -65,7 +67,7 @@ fn legacy_read_session_info(path: &Path) -> Option<SessionInfo> {
                     thinking_level = Some(level.to_string());
                 }
             }
-            "child_usage_attributed" => {
+            EntryType::ChildUsageAttributed => {
                 let usage_field = |name: &str| {
                     entry.fields.get(name).and_then(|usage| {
                         serde_json::from_value::<eukhe_types::ai::Usage>(usage.clone()).ok()
@@ -77,12 +79,12 @@ fn legacy_read_session_info(path: &Path) -> Option<SessionInfo> {
                     usage_field("aggregateUsage"),
                 );
             }
-            "compaction" | "branch_summary" => {
+            EntryType::Compaction | EntryType::BranchSummary => {
                 usage_scan.fold_summarization(entry.fields.get("usage").and_then(|usage| {
                     serde_json::from_value::<eukhe_types::ai::Usage>(usage.clone()).ok()
                 }));
             }
-            "message" => {
+            EntryType::Message => {
                 message_count += 1;
                 if let Some(message) = entry.fields.get("message") {
                     let role = message_role(message);
@@ -93,7 +95,7 @@ fn legacy_read_session_info(path: &Path) -> Option<SessionInfo> {
                             serde_json::from_value::<eukhe_types::ai::Usage>(usage.clone()).ok()
                         }),
                     );
-                    if role == Some("assistant") {
+                    if role == Some(MessageRole::Assistant) {
                         if let (Some(provider), Some(model_id)) = (
                             message.get("provider").and_then(Value::as_str),
                             message.get("model").and_then(Value::as_str),
@@ -101,12 +103,12 @@ fn legacy_read_session_info(path: &Path) -> Option<SessionInfo> {
                             model = Some((provider.to_string(), model_id.to_string()));
                         }
                     }
-                    if matches!(role, Some("user" | "assistant")) {
+                    if matches!(role, Some(MessageRole::User | MessageRole::Assistant)) {
                         if let Some(timestamp) = message.get("timestamp").and_then(Value::as_u64) {
                             last_activity_ms = Some(last_activity_ms.unwrap_or(0).max(timestamp));
                         }
                     }
-                    if role == Some("user") && first_message.is_empty() {
+                    if role == Some(MessageRole::User) && first_message.is_empty() {
                         let text = message_text(message);
                         if !text.is_empty() {
                             first_message = text;
@@ -117,7 +119,7 @@ fn legacy_read_session_info(path: &Path) -> Option<SessionInfo> {
                     // reference inlines the append (the product's helper
                     // takes the fold's running char counter now), so the
                     // oracle stays independent of the perf reshape.
-                    if matches!(role, Some("user" | "assistant")) {
+                    if matches!(role, Some(MessageRole::User | MessageRole::Assistant)) {
                         let text = message_text(message);
                         if !text.is_empty() {
                             let used = all_messages_text.chars().count();
@@ -133,7 +135,11 @@ fn legacy_read_session_info(path: &Path) -> Option<SessionInfo> {
                     }
                 }
             }
-            _ => {}
+            EntryType::CustomMessage
+            | EntryType::Custom
+            | EntryType::ServiceTierChange
+            | EntryType::Label
+            | EntryType::Other(_) => {}
         }
     }
     let header = header?;
@@ -1114,7 +1120,7 @@ fn borrowed_metadata_reads_match_full_parse_across_shape_matrix() {
                         .and_then(|message| message.get(field))
                         .and_then(Value::as_u64)
                 };
-                assert_eq!(entry.type_.as_ref(), full.type_.as_str(), "type: {row}");
+                assert_eq!(entry.type_, full.type_, "type: {row}");
                 assert_eq!(entry.id.as_ref(), full.id.as_str(), "id: {row}");
                 assert_eq!(
                     entry._timestamp.as_ref(),

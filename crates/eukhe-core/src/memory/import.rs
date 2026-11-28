@@ -8,6 +8,8 @@
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
+use serde::Deserialize;
+
 use super::service::ImportItem;
 use super::{labeled, Kind, Memory};
 
@@ -135,6 +137,88 @@ struct Session {
     items: Vec<ImportItem>,
 }
 
+/// A row field read only when it has the expected shape; any other value
+/// reads as absent instead of failing the row.
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum Field<T> {
+    Typed(T),
+    Other(serde::de::IgnoredAny),
+}
+
+impl<T> Field<T> {
+    fn typed(field: Option<Self>) -> Option<T> {
+        match field {
+            Some(Self::Typed(value)) => Some(value),
+            Some(Self::Other(_)) | None => None,
+        }
+    }
+}
+
+/// The row `type`s the import tells apart.
+#[derive(Deserialize, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+enum RowKind {
+    Session,
+    Message,
+    #[serde(other)]
+    Other,
+}
+
+#[derive(Deserialize, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+enum Role {
+    User,
+    Assistant,
+    #[serde(other)]
+    Other,
+}
+
+#[derive(Deserialize, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+enum BlockKind {
+    Text,
+    #[serde(other)]
+    Other,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct HeaderRow {
+    #[serde(rename = "type")]
+    kind: Option<Field<RowKind>>,
+    rlm_depth: Option<Field<u64>>,
+    timestamp: Option<Field<String>>,
+}
+
+#[derive(Deserialize)]
+struct EntryRow {
+    #[serde(rename = "type")]
+    kind: Option<Field<RowKind>>,
+    message: Option<Field<MessageRow>>,
+    timestamp: Option<Field<String>>,
+}
+
+#[derive(Deserialize)]
+struct MessageRow {
+    role: Option<Field<Role>>,
+    content: Option<Field<Content>>,
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum Content {
+    Text(String),
+    Blocks(Vec<Field<Block>>),
+}
+
+#[derive(Deserialize)]
+struct Block {
+    #[serde(rename = "type")]
+    kind: Option<Field<BlockKind>>,
+    text: Option<Field<String>>,
+}
+
 /// The user's messages and each turn's final reply. `None` for subagent
 /// sessions and files without a session header.
 fn parse_session(path: &Path) -> anyhow::Result<Option<Session>> {
@@ -144,47 +228,40 @@ fn parse_session(path: &Path) -> anyhow::Result<Option<Session>> {
     let Some(header) = lines.next() else {
         return Ok(None);
     };
-    let Ok(header) = serde_json::from_str::<serde_json::Value>(header) else {
+    let Ok(header) = serde_json::from_str::<HeaderRow>(header) else {
         return Ok(None);
     };
-    if header.get("type").and_then(serde_json::Value::as_str) != Some("session") {
+    if Field::typed(header.kind) != Some(RowKind::Session) {
         return Ok(None);
     }
-    if header
-        .get("rlmDepth")
-        .and_then(serde_json::Value::as_u64)
-        .unwrap_or(0)
-        > 0
-    {
+    if Field::typed(header.rlm_depth).unwrap_or(0) > 0 {
         return Ok(None);
     }
-    let start = header
-        .get("timestamp")
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or_default()
-        .to_string();
+    let start = Field::typed(header.timestamp).unwrap_or_default();
     let mut items = Vec::new();
     let mut reply: Option<ImportItem> = None;
     for line in lines {
         // A torn or foreign line is skipped, like the chat's own loader.
-        let Ok(entry) = serde_json::from_str::<serde_json::Value>(line) else {
+        let Ok(entry) = serde_json::from_str::<EntryRow>(line) else {
             continue;
         };
-        if entry.get("type").and_then(serde_json::Value::as_str) != Some("message") {
+        if Field::typed(entry.kind) != Some(RowKind::Message) {
             continue;
         }
-        let Some(message) = entry.get("message") else {
+        let Some(message) = entry.message else {
             continue;
         };
-        let date = entry
-            .get("timestamp")
-            .and_then(serde_json::Value::as_str)
+        let date = Field::typed(entry.timestamp)
+            .as_deref()
             .map(local_date)
             .transpose()?
             .unwrap_or_default();
-        let text = message_text(message);
-        match message.get("role").and_then(serde_json::Value::as_str) {
-            Some("user") => {
+        let Some(message) = Field::typed(Some(message)) else {
+            continue;
+        };
+        let text = message_text(Field::typed(message.content));
+        match Field::typed(message.role) {
+            Some(Role::User) => {
                 items.extend(reply.take());
                 if !text.trim().is_empty() {
                     items.push(ImportItem {
@@ -194,14 +271,14 @@ fn parse_session(path: &Path) -> anyhow::Result<Option<Session>> {
                     });
                 }
             }
-            Some("assistant") if !text.trim().is_empty() => {
+            Some(Role::Assistant) if !text.trim().is_empty() => {
                 reply = Some(ImportItem {
                     kind: Kind::Eukhe,
                     text,
                     date,
                 });
             }
-            _ => {}
+            Some(Role::Assistant | Role::Other) | None => {}
         }
     }
     items.extend(reply);
@@ -213,16 +290,28 @@ fn parse_session(path: &Path) -> anyhow::Result<Option<Session>> {
 }
 
 /// The text blocks of a stored message, joined by newlines.
-fn message_text(message: &serde_json::Value) -> String {
-    match message.get("content") {
-        Some(serde_json::Value::String(text)) => text.clone(),
-        Some(serde_json::Value::Array(blocks)) => blocks
-            .iter()
-            .filter(|block| block.get("type").and_then(serde_json::Value::as_str) == Some("text"))
-            .filter_map(|block| block.get("text").and_then(serde_json::Value::as_str))
-            .collect::<Vec<_>>()
-            .join("\n"),
-        _ => String::new(),
+fn message_text(content: Option<Content>) -> String {
+    match content {
+        Some(Content::Text(text)) => text,
+        Some(Content::Blocks(blocks)) => {
+            let mut text = String::new();
+            let texts = blocks.into_iter().filter_map(|block| match block {
+                Field::Typed(block)
+                    if matches!(block.kind, Some(Field::Typed(BlockKind::Text))) =>
+                {
+                    Field::typed(block.text)
+                }
+                Field::Typed(_) | Field::Other(_) => None,
+            });
+            for (index, block) in texts.enumerate() {
+                if index > 0 {
+                    text.push('\n');
+                }
+                text.push_str(&block);
+            }
+            text
+        }
+        None => String::new(),
     }
 }
 

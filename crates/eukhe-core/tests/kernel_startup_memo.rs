@@ -452,12 +452,11 @@ async fn doomed_settle_keeps_the_newer_boot_listener_state() {
     // first (replaying A's current stage) and parks on A's memo.
     let a_stages: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
     let a_progress: eukhe_core::kernel::bootstrap::KernelBootstrapProgressHandler = {
-        let a_stages = a_stages.clone();
+        let a_stages = Arc::clone(&a_stages);
         Arc::new(move |message| a_stages.lock().unwrap().push(message.to_string()))
     };
     let a_joiner = tokio::spawn({
         let provisioner = provisioner.clone();
-        let a_progress = a_progress.clone();
         async move { provisioner.ensure(Some(a_progress), None).await }
     });
     tokio::time::timeout(Duration::from_secs(30), async {
@@ -477,7 +476,7 @@ async fn doomed_settle_keeps_the_newer_boot_listener_state() {
     let stage_tx = Arc::new(Mutex::new(Some(stage_tx)));
     let b_stages: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
     let progress_b: eukhe_core::kernel::bootstrap::KernelBootstrapProgressHandler = {
-        let b_stages = b_stages.clone();
+        let b_stages = Arc::clone(&b_stages);
         Arc::new(move |message| {
             b_stages.lock().unwrap().push(message.to_string());
             if let Some(tx) = stage_tx.lock().unwrap().take() {
@@ -487,7 +486,6 @@ async fn doomed_settle_keeps_the_newer_boot_listener_state() {
     };
     let newer = tokio::spawn({
         let provisioner = provisioner.clone();
-        let progress_b = progress_b.clone();
         async move { provisioner.ensure(Some(progress_b), None).await }
     });
     let first_stage = tokio::time::timeout(Duration::from_secs(30), stage_rx)
@@ -519,7 +517,6 @@ async fn doomed_settle_keeps_the_newer_boot_listener_state() {
         });
     let joiner = tokio::spawn({
         let provisioner = provisioner.clone();
-        let progress_c = progress_c.clone();
         async move { provisioner.ensure(Some(progress_c), None).await }
     });
     let replayed = tokio::time::timeout(Duration::from_secs(5), replay_rx)

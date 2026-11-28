@@ -819,7 +819,7 @@ async fn a_replaced_link_closing_late_never_fails_the_live_links_requests() {
     tokio::spawn(spawn_mock_worker(replaced_listener));
     let (replaced_tx, mut replaced_events) = mpsc::unbounded_channel();
     let replaced = connect_direct(
-        &ticket(&replaced_socket, "s1"),
+        ticket(&replaced_socket, "s1"),
         Arc::clone(&client.shared),
         replaced_tx,
     )
@@ -834,7 +834,7 @@ async fn a_replaced_link_closing_late_never_fails_the_live_links_requests() {
     let (release_tx, release_rx) = oneshot::channel();
     tokio::spawn(spawn_held_worker(live_listener, received_tx, release_rx));
     let live = connect_direct(
-        &ticket(&live_socket, "s2"),
+        ticket(&live_socket, "s2"),
         Arc::clone(&client.shared),
         client.direct.event_sender().unwrap(),
     )

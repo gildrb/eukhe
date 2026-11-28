@@ -518,13 +518,15 @@ fn windowed_context_is_byte_identical_to_the_cold_parse() {
     // the full parse byte for byte.
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("byte-parity.jsonl");
-    let mut rows: Vec<serde_json::Value> = fixture()
+    let body: String = fixture()
         .lines()
-        .map(|line| serde_json::from_str(line).unwrap())
+        .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+        .chain([
+            serde_json::json!({"type":"model_change","id":"model","parentId":"leaf","provider":"openai","modelId":"gpt-5"}),
+            serde_json::json!({"type":"message","id":"leaf2","parentId":"model","message":{"role":"user","content":"after the switch","timestamp":0}}),
+        ])
+        .map(|row| row.to_string() + "\n")
         .collect();
-    rows.push(serde_json::json!({"type":"model_change","id":"model","parentId":"leaf","provider":"openai","modelId":"gpt-5"}));
-    rows.push(serde_json::json!({"type":"message","id":"leaf2","parentId":"model","message":{"role":"user","content":"after the switch","timestamp":0}}));
-    let body: String = rows.into_iter().map(|row| row.to_string() + "\n").collect();
     std::fs::write(&path, &body).unwrap();
     let reference = build_session_context(&super::super::parse_session_entries(&body), None);
     let reference_bytes = serde_json::to_vec(&(
@@ -561,13 +563,15 @@ fn windowed_context_is_byte_identical_to_the_cold_parse() {
 fn adopted_context_matches_unadopted_window_byte_for_byte() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("adopt-parity.jsonl");
-    let mut rows: Vec<serde_json::Value> = fixture()
+    let body: String = fixture()
         .lines()
-        .map(|line| serde_json::from_str(line).unwrap())
+        .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+        .chain([
+            json!({"type":"model_change","id":"model","parentId":"leaf","provider":"openai","modelId":"gpt-5"}),
+            json!({"type":"message","id":"leaf2","parentId":"model","message":{"role":"user","content":"after the switch","timestamp":0}}),
+        ])
+        .map(|row| row.to_string() + "\n")
         .collect();
-    rows.push(json!({"type":"model_change","id":"model","parentId":"leaf","provider":"openai","modelId":"gpt-5"}));
-    rows.push(json!({"type":"message","id":"leaf2","parentId":"model","message":{"role":"user","content":"after the switch","timestamp":0}}));
-    let body: String = rows.into_iter().map(|row| row.to_string() + "\n").collect();
     std::fs::write(&path, &body).unwrap();
     for phase in ["cold", "warm"] {
         // The reference opens FIRST in the cold pass (the adopted open in

@@ -14,6 +14,7 @@
 //! nearest shown ancestor. The leaf is the main conversation's newest shown
 //! entry.
 
+use crate::types::BlockKind;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -267,7 +268,7 @@ pub(crate) fn custom_entry_text(record: &EntryRecord) -> Option<String> {
         Some(Value::Array(blocks)) => {
             let text: String = blocks
                 .iter()
-                .filter(|block| block.get("type").and_then(Value::as_str) == Some("text"))
+                .filter(|block| BlockKind::of(block) == BlockKind::Text)
                 .filter_map(|block| block.get("text").and_then(Value::as_str))
                 .collect();
             Some(text).filter(|text| !text.is_empty())

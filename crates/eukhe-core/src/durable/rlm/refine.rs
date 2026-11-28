@@ -27,6 +27,7 @@ use eukhe_types::pi_ai::{
     AssistantContentBlock, Message, Modality, StopReason, UserContent, UserMessage,
 };
 use futures::FutureExt;
+use serde::Deserialize;
 
 use super::super::entries::{CustomStateData, CUSTOM_STATE_ENTRY};
 use super::super::HostDeps;
@@ -100,7 +101,7 @@ pub(super) fn refine_hook(runtime: &Arc<RlmRuntime>) -> HookRegistration {
         &*GENERATION_TASK,
         GenerationHooks {
             after_tools: Some(Arc::new(move |_, _, api: &HookApi, cx: &Context| {
-                let (weak, api, cx) = (weak.clone(), api.clone(), cx.clone());
+                let (weak, api, cx) = (Weak::clone(&weak), api.clone(), cx.clone());
                 async move {
                     let Some(runtime) = weak.upgrade() else {
                         return Ok(());
@@ -265,7 +266,7 @@ pub(crate) async fn refine(
             let local_state = load_harness_state(local_harness_dir, HarnessScope::Local);
             merge_harness_states(&global_state, Some(&local_state))
         }
-        (HarnessScope::Global, _) | (HarnessScope::Local, None) => global_state.clone(),
+        (HarnessScope::Global, _) | (HarnessScope::Local, None) => global_state,
     };
     let history = merge_refinement_history(
         &load_global_refinement_history(&global_harness_dir),
@@ -361,7 +362,7 @@ pub(crate) async fn session_refinement_history(
                 continue;
             }
             if let Some(value) = &data.data {
-                history.push(serde_json::from_value::<RefinementResult>(value.clone())?);
+                history.push(RefinementResult::deserialize(value)?);
             }
         }
         match page.next {

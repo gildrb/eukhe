@@ -26,7 +26,7 @@ fn unnamed_streamed_tool_call_renders_code_once_named() {
         &json!({ "code": "fibonacci(23)" }),
     );
     let card = card_of(&view).expect("the named frame creates the card");
-    assert_eq!(card.name, "python");
+    assert_eq!(card.name, crate::tool_card::ToolName::Python);
     assert!(card.args.get("code").is_some(), "args stream into the card");
     let rows = rendered_card_text(&view);
     assert!(
@@ -197,13 +197,13 @@ fn existing_card_refreshes_name_and_args_from_latest_frame() {
     let mut view = test_view();
     view.push_entry(ChatEntry::Tool(Box::new(ToolCallCard {
         id: "call-1".into(),
-        name: String::new(),
+        name: crate::tool_card::ToolName::default(),
         args: Value::Null,
         ..Default::default()
     })));
     apply_streamed_tool_card(&mut view, "call-1", "python", &json!({ "code": "x = 1" }));
     let card = card_of(&view).expect("the streamed frame finds the card");
-    assert_eq!(card.name, "python");
+    assert_eq!(card.name, crate::tool_card::ToolName::Python);
     assert_eq!(card.args.get("code"), Some(&json!("x = 1")));
 }
 
@@ -215,7 +215,7 @@ fn tool_execution_start_reports_the_tool_name() {
     let mut view = test_view();
     view.push_entry(ChatEntry::Tool(Box::new(ToolCallCard {
         id: "call-1".into(),
-        name: String::new(),
+        name: crate::tool_card::ToolName::default(),
         args: Value::Null,
         ..Default::default()
     })));
@@ -226,7 +226,7 @@ fn tool_execution_start_reports_the_tool_name() {
         json!({ "code": "print('hi')" }),
     );
     let card = card_of(&view).expect("the start event finds the card");
-    assert_eq!(card.name, "python");
+    assert_eq!(card.name, crate::tool_card::ToolName::Python);
     assert!(card.started, "the start event marks execution started");
 
     let mut fresh = test_view();
@@ -266,7 +266,7 @@ fn an_unmatched_replay_result_keeps_its_standalone_card() {
     match &rebuilt.chat[1] {
         ChatEntry::Tool(card) => {
             assert_eq!(card.id, "orphan");
-            assert_eq!(card.name, "bash");
+            assert_eq!(card.name, crate::tool_card::ToolName::Bash);
             assert!(
                 card.result.is_some(),
                 "the orphan keeps its own result card"
@@ -300,7 +300,7 @@ fn a_bulk_replay_never_drops_an_orphan_result() {
     match &chat[1] {
         ChatEntry::Tool(card) => {
             assert_eq!(card.id, "orphan");
-            assert_eq!(card.name, "bash");
+            assert_eq!(card.name, crate::tool_card::ToolName::Bash);
             assert!(card.result.is_some(), "the bulk orphan keeps its own card");
         }
         other => panic!("the orphan is a card: {other:?}"),

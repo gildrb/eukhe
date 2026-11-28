@@ -394,8 +394,7 @@ fn git_clone_update_remove_flow() {
 fn git_ref_checkout_installs_the_pinned_revision() {
     let _guard = super::test_support::ENV_MUTEX.lock().unwrap();
     let sandbox = Sandbox::new("git-ref");
-    let dir_root = sandbox.root.clone();
-    let (bare, work) = make_bare_repo(&dir_root);
+    let (bare, work) = make_bare_repo(&sandbox.root);
     // Tag the initial commit, then move main.
     run_git(&work, &["tag", "v1"]);
     std::fs::write(work.join("skills.md"), "moved").unwrap();

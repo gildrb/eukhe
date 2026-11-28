@@ -116,7 +116,7 @@ fn node_path_resolve(base: &str, path: &str) -> String {
         } else if absolute.is_none() {
             // Neither is absolute: Node resolves against process.cwd().
             let cwd = std::env::current_dir().unwrap_or_default();
-            let cwd = cwd.to_string_lossy().to_string();
+            let cwd = cwd.to_string_lossy();
             absolute = Some(
                 cwd.split('/')
                     .filter(|s| !s.is_empty())

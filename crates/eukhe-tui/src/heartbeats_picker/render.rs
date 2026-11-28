@@ -4,8 +4,8 @@
 
 use super::{
     default_heartbeat_name, fill_row, hug_row, human_schedule, next_run_label, plain_cell,
-    session_label, single_line, source_label, status_dot, str_width, truncate_line, HeartbeatEntry,
-    Line, Span, Theme, ThemeColor,
+    session_label, single_line, source_label, status_dot, str_width, truncate_line, DeliveryMode,
+    HeartbeatEntry, Line, Span, Theme, ThemeColor,
 };
 
 /// The table's column width caps: the schedule expression and the label
@@ -20,10 +20,9 @@ const NEXT_RUN_CELL: usize = 8;
 
 /// The delivery word (TS: `follow_up` renders `follow-up`).
 fn delivery_label(entry: &HeartbeatEntry) -> &'static str {
-    if entry.job.delivery_mode.as_deref() == Some("follow_up") {
-        "follow-up"
-    } else {
-        "steer"
+    match entry.job.delivery_mode {
+        Some(DeliveryMode::FollowUp) => "follow-up",
+        Some(DeliveryMode::Steer) | None => "steer",
     }
 }
 
@@ -135,7 +134,7 @@ impl Columns {
         // word (menu_panel::status_dot).
         let status = entries
             .iter()
-            .map(|entry| str_width(&entry.job.status) + 2)
+            .map(|entry| str_width(entry.job.status.as_str()) + 2)
             .chain([str_width("Status")])
             .max()
             .unwrap_or(0);
@@ -219,7 +218,7 @@ impl Columns {
             ),
         ));
         row.push(Span::raw("  "));
-        let (dot, _) = status_dot(&entry.job.status);
+        let (dot, _) = status_dot(entry.job.status.as_str());
         row.push(theme.fg_span(status_color, format!("{dot} {}", entry.job.status)));
         // The selected row paints the ONE shared selection style (the
         // operator's 2026-09-28 consistency rule): the same one band

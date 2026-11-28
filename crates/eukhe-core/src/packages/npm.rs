@@ -14,71 +14,55 @@ use super::process::run_command_capture;
 use super::source::{NpmSource, SourceScope};
 
 /// The configured npm command (argv form) or plain `npm`.
-pub fn npm_command(configured: Option<&Vec<String>>) -> (String, Vec<String>) {
-    match configured {
-        Some(command) if !command.is_empty() => {
-            let program = command[0].clone();
-            (program, command[1..].to_vec())
-        }
-        _ => ("npm".to_string(), Vec::new()),
+pub fn npm_command(configured: Option<&[String]>) -> (&str, &[String]) {
+    match configured.and_then(<[String]>::split_first) {
+        Some((program, args)) => (program, args),
+        None => ("npm", &[]),
     }
+}
+
+/// `prefix` then `rest` as one argv.
+pub fn argv<'a>(prefix: &'a [String], rest: &[&'a str]) -> Vec<&'a str> {
+    let mut argv = Vec::with_capacity(prefix.len() + rest.len());
+    argv.extend(prefix.iter().map(String::as_str));
+    argv.extend_from_slice(rest);
+    argv
 }
 
 /// Dependency-install args for git packages: plain `install` when a custom
 /// npm command is configured, `install --omit=dev` otherwise.
-pub fn git_dependency_install_args(configured: Option<&Vec<String>>) -> Vec<String> {
+pub fn git_dependency_install_args(configured: Option<&[String]>) -> &'static [&'static str] {
     if configured.is_some_and(|command| !command.is_empty()) {
-        vec!["install".to_string()]
+        &["install"]
     } else {
-        vec!["install".to_string(), "--omit=dev".to_string()]
+        &["install", "--omit=dev"]
     }
 }
 
 /// Ask npm for the global module root (`npm root -g`; bun uses its own
 /// layout). The caller caches per npm-command identity.
 pub fn discover_global_npm_root(command: &str, args: &[String]) -> Result<PathBuf> {
-    let mut full_args = args.to_vec();
     if command == "bun" {
-        full_args.extend(["pm".to_string(), "bin".to_string(), "-g".to_string()]);
-        let bin_dir = run_command_capture(
-            command,
-            &full_args.iter().map(String::as_str).collect::<Vec<_>>(),
-            None,
-            None,
-            &[],
-        )?;
-        let bin_dir = PathBuf::from(bin_dir.trim());
+        let bin_dir =
+            run_command_capture(command, &argv(args, &["pm", "bin", "-g"]), None, None, &[])?;
+        let bin_dir = Path::new(bin_dir.trim());
         Ok(bin_dir
             .parent()
-            .unwrap_or(&bin_dir)
+            .unwrap_or(bin_dir)
             .join("install")
             .join("global")
             .join("node_modules"))
     } else {
-        full_args.extend(["root".to_string(), "-g".to_string()]);
-        let root = run_command_capture(
-            command,
-            &full_args.iter().map(String::as_str).collect::<Vec<_>>(),
-            None,
-            None,
-            &[],
-        )?;
+        let root = run_command_capture(command, &argv(args, &["root", "-g"]), None, None, &[])?;
         Ok(PathBuf::from(root.trim()))
     }
 }
 
 /// `npm view <name> version --json` (network probe).
 pub fn latest_npm_version(command: &str, args: &[String], name: &str) -> Result<String> {
-    let mut full_args = args.to_vec();
-    full_args.extend([
-        "view".to_string(),
-        name.to_string(),
-        "version".to_string(),
-        "--json".to_string(),
-    ]);
     let stdout = run_command_capture(
         command,
-        &full_args.iter().map(String::as_str).collect::<Vec<_>>(),
+        &argv(args, &["view", name, "version", "--json"]),
         None,
         Some(std::time::Duration::from_millis(NETWORK_TIMEOUT_MS)),
         &[],
@@ -165,26 +149,21 @@ mod tests {
 
     #[test]
     fn npm_command_defaults_and_configuration() {
-        assert_eq!(npm_command(None), ("npm".to_string(), Vec::<String>::new()));
+        let none: (&str, &[String]) = ("npm", &[]);
+        assert_eq!(npm_command(None), none);
         assert_eq!(
-            npm_command(Some(&vec!["mise".into(), "exec".into()])),
-            ("mise".to_string(), vec!["exec".to_string()])
+            npm_command(Some(&["mise".to_owned(), "exec".to_owned()])),
+            ("mise", &["exec".to_owned()][..])
         );
-        assert_eq!(
-            npm_command(Some(&Vec::new())),
-            ("npm".to_string(), Vec::<String>::new())
-        );
+        assert_eq!(npm_command(Some(&[])), none);
     }
 
     #[test]
     fn git_dependency_args_follow_npm_command_configuration() {
+        assert_eq!(git_dependency_install_args(None), ["install", "--omit=dev"]);
         assert_eq!(
-            git_dependency_install_args(None),
-            vec!["install".to_string(), "--omit=dev".to_string()]
-        );
-        assert_eq!(
-            git_dependency_install_args(Some(&vec!["bunx".into(), "npm".into()])),
-            vec!["install".to_string()]
+            git_dependency_install_args(Some(&["bunx".to_owned(), "npm".to_owned()])),
+            ["install"]
         );
     }
 

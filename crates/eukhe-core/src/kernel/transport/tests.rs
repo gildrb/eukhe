@@ -277,7 +277,7 @@ fn a_wrapped_launch_runs_the_kernel_in_the_mapped_cwd_with_the_allowed_env_only(
         WrappedLaunch {
             argv: ["docker", "exec", "-i", "box", "sh", "-c", script]
                 .map(str::to_owned)
-                .to_vec(),
+                .into(),
             unmapped_env: vec!["EUKHE_BASH_SHELL".to_owned()],
         }
     );
@@ -298,7 +298,6 @@ fn a_wrapped_launch_runs_the_kernel_in_the_mapped_cwd_with_the_allowed_env_only(
             "cd '/work/my dir' && exec env EUKHE_KERNEL_OWNER=stdin /opt/py/bin/python -P -m rlm.repl",
         ]
         .map(str::to_owned)
-        .to_vec()
     );
     assert_eq!(
         ssh.launch(Path::new("/tmp"), &[], host_env, &[]),

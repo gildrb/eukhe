@@ -22,21 +22,25 @@ pub(crate) fn canonical_arguments(arguments: &JsonObject) -> String {
     let mut out = String::new();
     write_object(
         arguments,
-        arguments.keys().filter(|key| *key != INTENT).collect(),
+        arguments
+            .keys()
+            .map(String::as_str)
+            .filter(|key| *key != INTENT)
+            .collect(),
         &mut out,
     );
     out
 }
 
 /// `object` with only `keys`, in sorted order.
-fn write_object(object: &JsonObject, mut keys: Vec<&String>, out: &mut String) {
-    keys.sort();
+fn write_object(object: &JsonObject, mut keys: Vec<&str>, out: &mut String) {
+    keys.sort_unstable();
     out.push('{');
     for (index, key) in keys.into_iter().enumerate() {
         if index > 0 {
             out.push(',');
         }
-        let _ = write!(out, "{}:", JsonValue::String(key.clone()));
+        let _ = write!(out, "{}:", JsonValue::String(key.to_owned()));
         write_canonical(&object[key], out);
     }
     out.push('}');
@@ -44,7 +48,9 @@ fn write_object(object: &JsonObject, mut keys: Vec<&String>, out: &mut String) {
 
 fn write_canonical(value: &JsonValue, out: &mut String) {
     match value {
-        JsonValue::Object(object) => write_object(object, object.keys().collect(), out),
+        JsonValue::Object(object) => {
+            write_object(object, object.keys().map(String::as_str).collect(), out);
+        }
         JsonValue::Array(items) => {
             out.push('[');
             for (index, item) in items.iter().enumerate() {

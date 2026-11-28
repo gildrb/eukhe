@@ -58,8 +58,8 @@ fn parse_reads_the_wire_shape() {
         .iter()
         .find(|entry| entry.job.id == "user-1")
         .expect("user row");
-    assert_eq!(user.job.status, "paused");
-    assert_eq!(user.job.source.as_deref(), Some("heartbeat"));
+    assert_eq!(user.job.status, JobStatus::Paused);
+    assert_eq!(user.job.source, Some(JobSource::User));
     assert_eq!(user.job.schedule_expression, "every 10m");
     assert_eq!(user.job.run_count, 2);
     assert_eq!(user.session_name.as_deref(), Some("the session"));
@@ -506,13 +506,13 @@ fn a_managed_job_replaces_or_removes_its_row() {
     let mut picker = HeartbeatsPicker::new(entries(), None, None, 24);
     picker.handle_key("down", &kb());
     let mut updated = picker.heartbeats[1].job.clone();
-    updated.status = "paused".to_string();
+    updated.status = JobStatus::Paused;
     picker.apply_managed_job(updated, false);
     assert_eq!(picker.mode, Mode::List);
     assert!(picker
         .heartbeats
         .iter()
-        .any(|entry| entry.job.id == "agent-1" && entry.job.status == "paused"));
+        .any(|entry| entry.job.id == "agent-1" && entry.job.status == JobStatus::Paused));
     // Stop removes the row and the selection conforms to the first.
     let id = picker.heartbeats[0].job.id.clone();
     let stopped = picker.heartbeats[0].job.clone();
@@ -654,7 +654,7 @@ fn a_missing_next_run_keeps_the_columns_aligned() {
 #[test]
 fn the_pairs_shrink_before_the_prompt_starves() {
     let mut catalog = entries();
-    catalog[0].job.status = "active".to_string();
+    catalog[0].job.status = JobStatus::Active;
     catalog[0].job.prompt = (1..=20)
         .map(|n| format!("word-{n:02}"))
         .collect::<Vec<_>>()

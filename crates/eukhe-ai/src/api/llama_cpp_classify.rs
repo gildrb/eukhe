@@ -17,6 +17,7 @@
 //! In router mode every request carries the model ID in its `model` field;
 //! single-model servers ignore it.
 
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::sync::{Arc, LazyLock, Mutex, PoisonError};
 
@@ -36,6 +37,7 @@ use crate::utils::diagnostics::Thrown;
 use crate::utils::headers::provider_headers_to_record;
 use crate::utils::js::{json_stringify, json_stringify_indent, number_to_js_string};
 use crate::utils::provider_retry::retry_provider_request;
+use crate::utils::text::join_with;
 
 const LABEL: &str = "llama.cpp";
 
@@ -198,14 +200,14 @@ fn render_overview(context: &ClassifierContext) -> String {
     } else {
         "Task: answer each of the following questions about the state."
     };
-    std::iter::once(intro.to_owned())
-        .chain(
+    join_with(
+        "\n\n",
+        std::iter::once(Cow::Borrowed(intro)).chain(
             questions
                 .into_iter()
-                .map(|(_, question)| render_task(question, None)),
-        )
-        .collect::<Vec<_>>()
-        .join("\n\n")
+                .map(|(_, question)| Cow::Owned(render_task(question, None))),
+        ),
+    )
 }
 
 /// Writes one question of the request as a user message and picks its

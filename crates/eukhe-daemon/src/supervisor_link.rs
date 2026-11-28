@@ -3,7 +3,7 @@
 //! serialize roster and message admission behind its response.
 //! Requests are retried only when a write fails before the command is sent.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use anyhow::{anyhow, Context, Result};
@@ -207,7 +207,7 @@ impl SupervisorLink {
 
     /// The supervisor socket this link dials.
     #[must_use]
-    pub fn socket_path(&self) -> &PathBuf {
+    pub fn socket_path(&self) -> &Path {
         &self.socket_path
     }
 

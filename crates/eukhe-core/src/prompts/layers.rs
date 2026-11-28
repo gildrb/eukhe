@@ -98,9 +98,7 @@ pub fn layer_source(name: &str) -> Option<&'static str> {
 #[must_use]
 pub fn static_prefix(memory: HarnessMemory) -> String {
     constant_layers(memory)
-        .into_iter()
         .map(|(_name, text)| text)
-        .collect::<Vec<_>>()
         .join("\n\n")
 }
 

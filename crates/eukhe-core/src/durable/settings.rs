@@ -421,7 +421,7 @@ fn start(opened: OpenedSession) -> BoxFuture<'static, SessionResult<Option<Servi
         let task_close = Arc::clone(&close);
         let task = tokio::spawn(async move {
             loop {
-                show_errors(&main, settings.take_unshown_errors()).await;
+                show_errors(&main, &settings.take_unshown_errors()).await;
                 let retired = settings.take_unnamed_retired();
                 if show_retired(&main, &retired).await {
                     settings.note_retired_named(&retired);
@@ -479,9 +479,9 @@ fn retired_text(retired: &[RetiredSetting]) -> String {
 /// Submit the row of `errors` to `main` (none when empty). A row that
 /// cannot be submitted is logged: it has no other place to go.
 #[tracing::instrument(skip_all, fields(errors = errors.len()))]
-async fn show_errors(main: &Conversation, errors: Vec<SettingsError>) {
+async fn show_errors(main: &Conversation, errors: &[SettingsError]) {
     if !errors.is_empty() {
-        submit_row(main, settings_error_text(&errors)).await;
+        submit_row(main, settings_error_text(errors)).await;
     }
 }
 

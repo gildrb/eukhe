@@ -4,6 +4,8 @@
 
 use eukhe_types::pi_ai::{JsonObject, JsonValue};
 
+use crate::utils::text::join_with;
+
 /// Whether `c` is removed by JS `String.prototype.trim` (`WhiteSpace` and
 /// `LineTerminator` code points). Differs from [`char::is_whitespace`]: JS trims
 /// U+FEFF and keeps U+0085.
@@ -183,14 +185,13 @@ pub(crate) fn js_to_string(value: &JsonValue) -> String {
             .or_else(|| number.as_u64().map(|integer| integer.to_string()))
             .unwrap_or_else(|| number_to_js_string(number.as_f64().unwrap_or(f64::NAN))),
         JsonValue::String(text) => text.clone(),
-        JsonValue::Array(items) => items
-            .iter()
-            .map(|item| match item {
+        JsonValue::Array(items) => join_with(
+            ",",
+            items.iter().map(|item| match item {
                 JsonValue::Null => String::new(),
                 other => js_to_string(other),
-            })
-            .collect::<Vec<_>>()
-            .join(","),
+            }),
+        ),
         JsonValue::Object(_) => "[object Object]".to_owned(),
     }
 }

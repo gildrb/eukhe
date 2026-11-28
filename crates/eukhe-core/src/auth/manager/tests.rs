@@ -26,7 +26,7 @@ impl EnvCredentialSource for ScriptedEnv {
     }
 
     fn api_key(&self, provider: &str) -> Option<String> {
-        let first = self.key_names(provider)?.first()?.clone();
+        let first = self.key_names(provider)?.into_iter().next()?;
         self.0.get(&first).cloned().filter(|v| !v.is_empty())
     }
 

@@ -100,12 +100,13 @@ impl CommandTable {
     /// The table of `commands` (each with its subcommands) and the
     /// argument lists keyed by path (`"tier"`, `"workflows size"`).
     #[must_use]
-    pub fn build(
-        commands: &[SlashCommandEntry],
+    pub fn build<'a>(
+        commands: impl IntoIterator<Item = &'a SlashCommandEntry, IntoIter: Clone>,
         arguments: &HashMap<&'static str, Vec<CompletionItem>>,
     ) -> CommandTable {
+        let commands = commands.into_iter();
         let mut table = CommandTable::default();
-        for command in commands {
+        for command in commands.clone() {
             let name = command.name.to_lowercase();
             let values = arguments.get(name.as_str()).map_or(&[][..], Vec::as_slice);
             let has_kids = !command.subcommands.is_empty() || !values.is_empty();

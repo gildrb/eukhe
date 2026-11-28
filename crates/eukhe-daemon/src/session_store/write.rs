@@ -4,7 +4,7 @@
 //! Production never writes legacy session files.
 
 use super::{
-    fs, read::session_header_line, Context, HashMap, Map, PathBuf, Result, SessionEntry,
+    fs, read::session_header_line, Context, EntryType, HashMap, Map, PathBuf, Result, SessionEntry,
     SessionFile, SessionHeader, Value, Write,
 };
 
@@ -12,7 +12,8 @@ const CURRENT_SESSION_VERSION: u32 = 3;
 
 fn new_entry_id(used: &HashMap<String, usize>) -> String {
     loop {
-        let id = uuid::Uuid::new_v4().simple().to_string()[..8].to_string();
+        let mut id = uuid::Uuid::new_v4().simple().to_string();
+        id.truncate(8);
         if !used.contains_key(&id) {
             return id;
         }
@@ -43,14 +44,14 @@ impl SessionFile {
         }
     }
 
-    pub fn append_entry(&mut self, type_: &str, fields: Value) -> String {
+    pub fn append_entry(&mut self, type_: impl Into<EntryType>, fields: Value) -> String {
         let id = if self.window.is_some() {
             uuid::Uuid::new_v4().to_string()
         } else {
             new_entry_id(&self.by_id)
         };
         let entry = SessionEntry {
-            type_: type_.to_string(),
+            type_: type_.into(),
             id: id.clone(),
             parent_id: self.leaf_id.clone(),
             timestamp: crate::util::now_iso(),
@@ -61,30 +62,36 @@ impl SessionFile {
     }
 
     pub fn append_message(&mut self, message: &Value) -> String {
-        self.append_entry("message", serde_json::json!({ "message": message }))
+        self.append_entry(
+            EntryType::Message,
+            serde_json::json!({ "message": message }),
+        )
     }
 
     pub fn append_session_state(&mut self, status: &str) -> String {
         self.append_entry(
-            "session_state",
+            EntryType::SessionState,
             serde_json::json!({ "state": { "status": status } }),
         )
     }
 
     pub fn append_session_info(&mut self, name: &str) -> String {
-        self.append_entry("session_info", serde_json::json!({ "name": name.trim() }))
+        self.append_entry(
+            EntryType::SessionInfo,
+            serde_json::json!({ "name": name.trim() }),
+        )
     }
 
     pub fn append_model_change(&mut self, provider: &str, model_id: &str) -> String {
         self.append_entry(
-            "model_change",
+            EntryType::ModelChange,
             serde_json::json!({ "provider": provider, "modelId": model_id }),
         )
     }
 
     pub fn append_thinking_level_change(&mut self, level: &str) -> String {
         self.append_entry(
-            "thinking_level_change",
+            EntryType::ThinkingLevelChange,
             serde_json::json!({ "thinkingLevel": level }),
         )
     }

@@ -27,7 +27,7 @@ fn listing(root: &Path) -> BTreeMap<PathBuf, Entry> {
             let value = if meta.file_type().is_symlink() {
                 Entry::Link(fs::read_link(&path).unwrap())
             } else if meta.is_dir() {
-                pending.push(path.clone());
+                pending.push(path);
                 Entry::Dir(mode)
             } else {
                 Entry::File(fs::read(&path).unwrap(), mode)

@@ -92,8 +92,8 @@ async fn write(store: &Store, workspace: &Path, path: &str, blob: &Blob) -> Resu
         Err(error) => return Err(error.into()),
     }
     if blob.mode == SYMLINK_MODE {
-        let target = String::from_utf8_lossy(&content).into_owned();
-        std::os::unix::fs::symlink(target, &full)?;
+        let target = String::from_utf8_lossy(&content);
+        std::os::unix::fs::symlink(&*target, &full)?;
         return Ok(());
     }
     std::fs::write(&full, &content)?;

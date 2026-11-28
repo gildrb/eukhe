@@ -81,10 +81,10 @@ impl AuthPanel {
             // TS `addSectionSpacer`: the browser-step text reads apart
             // from the URL.
             lines.push(Vec::new());
-            let instructions = self.auth_instructions.clone().map_or_else(
-                || BROWSER_DEFAULT_INSTRUCTIONS.to_string(),
-                |text| scrub_controls(&text),
-            );
+            let instructions = self
+                .auth_instructions
+                .as_deref()
+                .map_or_else(|| BROWSER_DEFAULT_INSTRUCTIONS.to_string(), scrub_controls);
             if let Some(code) = verification_code(&instructions) {
                 // TS `addInstructions`' code arm: a blank row separates
                 // the sign-in link from the code below it.

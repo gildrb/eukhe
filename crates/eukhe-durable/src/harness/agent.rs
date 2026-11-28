@@ -412,7 +412,7 @@ pub fn resolve_agent(
                     &mut composed,
                     tool,
                     |item| wrap(item),
-                    |item| &item.name,
+                    |item| item.name.as_str(),
                     report,
                 );
             }
@@ -421,7 +421,7 @@ pub fn resolve_agent(
                     &mut sections,
                     section,
                     |item| wrap(item),
-                    |item| &item.key,
+                    |item| item.key.as_str(),
                     report,
                 );
             }
@@ -429,27 +429,27 @@ pub fn resolve_agent(
     }
 
     let enabled = filter_tools(
-        composed.values().cloned().collect(),
+        composed.values(),
         state.and_then(|state| state.tools.as_ref()),
     );
-    let callable_by = |caller: ToolCaller| {
-        move |tool: &&Arc<ToolRegistration>| {
-            tool.callers
-                .as_ref()
-                .is_none_or(|callers| callers.contains(&caller))
-        }
+    let is_callable = |tool: &Arc<ToolRegistration>, caller: ToolCaller| -> bool {
+        tool.callers
+            .as_ref()
+            .is_none_or(|callers| callers.contains(&caller))
     };
     let tools = filter_tools(
         enabled
             .iter()
-            .filter(callable_by(ToolCaller::Model))
-            .cloned()
-            .collect(),
+            .copied()
+            .filter(|tool| is_callable(tool, ToolCaller::Model)),
         state.and_then(|state| state.model_tools.as_ref()),
-    );
+    )
+    .into_iter()
+    .cloned()
+    .collect();
     let callable: Vec<Arc<ToolRegistration>> = enabled
-        .iter()
-        .filter(callable_by(ToolCaller::Tools))
+        .into_iter()
+        .filter(|tool| is_callable(tool, ToolCaller::Tools))
         .cloned()
         .collect();
 
@@ -481,22 +481,22 @@ pub fn resolve_agent(
 
 /// `tools` through a stored filter: an array selects exactly its names, in
 /// its order; `{ remove }` drops names.
-fn filter_tools(
-    tools: Vec<Arc<ToolRegistration>>,
+fn filter_tools<'a>(
+    tools: impl IntoIterator<Item = &'a Arc<ToolRegistration>> + Clone,
     filter: Option<&super::types::ToolFilter>,
-) -> Vec<Arc<ToolRegistration>> {
+) -> Vec<&'a Arc<ToolRegistration>> {
     match filter {
-        None => tools,
+        None => tools.into_iter().collect(),
         Some(super::types::ToolFilter::Exactly(filter)) => {
             let by_name: IndexMap<&str, &Arc<ToolRegistration>> = tools
-                .iter()
+                .into_iter()
                 .map(|tool| (tool.name.as_str(), tool))
                 .collect();
             let mut seen = HashSet::new();
             filter
                 .iter()
                 .filter(|name| seen.insert(name.as_str()))
-                .filter_map(|name| by_name.get(name.as_str()).map(|tool| Arc::clone(tool)))
+                .filter_map(|name| by_name.get(name.as_str()).copied())
                 .collect()
         }
         Some(super::types::ToolFilter::Remove { remove }) => {
@@ -558,7 +558,7 @@ fn apply_wrap<T>(
     items: &mut IndexMap<String, Arc<T>>,
     target: &str,
     wrap: impl FnOnce(&Arc<T>) -> SessionResult<Arc<T>>,
-    name_of: impl Fn(&T) -> &String,
+    name_of: impl Fn(&T) -> &str,
     report: &dyn Fn(SessionError),
 ) {
     let Some(item) = items.get(target) else {

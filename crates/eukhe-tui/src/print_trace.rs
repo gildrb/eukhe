@@ -95,7 +95,7 @@ impl PrintTrace {
             } => {
                 self.running.push(ToolCallCard {
                     id: tool_call_id.clone(),
-                    name: tool_name.clone(),
+                    name: crate::tool_card::ToolName::from(tool_name.as_str()),
                     args: args.clone(),
                     started: true,
                     started_at: Some(Instant::now()),
@@ -121,7 +121,7 @@ impl PrintTrace {
                 };
                 let mut card = self.running.swap_remove(index);
                 card.ended_at = Some(Instant::now());
-                card.result = Some(ToolResultView::new(&card.name, result, *is_error));
+                card.result = Some(ToolResultView::new(card.name.as_str(), result, *is_error));
                 // The footer counts the calls their cards mark failed.
                 if marks_failed(&card) {
                     self.usage.tool_failed();
@@ -133,7 +133,7 @@ impl PrintTrace {
             SessionEvent::MessageStart {
                 message: AgentMessage::Custom(_),
                 ..
-            } => match event_to_update(event) {
+            } => match event_to_update(event.clone()) {
                 // A trace line has no blank lead row: plain_rows drops it.
                 TurnUpdate::CustomRow(ChatEntry::InjectedPrompt(row)) => plain_rows(
                     &render_injected_prompt(&row, Detail::Overview, &self.theme, self.width, false),

@@ -77,18 +77,13 @@ pub fn evict_images_to_budget<T>(
     keep: &BTreeSet<u64>,
 ) {
     let mut total: usize = images.values().map(&size_of).sum();
-    for key in images.keys().copied().collect::<Vec<_>>() {
-        if total <= max_bytes {
-            break;
+    images.retain(|key, value| {
+        if total <= max_bytes || keep.contains(key) {
+            return true;
         }
-        if keep.contains(&key) {
-            continue;
-        }
-        if let Some(value) = images.get(&key) {
-            total = total.saturating_sub(size_of(value));
-        }
-        images.remove(&key);
-    }
+        total = total.saturating_sub(size_of(value));
+        false
+    });
 }
 
 #[cfg(test)]

@@ -2,6 +2,7 @@
 //! session; each run's end-of-run report goes back while Signal holds the
 //! floor.
 
+use std::borrow::Cow;
 use std::collections::{HashMap, VecDeque};
 use std::path::Path;
 use std::sync::Arc;
@@ -18,6 +19,7 @@ use eukhe_types::daemon::{
     WaitingOn,
 };
 use eukhe_types::session::AgentMessage;
+use serde::Deserialize;
 use serde_json::{json, Map, Value};
 use tokio::signal::unix::{signal, SignalKind};
 use tokio::sync::{mpsc, watch};
@@ -407,9 +409,9 @@ impl<L: DaemonLauncher> Gateway<L> {
         } else {
             Parsed::Prompt
         };
-        let peer = inbound.peer.clone();
+        let peer = &inbound.peer;
         let outcome = match parsed {
-            Parsed::Command(command) => self.run_command(&peer, command).await,
+            Parsed::Command(command) => self.run_command(peer, command).await,
             Parsed::Answer(answer) => Ok(Done::Reply(answer)),
             Parsed::Prompt if inbound.text.trim().is_empty() && inbound.images.is_empty() => {
                 tracing::info!("ignored an empty message");
@@ -418,17 +420,17 @@ impl<L: DaemonLauncher> Gateway<L> {
             Parsed::Prompt => self.prompt(&inbound).await.map(|()| Done::Quiet),
         };
         match outcome {
-            Ok(Done::Reply(reply)) => self.reply(&peer, reply).await,
+            Ok(Done::Reply(reply)) => self.reply(peer, reply).await,
             Ok(Done::Quiet) => {}
             Ok(Done::Restart(target)) => {
-                self.reply(&peer, format!("Restarting on eukhe {}", target.version))
+                self.reply(peer, format!("Restarting on eukhe {}", target.version))
                     .await;
                 return Flow::Restart(target);
             }
             Err(error) => {
                 let error = format!("{error:#}");
                 tracing::warn!(%error, "message failed");
-                self.reply(&peer, format!("Error: {error}")).await;
+                self.reply(peer, format!("Error: {error}")).await;
             }
         }
         Flow::Serve
@@ -821,7 +823,7 @@ impl<L: DaemonLauncher> Gateway<L> {
     ///
     /// The daemon cannot list the models.
     async fn available_models(&self, active_session_id: &str) -> anyhow::Result<Vec<Value>> {
-        let data = self
+        let mut data = self
             .link
             .client
             .request_ok(DaemonCommand::GetAvailableModels {
@@ -831,11 +833,17 @@ impl<L: DaemonLauncher> Gateway<L> {
             })
             .await
             .context("list the models")?;
-        Ok(data
-            .get("models")
-            .and_then(Value::as_array)
-            .cloned()
-            .unwrap_or_default())
+        Ok(match data.get_mut("models").map(Value::take) {
+            Some(Value::Array(models)) => models,
+            Some(
+                Value::Null
+                | Value::Bool(_)
+                | Value::Number(_)
+                | Value::String(_)
+                | Value::Object(_),
+            )
+            | None => Vec::new(),
+        })
     }
 
     /// The `/reasoning` reply: the current thinking level and the levels
@@ -853,12 +861,10 @@ impl<L: DaemonLauncher> Gateway<L> {
         let current = state
             .get("thinkingLevel")
             .and_then(Value::as_str)
-            .unwrap_or("off")
-            .to_string();
-        let levels: Vec<String> = state
+            .unwrap_or("off");
+        let levels: Vec<&str> = state
             .get("availableThinkingLevels")
-            .cloned()
-            .and_then(|value| serde_json::from_value(value).ok())
+            .and_then(|value| Vec::<&str>::deserialize(value).ok())
             .unwrap_or_default();
         let Some(given) = level else {
             if levels.is_empty() {
@@ -883,7 +889,7 @@ impl<L: DaemonLauncher> Gateway<L> {
             .request_ok(DaemonCommand::SetThinkingLevel {
                 id: None,
                 active_session_id: binding.active_session_id.clone(),
-                level: found.clone(),
+                level: (*found).to_owned(),
                 rest: Map::default(),
             })
             .await
@@ -894,14 +900,14 @@ impl<L: DaemonLauncher> Gateway<L> {
     #[tracing::instrument(skip_all)]
     async fn prompt(&mut self, inbound: &Inbound) -> anyhow::Result<()> {
         let message = format!("{SIGNAL_REPLY_RULES}\n\n{}", inbound.text);
-        let shown = match inbound.images.len() {
-            0 => inbound.text.clone(),
-            1 => format!("{}\n[1 image]", inbound.text),
-            count => format!("{}\n[{count} images]", inbound.text),
+        let shown: Cow<'_, str> = match inbound.images.len() {
+            0 => Cow::Borrowed(&inbound.text),
+            1 => Cow::Owned(format!("{}\n[1 image]", inbound.text)),
+            count => Cow::Owned(format!("{}\n[{count} images]", inbound.text)),
         };
-        let peer_label = match &inbound.peer {
-            Peer::NoteToSelf => "note-to-self".to_string(),
-            Peer::Contact(contact) => contact.clone(),
+        let peer_label: &str = match &inbound.peer {
+            Peer::NoteToSelf => "note-to-self",
+            Peer::Contact(contact) => contact,
         };
         let images = (!inbound.images.is_empty()).then(|| {
             Value::Array(
@@ -1483,8 +1489,7 @@ fn user_text(content: &UserContent) -> String {
 fn waiting_on(state: &Value) -> anyhow::Result<Option<WaitingOn>> {
     state
         .get("waitingOn")
-        .cloned()
-        .map(serde_json::from_value)
+        .map(WaitingOn::deserialize)
         .transpose()
         .context("the session state has a malformed waitingOn")
 }
@@ -1506,8 +1511,7 @@ fn run_end(state: &Value) -> anyhow::Result<End> {
     };
     let left = state
         .get("left")
-        .cloned()
-        .map(serde_json::from_value::<Vec<String>>)
+        .map(Vec::<&str>::deserialize)
         .transpose()
         .context("the session state has a malformed left")?;
     Ok(End::Run {

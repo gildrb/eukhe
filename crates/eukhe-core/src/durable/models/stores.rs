@@ -15,6 +15,7 @@ use eukhe_ai::utils::diagnostics::{ErrorObject, Thrown};
 use eukhe_bend::rules::config;
 use eukhe_types::pi_ai::ProviderEnv;
 use futures::future::BoxFuture;
+use serde::Deserialize;
 use serde_json::{Map, Value};
 
 use super::accounts::{read_credential, AccountBook};
@@ -176,19 +177,17 @@ fn session_credential(
 /// replaced by `next` (the entry itself for an MCP server; a new account
 /// when the provider has none).
 fn entry_with(provider_id: &str, entry: Option<&Value>, identity: &str, next: Value) -> Value {
-    let (true, Value::Object(object)) = (keeps_accounts(provider_id), &next) else {
-        return next;
+    let object = match next {
+        Value::Object(object) if keeps_accounts(provider_id) => object,
+        other => return other,
     };
     let accounts = entry
         .map(|entry| accounts_of(provider_id, entry))
         .unwrap_or_default();
     if accounts.iter().any(|account| account.identity == identity) {
-        entry_of(&with_credential(accounts, identity, object.clone()))
+        entry_of(&with_credential(accounts, identity, object))
     } else {
-        entry_of(&with_account(
-            accounts,
-            Account::new(provider_id, object.clone()),
-        ))
+        entry_of(&with_account(accounts, Account::new(provider_id, object)))
     }
 }
 
@@ -207,8 +206,8 @@ fn stored_credential(
     let Some(object) = value.as_object() else {
         return Err(invalid_credential(provider_id));
     };
-    match object.get("type").and_then(Value::as_str) {
-        Some("api_key") => {
+    match stored_type(value) {
+        Some(StoredType::ApiKey) => {
             let key = match object.get("key") {
                 None => None,
                 Some(Value::String(key)) => Some(key.clone()),
@@ -235,13 +234,29 @@ fn stored_credential(
                 env,
             })))
         }
-        Some("oauth") => serde_json::from_value::<OAuthCredential>(value.clone())
+        Some(StoredType::OAuth) => OAuthCredential::deserialize(value)
             .map(|credential| Some(Credential::OAuth(credential)))
             .map_err(|source| AuthJsonError::InvalidCredentialField {
                 provider: provider_id.to_owned(),
                 source,
             }),
-        _ => Ok(None),
+        None => Ok(None),
+    }
+}
+
+/// The credential type an auth.json entry stores; `None` for eukhe-only
+/// types (`mcp_static_token`, ...) and entries without one.
+#[derive(Clone, Copy)]
+enum StoredType {
+    ApiKey,
+    OAuth,
+}
+
+fn stored_type(entry: &Value) -> Option<StoredType> {
+    match entry.get("type")?.as_str()? {
+        "api_key" => Some(StoredType::ApiKey),
+        "oauth" => Some(StoredType::OAuth),
+        _ => None,
     }
 }
 
@@ -321,10 +336,9 @@ impl CredentialStore for AuthJsonCredentialStore {
                 .iter()
                 .filter_map(|(provider_id, entry)| {
                     let (_, entry) = session_credential(&self.book, provider_id, Some(entry))?;
-                    let kind = match entry.get("type").and_then(Value::as_str) {
-                        Some("api_key") => AuthType::ApiKey,
-                        Some("oauth") => AuthType::OAuth,
-                        _ => return None,
+                    let kind = match stored_type(&entry)? {
+                        StoredType::ApiKey => AuthType::ApiKey,
+                        StoredType::OAuth => AuthType::OAuth,
                     };
                     Some(CredentialInfo {
                         provider_id: provider_id.clone(),

@@ -636,9 +636,9 @@ impl Theme {
         // what actually renders (TS's `renderedSelection`).
         let selection_render_luminance =
             quantized_luminance(to_terminal_color(Color::rgb(selection), self.mode))
-                .unwrap_or(luminance(selection));
+                .unwrap_or_else(|| luminance(selection));
         let surface_render_luminance =
-            quantized_luminance(surface_ansi).unwrap_or(luminance(editor_surface));
+            quantized_luminance(surface_ansi).unwrap_or_else(|| luminance(editor_surface));
         // The wash reads when its rendered color clears the visibility bar
         // over the surface (both after mode quantization -- a 256-color
         // terminal paints the palette slot, not the blend). A candidate the

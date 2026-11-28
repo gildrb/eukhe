@@ -472,7 +472,7 @@ pub(crate) fn insert_reasoning(
 /// `reasoning_off_none` marks the model (`none-effort`); else the
 /// wire value of the lowest level the model offers (`lowest-effort`,
 /// the Responses default). `None` when the map marks `off` unsupported.
-pub(crate) fn reasoning_off_effort(model: &Model) -> Option<String> {
+pub(crate) fn reasoning_off_effort(model: &Model) -> Option<&str> {
     let map = thinking_level_map(model);
     let off = match map.and_then(|map| map.get(&ModelThinkingLevel::Off)) {
         Some(None) => return None,
@@ -480,19 +480,18 @@ pub(crate) fn reasoning_off_effort(model: &Model) -> Option<String> {
         None => "none",
     };
     if off != "none" || model_facts::flag(Quirks::of(model).reasoning_off_none(), false) {
-        return Some(off.to_owned());
+        return Some(off);
     }
     let Some(lowest) = get_supported_thinking_levels(model)
         .into_iter()
         .find(|level| *level != ModelThinkingLevel::Off)
     else {
-        return Some(off.to_owned());
+        return Some(off);
     };
     Some(
         map.and_then(|map| map.get(&lowest))
-            .cloned()
-            .flatten()
-            .unwrap_or_else(|| lowest.as_str().to_owned()),
+            .and_then(Option::as_deref)
+            .unwrap_or(lowest.as_str()),
     )
 }
 

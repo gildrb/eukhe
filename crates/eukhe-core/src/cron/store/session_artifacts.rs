@@ -37,7 +37,10 @@ impl AgentCronJobStore {
             .session_artifact_files
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        files.clone().into_iter().collect()
+        files
+            .iter()
+            .map(|(id, path)| (id.clone(), path.clone()))
+            .collect()
     }
 }
 

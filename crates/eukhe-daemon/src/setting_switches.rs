@@ -107,6 +107,22 @@ fn cycle_candidates(
         .collect()
 }
 
+/// Which queue lane a `set_*_mode` command sets.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum QueueModeCommand {
+    Steering,
+    FollowUp,
+}
+
+impl QueueModeCommand {
+    fn name(self) -> &'static str {
+        match self {
+            Self::Steering => "set_steering_mode",
+            Self::FollowUp => "set_follow_up_mode",
+        }
+    }
+}
+
 impl Worker {
     /// `cycle_model { direction? }` (TS `session.cycleModel`): cycle within
     /// the scoped model list when one is set (each entry clamped to the
@@ -437,9 +453,10 @@ impl Worker {
     #[tracing::instrument(skip(self, payload))]
     pub(crate) async fn handle_set_queue_mode(
         &self,
-        command: &str,
+        lane: QueueModeCommand,
         payload: &Value,
     ) -> DaemonResponse {
+        let command = lane.name();
         if let Err(response) = self.require_created(command) {
             return response;
         }
@@ -455,10 +472,9 @@ impl Worker {
                 None,
             );
         };
-        let decl = if command == "set_steering_mode" {
-            &table::STEERING_MODE
-        } else {
-            &table::FOLLOW_UP_MODE
+        let decl = match lane {
+            QueueModeCommand::Steering => &table::STEERING_MODE,
+            QueueModeCommand::FollowUp => &table::FOLLOW_UP_MODE,
         };
         self.set_session_cvar(command, decl, mode).await
     }

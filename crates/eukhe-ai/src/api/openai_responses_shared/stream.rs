@@ -12,6 +12,9 @@ use std::sync::Arc;
 use futures::{Stream, StreamExt};
 use serde_json::json;
 
+use eukhe_types::pi_ai::TextSignaturePhase;
+
+use super::tags::{EventType, ItemType, PartType};
 use super::{GrammarToolInputProperties, JsonObject};
 use crate::api::constrained_sampling::{
     append_grammar_tool_input_json_delta, GrammarInputClose, GrammarToolInputJsonBuffer,
@@ -28,6 +31,8 @@ use crate::utils::js::{js_to_string, json_stringify};
 use crate::utils::json_parse::{
     json_parse, parse_streaming_json_object, parse_tool_call_arguments,
 };
+use crate::utils::text::join_with;
+use crate::utils::wire_type::{wire_tag, wire_type};
 
 /// TS `resolveServiceTier(responseServiceTier, requestServiceTier)`.
 pub type ResolveServiceTierFn =
@@ -90,14 +95,13 @@ fn join_field(value: Option<&JsonValue>, key: &str, separator: &str) -> String {
     let Some(JsonValue::Array(items)) = value else {
         return String::new();
     };
-    items
-        .iter()
-        .map(|item| match item.get(key) {
+    join_with(
+        separator,
+        items.iter().map(|item| match item.get(key) {
             None | Some(JsonValue::Null) => String::new(),
             Some(value) => js_to_string(value),
-        })
-        .collect::<Vec<_>>()
-        .join(separator)
+        }),
+    )
 }
 
 /// The output slot kinds of TS `ResponsesOutputSlot`.
@@ -166,8 +170,8 @@ impl Processor<'_> {
     }
 
     fn apply_message_phase_stop_reason(&mut self, item: &JsonValue) {
-        if item.get("type").and_then(JsonValue::as_str) == Some("message")
-            && item.get("phase").and_then(JsonValue::as_str) == Some("final_answer")
+        if wire_type(item) == Some(ItemType::Message)
+            && wire_tag(item, "phase") == Some(TextSignaturePhase::FinalAnswer)
         {
             self.output.stop_reason = StopReason::Stop;
         }
@@ -230,9 +234,8 @@ impl Processor<'_> {
 
     #[allow(clippy::too_many_lines)] // One TS closure; arms mirror the TS item types.
     fn create_slot(&mut self, key: String, item: &JsonValue) -> Option<Slot> {
-        let item_type = item.get("type").and_then(JsonValue::as_str);
-        match item_type {
-            Some("reasoning") => {
+        match wire_type(item) {
+            Some(ItemType::Reasoning) => {
                 let slot = self.push_block(
                     key,
                     SlotKind::Thinking,
@@ -244,7 +247,7 @@ impl Processor<'_> {
                 });
                 Some(slot)
             }
-            Some("message") => {
+            Some(ItemType::Message) => {
                 self.apply_message_phase_stop_reason(item);
                 let slot = self.push_block(
                     key,
@@ -257,7 +260,7 @@ impl Processor<'_> {
                 });
                 Some(slot)
             }
-            Some("function_call") => {
+            Some(ItemType::FunctionCall) => {
                 let partial_json = match item.get("arguments") {
                     Some(value) if truthy(Some(value)) => js_to_string(value),
                     _ => String::new(),
@@ -294,7 +297,7 @@ impl Processor<'_> {
                 });
                 Some(slot)
             }
-            Some("custom_tool_call") => {
+            Some(ItemType::CustomToolCall) => {
                 let name = template(item.get("name"));
                 let input_property = self
                     .options
@@ -344,7 +347,7 @@ impl Processor<'_> {
                 });
                 Some(slot)
             }
-            _ => None,
+            Some(ItemType::FunctionCallOutput | ItemType::CustomToolCallOutput) | None => None,
         }
     }
 
@@ -420,7 +423,7 @@ impl Processor<'_> {
         response_output: &[JsonValue],
     ) -> Result<(), Thrown> {
         for item in response_output {
-            if item.get("type").and_then(JsonValue::as_str) != Some("reasoning")
+            if wire_type(item) != Some(ItemType::Reasoning)
                 || !truthy(item.get("encrypted_content"))
             {
                 continue;
@@ -585,27 +588,26 @@ impl Processor<'_> {
     #[allow(clippy::too_many_lines)] // One TS event dispatch; arms mirror the TS branches.
     fn handle_event(&mut self, event: &JsonValue) -> Result<(), Thrown> {
         let key = slot_key(event);
-        match event.get("type").and_then(JsonValue::as_str) {
-            Some("response.created") => {
+        match wire_type(event) {
+            Some(EventType::Created) => {
                 let id = event
                     .get("response")
                     .and_then(|response| response.get("id"));
                 self.output.response_id = id.map(js_to_string);
             }
-            Some("response.output_item.added") => {
-                let item = event.get("item").cloned().unwrap_or_default();
-                self.create_slot(key, &item);
+            Some(EventType::OutputItemAdded) => {
+                self.create_slot(key, event.get("item").unwrap_or(&JsonValue::Null));
             }
-            Some("response.reasoning_summary_text.delta" | "response.reasoning_text.delta") => {
+            Some(EventType::ReasoningSummaryTextDelta | EventType::ReasoningTextDelta) => {
                 self.push_thinking_delta(&key, template(event.get("delta")));
             }
-            Some("response.reasoning_summary_part.done") => {
+            Some(EventType::ReasoningSummaryPartDone) => {
                 self.push_thinking_delta(&key, "\n\n".to_owned());
             }
-            Some("response.output_text.delta" | "response.refusal.delta") => {
+            Some(EventType::OutputTextDelta | EventType::RefusalDelta) => {
                 self.push_text_delta(&key, template(event.get("delta")));
             }
-            Some("response.function_call_arguments.delta") => {
+            Some(EventType::FunctionCallArgumentsDelta) => {
                 let Some(slot) = self.get_slot(&key, SlotKind::ToolCall) else {
                     return Ok(());
                 };
@@ -620,7 +622,7 @@ impl Processor<'_> {
                 }
                 self.push_tool_call_delta(slot, Some(delta));
             }
-            Some("response.function_call_arguments.done") => {
+            Some(EventType::FunctionCallArgumentsDone) => {
                 let Some(slot) = self.get_slot(&key, SlotKind::ToolCall) else {
                     return Ok(());
                 };
@@ -646,7 +648,7 @@ impl Processor<'_> {
                     None => {}
                 }
             }
-            Some("response.custom_tool_call_input.delta") => {
+            Some(EventType::CustomToolCallInputDelta) => {
                 let Some(slot) = self.get_slot(&key, SlotKind::ToolCall) else {
                     return Ok(());
                 };
@@ -665,7 +667,7 @@ impl Processor<'_> {
                 )?;
                 self.push_tool_call_delta(slot, delta);
             }
-            Some("response.custom_tool_call_input.done") => {
+            Some(EventType::CustomToolCallInputDone) => {
                 let Some(slot) = self.get_slot(&key, SlotKind::ToolCall) else {
                     return Ok(());
                 };
@@ -680,21 +682,20 @@ impl Processor<'_> {
                 )?;
                 self.push_tool_call_delta(slot, delta);
             }
-            Some("response.output_item.done") => {
-                let item = event.get("item").cloned().unwrap_or_default();
-                self.handle_output_item_done(&key, &item)?;
+            Some(EventType::OutputItemDone) => {
+                self.handle_output_item_done(&key, event.get("item").unwrap_or(&JsonValue::Null))?;
             }
-            Some("response.completed" | "response.incomplete") => {
+            Some(EventType::Completed | EventType::Incomplete) => {
                 self.finalize_response(event.get("response"))?;
             }
-            Some("error") => {
+            Some(EventType::Error) => {
                 return Err(error(format!(
                     "Error Code {}: {}",
                     template(event.get("code")),
                     template(event.get("message"))
                 )));
             }
-            Some("response.failed") => {
+            Some(EventType::Failed) => {
                 self.saw_terminal_response_event = true;
                 let response = event.get("response");
                 self.output.raw_stop_reason = response
@@ -721,7 +722,7 @@ impl Processor<'_> {
                 };
                 return Err(error(message));
             }
-            _ => {}
+            Some(EventType::Done | EventType::CodexRateLimits) | None => {}
         }
         Ok(())
     }
@@ -733,9 +734,8 @@ impl Processor<'_> {
             Some(slot) => Some(slot),
             None => self.create_slot(key.to_owned(), item),
         };
-        let item_type = item.get("type").and_then(JsonValue::as_str);
-        match (item_type, slot) {
-            (Some("reasoning"), Some(slot)) if slot.kind == SlotKind::Thinking => {
+        match (wire_type(item), slot) {
+            (Some(ItemType::Reasoning), Some(slot)) if slot.kind == SlotKind::Thinking => {
                 let summary_text = join_field(item.get("summary"), "text", "\n\n");
                 let content_text = join_field(item.get("content"), "text", "\n\n");
                 let signature = json_stringify(item);
@@ -760,14 +760,12 @@ impl Processor<'_> {
                 });
                 self.output_slots.remove(key);
             }
-            (Some("message"), Some(slot)) if slot.kind == SlotKind::Text => {
+            (Some(ItemType::Message), Some(slot)) if slot.kind == SlotKind::Text => {
                 let text = match item.get("content") {
                     Some(JsonValue::Array(parts)) => parts
                         .iter()
                         .map(|part| {
-                            let field = if part.get("type").and_then(JsonValue::as_str)
-                                == Some("output_text")
-                            {
+                            let field = if wire_type(part) == Some(PartType::OutputText) {
                                 "text"
                             } else {
                                 "refusal"
@@ -794,7 +792,7 @@ impl Processor<'_> {
                 });
                 self.output_slots.remove(key);
             }
-            (Some("function_call"), Some(slot))
+            (Some(ItemType::FunctionCall), Some(slot))
                 if slot.kind == SlotKind::ToolCall
                     && self.partial_json(slot.content_index).is_some() =>
             {
@@ -825,7 +823,7 @@ impl Processor<'_> {
                 });
                 self.output_slots.remove(key);
             }
-            (Some("custom_tool_call"), Some(slot))
+            (Some(ItemType::CustomToolCall), Some(slot))
                 if slot.kind == SlotKind::ToolCall && self.has_custom_input(slot.content_index) =>
             {
                 let input = match item.get("input") {

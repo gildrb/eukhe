@@ -10,6 +10,22 @@ use super::durable_host::bridge::QueuedInput;
 use super::durable_host::{DurableView, ShownView};
 use eukhe_types::daemon::SessionActionSnapshot;
 
+/// A session's runtime kind (summary `runtimeKind`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RuntimeKind {
+    TopLevel,
+    Subagent,
+}
+
+impl RuntimeKind {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::TopLevel => "top-level",
+            Self::Subagent => "subagent",
+        }
+    }
+}
+
 pub(crate) struct SessionCore {
     pub(crate) active_session_id: String,
     /// The per-process event generation (resume cursors from another
@@ -75,8 +91,8 @@ pub(crate) struct SessionCore {
     pub(crate) last_action_snapshot: Option<SessionActionSnapshot>,
     /// This session's RLM recursion depth (children run at depth + 1).
     pub(crate) rlm_depth: u32,
-    /// `top-level` | `subagent` (summary `runtimeKind`).
-    pub(crate) runtime_kind: String,
+    /// Summary `runtimeKind`.
+    pub(crate) runtime_kind: RuntimeKind,
     /// The subagent runtime identity (create `runtimeMetadata`).
     pub(crate) rlm_child_id: Option<String>,
     pub(crate) parent_active_session_id: Option<String>,
@@ -145,7 +161,7 @@ impl SessionCore {
             // is not an update.
             last_action_snapshot: Some(SessionActionSnapshot::default()),
             rlm_depth: 0,
-            runtime_kind: "top-level".to_string(),
+            runtime_kind: RuntimeKind::TopLevel,
             rlm_child_id: None,
             parent_active_session_id: None,
             parent_session_id: None,

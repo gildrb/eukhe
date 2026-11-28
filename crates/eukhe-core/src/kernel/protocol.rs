@@ -234,62 +234,51 @@ pub fn parse_event(line: &str) -> Result<Event, ProtocolLineError> {
     // agent messages); move the field out of the parsed map instead of
     // deep-cloning it out of `value` below. Other kinds and non-object lines
     // keep `Null`, and a missing field parses exactly as before.
-    let data = match value.as_object_mut() {
-        Some(map)
-            if matches!(
-                map.get("event").and_then(Value::as_str),
-                Some("display" | "host_request")
-            ) =>
-        {
-            map.remove("data").unwrap_or(Value::Null)
-        }
-        _ => Value::Null,
+    let Some(map) = value.as_object_mut() else {
+        return Err(ProtocolLineError::NonObject { line: clipped() });
     };
-    let obj = value
-        .as_object()
-        .ok_or_else(|| ProtocolLineError::NonObject { line: clipped() })?;
-    let kind = obj
+    let kind = map
         .get("event")
         .and_then(Value::as_str)
+        .and_then(EventKind::parse)
         .ok_or_else(|| ProtocolLineError::UnknownEvent { line: clipped() })?;
-    let known = matches!(
-        kind,
-        "ready" | "stdout" | "stderr" | "result" | "display" | "host_request" | "error" | "done"
-    );
-    if !known {
-        return Err(ProtocolLineError::UnknownEvent { line: clipped() });
-    }
+    let data = match kind {
+        EventKind::Display | EventKind::HostRequest => map.remove("data").unwrap_or(Value::Null),
+        EventKind::Ready
+        | EventKind::Stdout
+        | EventKind::Stderr
+        | EventKind::Result
+        | EventKind::Error
+        | EventKind::Done => Value::Null,
+    };
+    let obj = &*map;
     let id =
         |key: &str| -> Option<String> { obj.get(key).and_then(Value::as_str).map(str::to_string) };
+    let text = || {
+        obj.get("text")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string()
+    };
     match kind {
-        "ready" => Ok(Event::Ready {
+        EventKind::Ready => Ok(Event::Ready {
             protocol: obj.get("protocol").and_then(Value::as_i64).unwrap_or(-1),
         }),
-        "stdout" | "stderr" => {
-            let id = id("id");
-            let text = obj
-                .get("text")
-                .and_then(Value::as_str)
-                .unwrap_or_default()
-                .to_string();
-            Ok(if kind == "stdout" {
-                Event::Stdout { id, text }
-            } else {
-                Event::Stderr { id, text }
-            })
-        }
-        "result" => {
+        EventKind::Stdout => Ok(Event::Stdout {
+            id: id("id"),
+            text: text(),
+        }),
+        EventKind::Stderr => Ok(Event::Stderr {
+            id: id("id"),
+            text: text(),
+        }),
+        EventKind::Result => {
             let id =
                 id("id").ok_or_else(|| ProtocolLineError::ResultWithoutId { line: clipped() })?;
-            let text = obj
-                .get("text")
-                .and_then(Value::as_str)
-                .unwrap_or_default()
-                .to_string();
-            Ok(Event::Result { id, text })
+            Ok(Event::Result { id, text: text() })
         }
-        "display" => Ok(Event::Display { id: id("id"), data }),
-        "host_request" => {
+        EventKind::Display => Ok(Event::Display { id: id("id"), data }),
+        EventKind::HostRequest => {
             let rid = id("id")
                 .ok_or_else(|| ProtocolLineError::HostRequestWithoutId { line: clipped() })?;
             let origin = match obj.get("cell") {
@@ -302,7 +291,7 @@ pub fn parse_event(line: &str) -> Result<Event, ProtocolLineError> {
                 origin,
             })
         }
-        "error" => Ok(Event::Error {
+        EventKind::Error => Ok(Event::Error {
             id: id("id"),
             ename: obj
                 .get("ename")
@@ -325,12 +314,40 @@ pub fn parse_event(line: &str) -> Result<Event, ProtocolLineError> {
                 })
                 .unwrap_or_default(),
         }),
-        "done" => {
+        EventKind::Done => {
             let id =
                 id("id").ok_or_else(|| ProtocolLineError::DoneWithoutId { line: clipped() })?;
             Ok(Event::Done { id, fields: value })
         }
-        _ => unreachable!("kind validated above"),
+    }
+}
+
+/// The protocol's event names, parsed from a frame's `event` field.
+#[derive(Clone, Copy)]
+enum EventKind {
+    Ready,
+    Stdout,
+    Stderr,
+    Result,
+    Display,
+    HostRequest,
+    Error,
+    Done,
+}
+
+impl EventKind {
+    fn parse(name: &str) -> Option<Self> {
+        Some(match name {
+            "ready" => Self::Ready,
+            "stdout" => Self::Stdout,
+            "stderr" => Self::Stderr,
+            "result" => Self::Result,
+            "display" => Self::Display,
+            "host_request" => Self::HostRequest,
+            "error" => Self::Error,
+            "done" => Self::Done,
+            _ => return None,
+        })
     }
 }
 

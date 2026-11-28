@@ -364,11 +364,27 @@ impl Tokenizer {
     }
 }
 
+/// The `type` of a serialized thinking signature item.
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum SignatureKind {
+    Reasoning,
+    #[serde(other)]
+    Other,
+}
+
+/// A serialized thinking signature, read only for its `type`.
+#[derive(serde::Deserialize)]
+struct SignatureItem {
+    #[serde(rename = "type")]
+    kind: Option<SignatureKind>,
+}
+
 /// Whether a thinking signature is a serialized `OpenAI` Responses
 /// reasoning item (`{"type":"reasoning",...}`), which replays as itself.
 fn is_reasoning_item(signature: &str) -> bool {
-    serde_json::from_str::<serde_json::Value>(signature)
-        .is_ok_and(|item| item.get("type").and_then(serde_json::Value::as_str) == Some("reasoning"))
+    serde_json::from_str::<SignatureItem>(signature)
+        .is_ok_and(|item| matches!(item.kind, Some(SignatureKind::Reasoning)))
 }
 
 /// Text fragments and fixed-price extras of one message.

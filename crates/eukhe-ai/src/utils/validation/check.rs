@@ -178,7 +178,7 @@ impl<'s> Engine<'_, 's> {
     /// `CheckNot`; the compiled form never merges the inner context.
     pub(crate) fn check_not(
         &mut self,
-        cx: &mut CheckContext,
+        cx: &CheckContext,
         negated: &'s JsValue,
         value: &JsValue,
     ) -> CheckResult {
@@ -190,7 +190,7 @@ impl<'s> Engine<'_, 's> {
     /// `CheckRef`: the target runs in a fresh context merged on success.
     fn check_ref(
         &mut self,
-        cx: &mut CheckContext,
+        cx: &CheckContext,
         target: Option<Resolved<'s>>,
         value: &JsValue,
     ) -> CheckResult {
@@ -483,7 +483,7 @@ impl<'s> Engine<'_, 's> {
         Ok(count)
     }
 
-    fn check_string(&mut self, schema: &'s JsValue, text: &str) -> CheckResult {
+    fn check_string(&self, schema: &'s JsValue, text: &str) -> CheckResult {
         if keywords::max_length(schema).is_some_and(|limit| !is_max_length(text, limit)) {
             return Ok(false);
         }

@@ -771,7 +771,7 @@ pub fn reduce_assistant_message_frames<'a>(
             continue;
         }
         let Some(message) = message.as_mut() else {
-            frame_before_start.get_or_insert(frame.type_name());
+            frame_before_start.get_or_insert_with(|| frame.type_name());
             continue;
         };
         let frame_type = frame.type_name();

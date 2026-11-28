@@ -57,7 +57,9 @@ use super::faux::{
     FauxProviderState, FauxResponseStep, RegisterFauxProviderOptions,
 };
 use crate::models::{create_models, CreateModelsOptions, Models, Provider};
-use crate::utils::text::{content_text, get_system_message_text, DEFAULT_CONTENT_SEPARATOR};
+use crate::utils::text::{
+    content_text, get_system_message_text, join_with, DEFAULT_CONTENT_SEPARATOR,
+};
 
 /// The api and provider id every scripted faux provider registers under.
 const FAUX_SCRIPT_ID: &str = "faux";
@@ -237,29 +239,31 @@ impl ScriptedContent {
 
 /// The text of the transcript's system messages, joined by blank lines.
 fn system_prompt_text(context: &TranscriptContext) -> String {
-    context
-        .messages()
-        .iter()
-        .filter_map(|message| match message {
-            Message::System(system) => Some(get_system_message_text(system)),
-            Message::User(_) | Message::Assistant(_) | Message::ToolResult(_) => None,
-        })
-        .collect::<Vec<_>>()
-        .join("\n\n")
+    join_with(
+        "\n\n",
+        context
+            .messages()
+            .iter()
+            .filter_map(|message| match message {
+                Message::System(system) => Some(get_system_message_text(system)),
+                Message::User(_) | Message::Assistant(_) | Message::ToolResult(_) => None,
+            }),
+    )
 }
 
 /// The text of the transcript's user messages, in order, joined by blank
 /// lines.
 fn user_text(context: &TranscriptContext) -> String {
-    context
-        .messages()
-        .iter()
-        .filter_map(|message| match message {
-            Message::User(user) => Some(content_text(&user.content, DEFAULT_CONTENT_SEPARATOR)),
-            Message::System(_) | Message::Assistant(_) | Message::ToolResult(_) => None,
-        })
-        .collect::<Vec<_>>()
-        .join("\n\n")
+    join_with(
+        "\n\n",
+        context
+            .messages()
+            .iter()
+            .filter_map(|message| match message {
+                Message::User(user) => Some(content_text(&user.content, DEFAULT_CONTENT_SEPARATOR)),
+                Message::System(_) | Message::Assistant(_) | Message::ToolResult(_) => None,
+            }),
+    )
 }
 
 /// Parse one scripted response entry into a queued faux step.

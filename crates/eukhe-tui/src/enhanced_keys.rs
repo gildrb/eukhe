@@ -626,9 +626,9 @@ fn spawn_kitty_probe() {
                     std::thread::Builder::new()
                         .name("tui-kitty-probe-late".to_string())
                         .spawn(move || {
-                            let answer = answer_rx.recv().unwrap_or(Err(std::io::Error::other(
-                                "the kitty probe reader exited",
-                            )));
+                            let answer = answer_rx.recv().unwrap_or_else(|_| {
+                                Err(std::io::Error::other("the kitty probe reader exited"))
+                            });
                             if let Ok(true) = answer {
                                 // The capability outlives the surface the
                                 // answer arrived on: record it even when the

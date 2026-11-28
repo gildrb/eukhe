@@ -397,12 +397,12 @@ fn user_skill_entries_dedupe_when_agent_skills_symlinks_agents_skills() {
     skill_md(&agents_skills, "foo", "foo");
 
     let result = fixture.manager.resolve().unwrap();
-    let foo: Vec<_> = result
+    let foo = result
         .skills
         .iter()
         .filter(|r| r.path.to_string_lossy().ends_with("foo/SKILL.md"))
-        .collect();
-    assert_eq!(foo.len(), 1);
+        .count();
+    assert_eq!(foo, 1);
 
     match previous_home {
         Some(home) => std::env::set_var("HOME", home),

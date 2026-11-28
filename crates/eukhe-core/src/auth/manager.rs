@@ -506,9 +506,7 @@ impl AuthStorage {
     /// Memo marker for candidates whose value material could not be
     /// resolved into a key (TS #2479's `AUTH_SOURCE_LAZY_VALUE_KEY`): the
     /// entry is keyed by everything else the candidate hashes.
-    fn auth_source_lazy_value_key() -> &'static str {
-        "value-lazy"
-    }
+    const AUTH_SOURCE_LAZY_VALUE_KEY: &'static str = "value-lazy";
 
     /// The memo reuse arm (TS #2479's `reuseAuthSourceCandidate`): the key
     /// is the hashed material itself, so the memo is superseded exactly
@@ -565,7 +563,7 @@ impl AuthStorage {
             "identity:auth.json\0{}",
             value_material
                 .as_deref()
-                .unwrap_or(Self::auth_source_lazy_value_key()),
+                .unwrap_or(Self::AUTH_SOURCE_LAZY_VALUE_KEY),
         );
         Some(
             self.reuse_auth_source_candidate(AuthSource::Stored, provider, key, || {
@@ -591,7 +589,7 @@ impl AuthStorage {
             .and_then(|keys| keys.first().cloned())
             .unwrap_or_else(|| "ambient credentials".to_string());
         let identity_material = env_keys
-            .and_then(|keys| keys.first().cloned())
+            .and_then(|keys| keys.into_iter().next())
             .unwrap_or_else(|| self.env_credentials.ambient_identity_material(provider));
         // Env values are deliberately re-read on every call (TS
         // #2479); the memo only skips re-fingerprinting unchanged

@@ -238,8 +238,7 @@ pub fn load_harness_state(harness_state_dir: &Path, scope: HarnessScope) -> Harn
             .and_then(|records| records.as_object())
         {
             for (id, raw_entry) in records {
-                let Ok(mut entry) = serde_json::from_value::<HarnessEntry>(raw_entry.clone())
-                else {
+                let Ok(mut entry) = HarnessEntry::deserialize(raw_entry) else {
                     continue;
                 };
                 entry.scope = Some(entry.scope.unwrap_or(scope));
@@ -257,7 +256,7 @@ pub fn load_harness_state(harness_state_dir: &Path, scope: HarnessScope) -> Harn
     {
         state.refinements = refinements
             .iter()
-            .filter_map(|event| serde_json::from_value(event.clone()).ok())
+            .filter_map(|event| serde::Deserialize::deserialize(event).ok())
             .collect();
     }
     state
@@ -309,7 +308,9 @@ pub fn merge_harness_states(
     }
     merged.refinements.clone_from(&global_state.refinements);
     if let Some(local_state) = local_state {
-        merged.refinements.extend(local_state.refinements.clone());
+        merged
+            .refinements
+            .extend(local_state.refinements.iter().cloned());
     }
     merged
 }

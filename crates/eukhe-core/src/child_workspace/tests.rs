@@ -210,7 +210,7 @@ async fn a_childs_copy_is_known_by_its_directory_until_its_hand_back() {
     workspace.hand_back_scoped(&units, &scope).await.unwrap();
     assert_eq!(
         (found, ChildWorkspace::of_tree(&workspace.tree())),
-        ((Some(workspace.clone()), None, None), None)
+        ((Some(workspace), None, None), None)
     );
 }
 
@@ -345,7 +345,7 @@ async fn a_child_sees_only_its_own_changes_in_git_and_none_of_the_parents_reposi
         (open, fs::read_link(workspace.tree()).unwrap(), entries),
         (
             true,
-            parent.clone(),
+            parent,
             names(&["handback.json", "manifest.json", "tree"])
         )
     );
@@ -407,7 +407,7 @@ async fn a_hand_back_takes_the_childs_changes_and_reports_conflicts() {
             workspace.root().join(BASE).exists(),
             fs::read_link(workspace.tree()).unwrap(),
         ),
-        ((true, false), false, parent.clone())
+        ((true, false), false, parent)
     );
 }
 
@@ -866,7 +866,7 @@ async fn a_check_names_the_paths_written_while_it_ran() {
     // The edit lands once the check holds the gate open, the gate's byte
     // after it.
     let edit = {
-        let (root, gate) = (root.clone(), gate.clone());
+        let (root, gate) = (root.clone(), gate);
         tokio::task::spawn_blocking(move || {
             let mut opened = fs::OpenOptions::new().write(true).open(&gate).unwrap();
             write(&root, "src/lib.rs", "pub fn a() {}\npub fn b() {}\n");

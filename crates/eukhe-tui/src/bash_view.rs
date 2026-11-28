@@ -72,14 +72,48 @@ pub struct BashActivity {
     pub command: String,
     pub pid: Option<u32>,
     pub started_at: Option<String>,
-    pub status: String,
+    pub status: BashStatus,
     pub exit_code: Option<i64>,
     pub duration_ms: Option<u64>,
 }
 
+/// A kernel bash's status: `running`, or the registry's other word as
+/// sent (scrubbed; `unknown` when absent).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BashStatus {
+    Running,
+    Other(String),
+}
+
+impl BashStatus {
+    /// Parse the wire word.
+    #[must_use]
+    pub fn parse(status: String) -> Self {
+        match status.as_str() {
+            "running" => Self::Running,
+            _ => Self::Other(status),
+        }
+    }
+
+    /// The wire word.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::Running => "running",
+            Self::Other(status) => status,
+        }
+    }
+}
+
+impl std::fmt::Display for BashStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
 impl BashActivity {
     pub(crate) fn running(&self) -> bool {
-        self.status == "running"
+        self.status == BashStatus::Running
     }
 }
 
@@ -118,10 +152,10 @@ pub fn parse_bash_activities(data: &Value) -> Vec<BashActivity> {
                     .get("startedAt")
                     .and_then(Value::as_str)
                     .map(crate::menu_panel::scrub_controls),
-                status: row
-                    .get("status")
-                    .and_then(Value::as_str)
-                    .map_or_else(|| "unknown".to_string(), crate::menu_panel::scrub_controls),
+                status: row.get("status").and_then(Value::as_str).map_or_else(
+                    || BashStatus::Other("unknown".to_string()),
+                    |status| BashStatus::parse(crate::menu_panel::scrub_controls(status)),
+                ),
                 exit_code: row.get("exitCode").and_then(Value::as_i64),
                 duration_ms: row.get("durationMs").and_then(Value::as_u64),
             })
@@ -262,18 +296,17 @@ impl BashView {
     /// the surviving id, and drop a detail pane whose row vanished.
     pub fn apply_activities(&mut self, activities: Vec<BashActivity>) {
         self.activities = activities;
-        let selected = self.selected_id.clone();
-        let exists = selected
+        let exists = self
+            .selected_id
             .as_deref()
             .is_some_and(|id| self.activities.iter().any(|row| row.id == id));
         if !exists {
             self.selected_id = self.activities.first().map(|row| row.id.clone());
         }
-        if let Mode::Detail { id } = self.mode.clone() {
-            if !self.activities.iter().any(|row| row.id == id) {
-                self.mode = Mode::List;
-                self.reset_detail_output();
-            }
+        if matches!(&self.mode, Mode::Detail { id } if !self.activities.iter().any(|row| row.id == *id))
+        {
+            self.mode = Mode::List;
+            self.reset_detail_output();
         }
         self.output_tail = self
             .output_tail
@@ -436,7 +469,7 @@ impl BashView {
     /// region (up toward the older lines, down back to the newest), and
     /// up at the top of the loaded window lazily loads more of the tail.
     fn move_selection(&mut self, delta: isize) -> BashViewAction {
-        match self.mode.clone() {
+        match self.mode {
             Mode::List => {
                 if self.activities.is_empty() {
                     return BashViewAction::None;

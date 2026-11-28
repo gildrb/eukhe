@@ -6,7 +6,6 @@
 //! closing notices) are forwarded to the caller through an event channel, so
 //! the UI loop can render live session state while requests are in flight.
 
-use std::borrow::Cow;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -152,8 +151,8 @@ pub enum DaemonClientEvent {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct InboundFrame<'a> {
-    #[serde(rename = "type", borrow, default)]
-    kind: Option<Cow<'a, str>>,
+    #[serde(rename = "type", default)]
+    kind: Option<FrameKind>,
     #[serde(borrow, default)]
     active_session_id: Option<&'a RawValue>,
     #[serde(borrow, default)]
@@ -180,6 +179,26 @@ struct InboundFrame<'a> {
     resync: Option<&'a RawValue>,
     #[serde(borrow, default)]
     update: Option<&'a RawValue>,
+}
+
+/// A frame's `type`; a type this build does not know is `Other`.
+#[derive(Deserialize, Clone, Copy)]
+#[serde(rename_all = "snake_case")]
+enum FrameKind {
+    DaemonHello,
+    Response,
+    SessionEvent,
+    SessionClosed,
+    SideQuestionEvent,
+    SessionListItem,
+    SessionListProgress,
+    DaemonClosing,
+    RosterUpdate,
+    HeartbeatsChanged,
+    StateTreeUpdate,
+    SessionBinding,
+    #[serde(other)]
+    Other,
 }
 
 /// The `meta` fields a session event's sequence rides on.
@@ -215,8 +234,9 @@ pub(crate) fn client_event_from_json(json: &[u8]) -> Option<DaemonClientEvent> {
 }
 
 fn client_event_from_frame(frame: &InboundFrame<'_>) -> Option<DaemonClientEvent> {
-    match frame.kind.as_deref().unwrap_or_default() {
-        "session_event" => {
+    let kind = frame.kind?;
+    match kind {
+        FrameKind::SessionEvent => {
             let active_session_id = decode_string(frame.active_session_id);
             let Some(event) = frame.event else {
                 return Some(DaemonClientEvent::UndecodableSessionEvent {
@@ -241,26 +261,26 @@ fn client_event_from_frame(frame: &InboundFrame<'_>) -> Option<DaemonClientEvent
                 },
             })
         }
-        "session_closed" => Some(DaemonClientEvent::SessionClosed {
+        FrameKind::SessionClosed => Some(DaemonClientEvent::SessionClosed {
             active_session_id: decode_string(frame.active_session_id),
             reason: decode_string(frame.reason),
         }),
-        "side_question_event" => Some(DaemonClientEvent::SideQuestionEvent {
+        FrameKind::SideQuestionEvent => Some(DaemonClientEvent::SideQuestionEvent {
             active_session_id: decode_string(frame.active_session_id),
             event: decode(frame.event).unwrap_or(Value::Null),
         }),
-        "session_list_item" => Some(DaemonClientEvent::SessionListItem {
+        FrameKind::SessionListItem => Some(DaemonClientEvent::SessionListItem {
             session: decode(frame.session).unwrap_or(Value::Null),
             request_id: decode_string(frame.id),
         }),
-        "session_list_progress" => Some(DaemonClientEvent::SessionListProgress {
+        FrameKind::SessionListProgress => Some(DaemonClientEvent::SessionListProgress {
             loaded: decode(frame.loaded).unwrap_or(0),
             total: decode(frame.total).unwrap_or(0),
         }),
-        "daemon_closing" => Some(DaemonClientEvent::DaemonClosing {
+        FrameKind::DaemonClosing => Some(DaemonClientEvent::DaemonClosing {
             reason: decode_string(frame.reason),
         }),
-        "roster_update" => Some(DaemonClientEvent::RosterUpdate {
+        FrameKind::RosterUpdate => Some(DaemonClientEvent::RosterUpdate {
             changed: decode(frame.changed).unwrap_or_default(),
             removed: decode::<Vec<Value>>(frame.removed)
                 .unwrap_or_default()
@@ -276,20 +296,20 @@ fn client_event_from_frame(frame: &InboundFrame<'_>) -> Option<DaemonClientEvent
                 .collect(),
             resync: decode(frame.resync) == Some(true),
         }),
-        "heartbeats_changed" => Some(DaemonClientEvent::HeartbeatsChanged),
+        FrameKind::HeartbeatsChanged => Some(DaemonClientEvent::HeartbeatsChanged),
         // A frame whose records do not decode is dropped: the next frame
         // starts after a cursor the follower lacks, and it re-subscribes.
-        "state_tree_update" => {
+        FrameKind::StateTreeUpdate => {
             decode(frame.update).map(|update| DaemonClientEvent::StateTreeUpdate {
                 active_session_id: decode_string(frame.active_session_id),
                 update,
             })
         }
-        "session_binding" => Some(DaemonClientEvent::SessionBinding {
+        FrameKind::SessionBinding => Some(DaemonClientEvent::SessionBinding {
             previous_active_session_id: decode_string(frame.previous_active_session_id),
             active_session_id: decode_string(frame.active_session_id),
         }),
-        _ => None,
+        FrameKind::DaemonHello | FrameKind::Response | FrameKind::Other => None,
     }
 }
 
@@ -506,20 +526,34 @@ impl DaemonClient {
                     }
                     continue;
                 };
-                match frame.kind.as_deref().unwrap_or_default() {
-                    "daemon_hello" => {
+                match frame.kind {
+                    Some(FrameKind::DaemonHello) => {
                         let Some(tx) = hello_tx.take() else { continue };
                         let _ = tx.send(serde_json::from_str(trimmed).map_err(|_| {
                             ForeignGreeting::Unparseable(trimmed.chars().take(120).collect())
                         }));
                     }
-                    "response" => {
+                    Some(FrameKind::Response) => {
                         if let Ok(response) = serde_json::from_str::<DaemonResponse>(trimmed) {
-                            let id = response.id.clone().unwrap_or_default();
+                            let id: std::borrow::Cow<'_, str> =
+                                decode(frame.id).unwrap_or_default();
                             reader_shared.resolve(&id, response);
                         }
                     }
-                    _ => {
+                    Some(
+                        FrameKind::SessionEvent
+                        | FrameKind::SessionClosed
+                        | FrameKind::SideQuestionEvent
+                        | FrameKind::SessionListItem
+                        | FrameKind::SessionListProgress
+                        | FrameKind::DaemonClosing
+                        | FrameKind::RosterUpdate
+                        | FrameKind::HeartbeatsChanged
+                        | FrameKind::StateTreeUpdate
+                        | FrameKind::SessionBinding
+                        | FrameKind::Other,
+                    )
+                    | None => {
                         if let Some(event) = client_event_from_frame(&frame) {
                             let _ = event_tx.send(event);
                         }
@@ -560,7 +594,7 @@ impl DaemonClient {
             .get("protocol")
             .cloned()
             .and_then(|p| serde_json::from_value::<DaemonProtocolInfo>(p).ok())
-            .unwrap_or(DaemonProtocolInfo {
+            .unwrap_or_else(|| DaemonProtocolInfo {
                 name: DAEMON_PROTOCOL_NAME.to_string(),
                 version: DAEMON_PROTOCOL_VERSION,
             });
@@ -822,17 +856,16 @@ impl DaemonClient {
         if *self.reader_dead_rx.borrow() {
             return Err(self.dead_reader_error());
         }
-        let id = id.to_string();
         let envelope = DaemonCommandEnvelope {
             frame_type: DaemonCommandFrameType::Command,
-            id: id.clone(),
+            id: id.to_owned(),
             protocol: self.protocol.clone(),
             client_id: Some(self.client_id.clone()),
             command,
         };
         let line = serde_json::to_string(&envelope)?;
         let (tx, rx) = oneshot::channel::<Result<DaemonResponse>>();
-        self.shared.pending.lock().unwrap().insert(id.clone(), tx);
+        self.shared.pending.lock().unwrap().insert(envelope.id, tx);
         // The reader runs on another worker: it can die (and run its
         // failure sweep) between the entry check and this registration,
         // and the writer channel outlives the reader's EOF -- an entry
@@ -841,7 +874,7 @@ impl DaemonClient {
         // resolves the oneshot on the Err half, a death it missed is
         // caught here.
         if *self.reader_dead_rx.borrow() {
-            self.shared.pending.lock().unwrap().remove(&id);
+            self.shared.pending.lock().unwrap().remove(id);
             return Err(self.dead_reader_error());
         }
         self.writer
@@ -857,7 +890,7 @@ impl DaemonClient {
                 self.socket_path.display()
             )),
             Err(_) => {
-                self.shared.pending.lock().unwrap().remove(&id);
+                self.shared.pending.lock().unwrap().remove(id);
                 Err(anyhow!(
                     "Timed out after {timeout_ms}ms waiting for the Eukhe daemon response. Socket: {}.",
                     self.socket_path.display()
@@ -1044,7 +1077,7 @@ impl DaemonClient {
         let Some(event_tx) = self.direct.event_sender() else {
             return Ok(false);
         };
-        match connect_direct(&ticket, Arc::clone(&self.shared), event_tx).await {
+        match connect_direct(ticket, Arc::clone(&self.shared), event_tx).await {
             Ok(link) => {
                 self.direct.set_link(link);
                 Ok(true)

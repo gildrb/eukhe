@@ -15,6 +15,7 @@
 //!   session-plane commands for the grant's session only, and event fan-out
 //!   only while the client holds an attach on the session.
 
+use crate::worker::OutboundType;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -36,9 +37,6 @@ pub(crate) const PEER_GRANT_TTL_LIMIT_MS: i64 = 30_000;
 /// TS `PEER_GRANT_LIMIT`: maximum concurrently live grants (expired grants
 /// are swept first).
 pub(crate) const PEER_GRANT_LIMIT: usize = 1024;
-
-/// The `outboundType` of a state tree frame.
-pub(crate) const STATE_TREE_UPDATE_FRAME: &str = "state_tree_update";
 
 /// TS failure strings (wire parity).
 pub(crate) const PEER_AUTH_FAILED: &str = "Peer authentication failed";
@@ -82,16 +80,22 @@ impl ConnectionRole {
     /// connection. A `state_tree_update` goes to the supervisor only: it
     /// routes the frame to the client connections that subscribed. A
     /// `cron_changed` is the supervisor's own catalog invalidation.
-    pub(crate) fn streams(&self, outbound_type: &str) -> bool {
+    pub(crate) fn streams(&self, outbound_type: OutboundType) -> bool {
         match self {
             ConnectionRole::Supervisor { .. } => true,
             // A direct session client is never an editor (an ACP editor
             // attaches through the supervisor, which routes its questions).
             ConnectionRole::SessionClient { session } => {
                 session.is_attached()
-                    && outbound_type != STATE_TREE_UPDATE_FRAME
-                    && outbound_type != crate::worker::CRON_CHANGED_FRAME
-                    && outbound_type != crate::editor_permission::EDITOR_PERMISSION_FRAME
+                    && match outbound_type {
+                        OutboundType::StateTreeUpdate
+                        | OutboundType::CronChanged
+                        | OutboundType::EditorPermission => false,
+                        OutboundType::Response
+                        | OutboundType::SessionEvent
+                        | OutboundType::SideQuestionEvent
+                        | OutboundType::HeartbeatsChanged => true,
+                    }
             }
             ConnectionRole::Unauthenticated | ConnectionRole::PeerWorker { .. } => false,
         }
@@ -660,7 +664,7 @@ mod tests {
         let role = ConnectionRole::PeerWorker {
             session: Arc::new(PeerSession::new(grant)),
         };
-        assert!(!role.streams("session_event"));
+        assert!(!role.streams(OutboundType::SessionEvent));
     }
 
     #[test]
@@ -673,8 +677,8 @@ mod tests {
         };
         let streams = |role: &ConnectionRole| {
             [
-                role.streams("session_event"),
-                role.streams(STATE_TREE_UPDATE_FRAME),
+                role.streams(OutboundType::SessionEvent),
+                role.streams(OutboundType::StateTreeUpdate),
             ]
         };
         let not_attached = streams(&role);

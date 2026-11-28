@@ -5,7 +5,8 @@ use super::{HashMap, Path, PathBuf};
 
 pub(super) fn generate_id(existing: &HashMap<String, usize>) -> String {
     for _ in 0..100 {
-        let id = uuid::Uuid::new_v4().simple().to_string()[..8].to_string();
+        let mut id = uuid::Uuid::new_v4().simple().to_string();
+        id.truncate(8);
         if !existing.contains_key(&id) {
             return id;
         }

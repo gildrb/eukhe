@@ -153,6 +153,51 @@ fn running_output_bytes(list: &Value) -> u64 {
         .fold(0, u64::wrapping_add)
 }
 
+/// A kernel reply's `status`: `ok`, or anything else (the text when it is a
+/// string).
+#[derive(Clone, Copy)]
+enum ReplyStatus<'a> {
+    Ok,
+    Failed(Option<&'a str>),
+}
+
+impl<'a> ReplyStatus<'a> {
+    fn of(fields: &'a Value) -> Self {
+        match fields.get("status").and_then(Value::as_str) {
+            Some("ok") => Self::Ok,
+            status => Self::Failed(status),
+        }
+    }
+}
+
+/// How a `call` reply settled, from its `status` and `reason`.
+#[derive(Clone, Copy)]
+enum RemoteOutcome {
+    Ok,
+    Timeout,
+    Unknown,
+    Failed,
+}
+
+/// The `bash_activity` actions the runtime accepts.
+#[derive(Clone, Copy)]
+enum BashActivityAction {
+    List,
+    Tail,
+    Kill,
+}
+
+impl BashActivityAction {
+    fn parse(action: &str) -> Option<Self> {
+        match action {
+            "list" => Some(Self::List),
+            "tail" => Some(Self::Tail),
+            "kill" => Some(Self::Kill),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum KernelState {
     Idle,
@@ -775,13 +820,13 @@ impl ReplKernelManager {
         let slot = {
             let mut memo = lock(&self.inner.start_memo);
             let slot = MemoSlot::new();
-            *memo = Some(slot.clone());
+            *memo = Some(Arc::clone(&slot));
             slot
         };
         // Owner: run the startup to completion in a task so the caller\'s abort
         // signal can abandon the wait without killing the kernel for others.
-        let inner = self.inner.clone();
-        let run_slot = slot.clone();
+        let inner = Arc::clone(&self.inner);
+        let run_slot = Arc::clone(&slot);
         let wait_signal = options.signal.clone();
         let task = tokio::spawn(async move {
             let result = inner.do_start(&options).await;
@@ -904,16 +949,20 @@ impl ReplKernelManager {
         // The runtime's pre-validation answers with a protocol error that
         // carries no request id (so the waiter could only time out);
         // mirror the contract locally and fail fast instead.
-        if !matches!(action, "list" | "tail" | "kill") {
-            return Err(anyhow!("unknown bash activity action"));
-        }
-        let requires_id = action != "list" && activity_id.map_or("", str::trim).is_empty();
+        let parsed = BashActivityAction::parse(action)
+            .ok_or_else(|| anyhow!("unknown bash activity action"))?;
+        let requires_id = match parsed {
+            BashActivityAction::List => false,
+            BashActivityAction::Tail | BashActivityAction::Kill => {
+                activity_id.map_or("", str::trim).is_empty()
+            }
+        };
         if requires_id {
             return Err(anyhow!(
                 "bash activity tail/kill requires string activityId"
             ));
         }
-        if action == "tail" && !(1..=200).contains(&lines) {
+        if matches!(parsed, BashActivityAction::Tail) && !(1..=200).contains(&lines) {
             return Err(anyhow!("lines must be an integer between 1 and 200"));
         }
         let request_id = uuid::Uuid::new_v4().to_string();
@@ -935,16 +984,16 @@ impl ReplKernelManager {
                 .remove(&request_id);
             return Err(anyhow!("Kernel bash activity request did not settle"));
         };
-        if fields.get("status").and_then(Value::as_str) != Some("ok") {
-            return Err(anyhow!(
+        match ReplyStatus::of(&fields) {
+            ReplyStatus::Ok => Ok(fields),
+            ReplyStatus::Failed(_) => Err(anyhow!(
                 "{}",
                 fields
                     .get("reason")
                     .and_then(Value::as_str)
                     .unwrap_or("Kernel bash activity failed")
-            ));
+            )),
         }
-        Ok(fields)
     }
 
     /// Run one out-of-band `factory_activity` request against the kernel's
@@ -1017,7 +1066,7 @@ impl ReplKernelManager {
             object.remove("event");
             object.remove("id");
         }
-        if fields.get("status").and_then(Value::as_str) != Some("ok") {
+        if let ReplyStatus::Failed(_) = ReplyStatus::of(&fields) {
             return Err(anyhow!(
                 "{}",
                 fields
@@ -1160,7 +1209,8 @@ impl ReplKernelManager {
         // per-server timeout, so the settle bound is one timeout plus the
         // serve work's margin — a wedged reply never hangs the caller.
         let bound_ms = per_server_timeout_ms.saturating_add(MCP_STATUS_SETTLE_MARGIN_MS);
-        let Ok(Ok(fields)) = tokio::time::timeout(Duration::from_millis(bound_ms), rx).await else {
+        let Ok(Ok(mut fields)) = tokio::time::timeout(Duration::from_millis(bound_ms), rx).await
+        else {
             lock(&self.inner.guarded)
                 .mcp_status_waiters
                 .remove(&request_id);
@@ -1168,12 +1218,15 @@ impl ReplKernelManager {
                 .append_diagnostic("mcp tool listing did not settle inside the per-server bound");
             return None;
         };
-        match fields.get("status").and_then(Value::as_str) {
-            Some("ok") => {
-                let connections = fields.get("connections").and_then(Value::as_array).cloned();
-                Some(connections.unwrap_or_default())
+        match ReplyStatus::of(&fields) {
+            ReplyStatus::Ok => {
+                let connections = fields.get_mut("connections").map(Value::take);
+                Some(match connections {
+                    Some(Value::Array(connections)) => connections,
+                    Some(_) | None => Vec::new(),
+                })
             }
-            status => {
+            ReplyStatus::Failed(status) => {
                 self.inner.append_diagnostic(&format!(
                     "mcp tool listing failed: {}",
                     status.unwrap_or("unset status")
@@ -1291,9 +1344,9 @@ impl ReplKernelManager {
                 bound_ms,
             });
         };
-        match fields.get("status").and_then(Value::as_str) {
-            Some("ok") => Ok(fields.get_mut("result").map_or(Value::Null, Value::take)),
-            status => Err(match fields.get("error").and_then(Value::as_str) {
+        match ReplyStatus::of(&fields) {
+            ReplyStatus::Ok => Ok(fields.get_mut("result").map_or(Value::Null, Value::take)),
+            ReplyStatus::Failed(status) => Err(match fields.get("error").and_then(Value::as_str) {
                 Some(message) => McpLaneError::Failed {
                     message: message.to_owned(),
                 },
@@ -1365,24 +1418,25 @@ impl ReplKernelManager {
                 });
             }
         };
-        let status = fields
-            .get("status")
-            .and_then(Value::as_str)
-            .map(str::to_owned);
-        let reason = fields
-            .get("reason")
-            .and_then(Value::as_str)
-            .map(str::to_owned);
-        match (status.as_deref(), reason.as_deref()) {
-            (Some("ok"), _) => Ok(fields.get_mut("result").map_or(Value::Null, Value::take)),
-            (_, Some("timeout")) => Err(RemoteCallError::Timeout {
+        let outcome = match (
+            ReplyStatus::of(&fields),
+            fields.get("reason").and_then(Value::as_str),
+        ) {
+            (ReplyStatus::Ok, _) => RemoteOutcome::Ok,
+            (ReplyStatus::Failed(_), Some("timeout")) => RemoteOutcome::Timeout,
+            (ReplyStatus::Failed(_), Some("unknown")) => RemoteOutcome::Unknown,
+            (ReplyStatus::Failed(_), Some(_) | None) => RemoteOutcome::Failed,
+        };
+        match outcome {
+            RemoteOutcome::Ok => Ok(fields.get_mut("result").map_or(Value::Null, Value::take)),
+            RemoteOutcome::Timeout => Err(RemoteCallError::Timeout {
                 function: function.to_owned(),
                 timeout_ms,
             }),
-            (_, Some("unknown")) => Err(RemoteCallError::Unknown {
+            RemoteOutcome::Unknown => Err(RemoteCallError::Unknown {
                 function: function.to_owned(),
             }),
-            (Some(_) | None, Some(_) | None) => Err(RemoteCallError::Failed {
+            RemoteOutcome::Failed => Err(RemoteCallError::Failed {
                 function: function.to_owned(),
                 message: fields
                     .get("error")
@@ -1412,12 +1466,12 @@ impl ReplKernelManager {
         let slot = {
             let mut memo = lock(&self.inner.shutdown_memo);
             let slot = MemoSlot::new();
-            *memo = Some(slot.clone());
+            *memo = Some(Arc::clone(&slot));
             slot
         };
         lock(&self.inner.guarded).teardown_in_flight += 1;
         self.supersede_protocol_repair();
-        let inner = self.inner.clone();
+        let inner = Arc::clone(&self.inner);
         let result = tokio::spawn(async move {
             let performed = inner.perform_shutdown(opts).await;
             slot.finish(None);

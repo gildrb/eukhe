@@ -134,7 +134,7 @@ impl Reconstructed {
                 self.chat
                     .push(ChatEntry::Tool(Box::new(crate::chat::ToolCallCard {
                         id: view.id,
-                        name: view.name,
+                        name: crate::tool_card::ToolName::from(view.name),
                         args: serde_json::Value::Null,
                         started: true,
                         result: Some(view.view),
@@ -470,7 +470,7 @@ fn orphan_card(result: ToolResultReplay) -> ChatEntry {
     } = result;
     ChatEntry::Tool(Box::new(crate::chat::ToolCallCard {
         id: tool_call_id,
-        name: tool_name,
+        name: crate::tool_card::ToolName::from(tool_name),
         args: serde_json::Value::Null,
         started: true,
         result: Some(view),
@@ -586,8 +586,7 @@ pub fn reconstruct(attach: &AttachData) -> Result<Reconstructed, serde_json::Err
     let acceptance = state
         .and_then(|state| state.get("acceptance"))
         .and_then(|acceptance| {
-            serde_json::from_value::<eukhe_types::acceptance::AcceptanceState>(acceptance.clone())
-                .ok()
+            eukhe_types::acceptance::AcceptanceState::deserialize(acceptance).ok()
         });
     let queued = match state.and_then(|state| state.get("sessionActions")) {
         Some(actions) => decoder::queued_messages(&SessionActionSnapshot::deserialize(actions)?),

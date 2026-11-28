@@ -577,7 +577,7 @@ fn conversation_put(record: &ConversationRecord) -> Planned {
         parent: record
             .owner
             .map(|owner| owner.conversation_id)
-            .or(record.parent.map(|parent| parent.conversation_id))
+            .or_else(|| record.parent.map(|parent| parent.conversation_id))
             .map(|id| StateKey::Conversation(id.to_string())),
         node: record_node(StateKind::Conversation, record),
     }

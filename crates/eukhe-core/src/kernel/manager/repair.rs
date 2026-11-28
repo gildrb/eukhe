@@ -64,13 +64,13 @@ impl Inner {
             superseded: AtomicBool::new(false),
         });
         let handle = Arc::new(RepairHandle {
-            owner: owner.clone(),
+            owner: Arc::clone(&owner),
             slot: MemoSlot::new(),
         });
-        lock(&self.guarded).protocol_repair = Some(handle.clone());
+        lock(&self.guarded).protocol_repair = Some(Arc::clone(&handle));
         let inner = Arc::clone(self);
         tokio::spawn(async move {
-            inner.repair_protocol_child(generation, owner.clone()).await;
+            inner.repair_protocol_child(generation, owner).await;
             let superseded = handle.owner.superseded.load(Ordering::SeqCst);
             let current = lock(&inner.guarded).protocol_repair.clone();
             if matches!(&current, Some(current) if Arc::ptr_eq(&current.owner, &handle.owner))
@@ -139,10 +139,10 @@ impl Inner {
         // Restore revives only the user namespace; live handles (rlm, bash,
         // skills) come from the runtime bootstrap, so a repaired kernel must
         // re-run it.
-        let Some(code) = self.options.bootstrap_code.clone() else {
+        let Some(code) = &self.options.bootstrap_code else {
             return;
         };
-        let bootstrapped = self.bootstrap_repaired_kernel(&code).await;
+        let bootstrapped = self.bootstrap_repaired_kernel(code).await;
         if self.start_stale(generation) || lock(&self.guarded).state != KernelState::Running {
             self.finish_failed_protocol_repair(&owner, None);
             return;
@@ -210,9 +210,9 @@ impl Inner {
         self: &Arc<Self>,
         signal: Option<&AbortSignal>,
     ) -> anyhow::Result<()> {
-        let code = self.options.bootstrap_code.clone();
         let needs_restore = self.options.snapshot.is_some() && lock(&self.guarded).pending_restore;
-        let needs_bootstrap = code.is_some() && lock(&self.guarded).pending_rebootstrap;
+        let needs_bootstrap =
+            self.options.bootstrap_code.is_some() && lock(&self.guarded).pending_rebootstrap;
         // An in-flight repair owns its kernel's restore/bootstrap sequence,
         // and a teardown's final snapshot must never trigger reprovisioning.
         if (!needs_restore && !needs_bootstrap)
@@ -270,13 +270,13 @@ impl Inner {
             // empty namespace (ordinary startup semantics), never a retry loop.
             lock(&self.guarded).pending_restore = false;
         }
-        let Some(code) = self.options.bootstrap_code.clone() else {
+        let Some(code) = &self.options.bootstrap_code else {
             return true;
         };
         if !lock(&self.guarded).pending_rebootstrap {
             return true;
         }
-        let ok = self.bootstrap_repaired_kernel(&code).await;
+        let ok = self.bootstrap_repaired_kernel(code).await;
         if !ok && lock(&self.guarded).state == KernelState::Running {
             self.kill_child_to_idle();
         }

@@ -5,6 +5,7 @@
 //! writer wrote (`scopedHandback`, `patch` of `rlm.answer`).
 
 use eukhe_bend::rules::agent_tree::{Lim, Patch};
+use serde::Deserialize;
 use serde_json::{json, Map, Value};
 
 use super::batch::{Batch, LeafPlace, Limit, Room};
@@ -125,22 +126,17 @@ pub(crate) struct Written {
     pub(crate) conflicts: Vec<String>,
 }
 
-fn paths(value: Option<&Value>) -> Vec<String> {
+fn paths(value: Option<&Value>) -> impl Iterator<Item = &str> {
     value
         .and_then(Value::as_array)
-        .map(|paths| {
-            paths
-                .iter()
-                .filter_map(Value::as_str)
-                .map(str::to_owned)
-                .collect()
-        })
-        .unwrap_or_default()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
 }
 
 fn patch(value: Option<&Value>) -> Patch {
     value
-        .and_then(|patch| serde_json::from_value(patch.clone()).ok())
+        .and_then(|patch| Patch::deserialize(patch).ok())
         .unwrap_or_default()
 }
 
@@ -154,8 +150,8 @@ pub(crate) fn written(state: &Value) -> Written {
         Some(handback) => Written {
             patch: patch(handback.get("patch")),
             conflicts: paths(handback.get("outside"))
-                .into_iter()
                 .chain(paths(handback.get("conflicts")))
+                .map(str::to_owned)
                 .collect(),
         },
         None => Written {
@@ -177,7 +173,7 @@ impl Written {
                     .get(unit)
                     .copied()
                     .flatten()
-                    .or(self.patch.get(unit).copied().flatten())
+                    .or_else(|| self.patch.get(unit).copied().flatten())
             })
             .collect();
         let mut conflicts = self.conflicts;

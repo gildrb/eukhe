@@ -81,7 +81,7 @@ fn parse_duration_env(env: &BTreeMap<String, String>, key: &str, fallback_ms: u6
         // (`Instant + Duration` panics on overflow, which would kill the
         // reporter task before it could report or release the pane).
         .map(|ms| ms.min(TUNING_MAX_MS))
-        .map_or(Duration::from_millis(fallback_ms), Duration::from_millis)
+        .map_or_else(|| Duration::from_millis(fallback_ms), Duration::from_millis)
 }
 
 /// The ceiling for the tuning envs (the JS `setTimeout` saturation bound).

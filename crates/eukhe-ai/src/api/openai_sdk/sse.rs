@@ -5,6 +5,7 @@
 
 use std::collections::VecDeque;
 
+use bytes::Bytes;
 use eukhe_chord::context::AbortSignal;
 use futures::stream::BoxStream;
 use futures::StreamExt;
@@ -161,7 +162,7 @@ fn handle_event(sse: &ServerSentEvent, headers: &HeaderMap) -> Result<Option<Jso
 }
 
 struct SseState {
-    bytes: BoxStream<'static, Result<Vec<u8>, reqwest::Error>>,
+    bytes: BoxStream<'static, Result<Bytes, reqwest::Error>>,
     lines: LineDecoder,
     decoder: SseDecoder,
     pending: VecDeque<ServerSentEvent>,
@@ -185,7 +186,7 @@ impl SseState {
     }
 
     /// Next chunk of the body, or `None` at its end or on abort.
-    async fn next_chunk(&mut self) -> Option<Result<Vec<u8>, reqwest::Error>> {
+    async fn next_chunk(&mut self) -> Option<Result<Bytes, reqwest::Error>> {
         match self.signal.clone() {
             Some(signal) => tokio::select! {
                 _ = signal.cancelled() => None,
@@ -246,7 +247,7 @@ impl SseState {
 
 /// Decode a streamed body into the SDK's SSE item stream.
 pub(crate) fn sse_json_stream(
-    bytes: BoxStream<'static, Result<Vec<u8>, reqwest::Error>>,
+    bytes: BoxStream<'static, Result<Bytes, reqwest::Error>>,
     headers: HeaderMap,
     signal: Option<AbortSignal>,
 ) -> SseEventStream {

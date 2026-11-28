@@ -843,7 +843,7 @@ impl Supervisor {
                 self.log_line(&format!("failed to append RLM ledger spawn: {error:#}"));
             })?;
         let display = crate::rlm_ledger::RlmSubagentDisplayEntry {
-            type_tag: "rlm_subagent".to_string(),
+            type_tag: crate::rlm_ledger::DisplayTag::RlmSubagent,
             child_id,
             session_name,
             session_dir,
@@ -861,7 +861,7 @@ impl Supervisor {
                 .and_then(Value::as_str)
                 .map(str::to_string),
             model: metadata.get("model").cloned(),
-            status: "running".to_string(),
+            status: crate::rlm_ledger::DisplayStatus::Running,
             created_at: metadata
                 .get("createdAt")
                 .and_then(Value::as_u64)

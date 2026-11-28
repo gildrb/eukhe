@@ -608,7 +608,7 @@ fn sender_endpoint_from_summary(summary: &Value, client_id: &str) -> Value {
         "runtimeKind": summary
             .get("runtimeKind")
             .cloned()
-            .unwrap_or(json!("top-level")),
+            .unwrap_or_else(|| json!("top-level")),
         "clientId": client_id,
     });
     if let Some(name) = summary.get("sessionName").and_then(Value::as_str) {

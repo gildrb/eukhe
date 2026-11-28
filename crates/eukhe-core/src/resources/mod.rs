@@ -230,7 +230,7 @@ pub fn load_resources(mut options: ResourceLoaderOptions) -> Result<LoadedResour
             && !resources
                 .skill_diagnostics
                 .iter()
-                .any(|d| diagnostics_path(d) == Some(path.clone()))
+                .any(|d| diagnostics_path(d).as_deref() == Some(path.as_str()))
         {
             resources.skill_diagnostics.push(ResourceDiagnostic::Error {
                 message: "Skill path does not exist".to_string(),

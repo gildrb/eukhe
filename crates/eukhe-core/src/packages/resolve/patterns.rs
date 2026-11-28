@@ -55,12 +55,11 @@ pub(crate) fn split_patterns(entries: &[String]) -> (Vec<String>, Vec<String>) {
 }
 
 /// The `!`/`+`/`-` entries of a pattern list.
-fn override_patterns(patterns: &[String]) -> Vec<String> {
+fn override_patterns(patterns: &[String]) -> impl Iterator<Item = &str> {
     patterns
         .iter()
+        .map(String::as_str)
         .filter(|pattern| is_override_pattern(pattern))
-        .cloned()
-        .collect()
 }
 
 fn to_posix(value: &str) -> String {
@@ -138,11 +137,15 @@ fn match_candidates(file_path: &Path, base_dir: &Path) -> MatchCandidates {
 /// Per file, whether it matches any glob pattern, tested against its path
 /// relative to the base dir, its basename, and its full path (plus the
 /// parent-directory forms for `SKILL.md` files).
-fn paths_matching(file_paths: &[PathBuf], patterns: &[String], base_dir: &Path) -> Vec<bool> {
+fn paths_matching(
+    file_paths: &[impl AsRef<Path>],
+    patterns: &[&str],
+    base_dir: &Path,
+) -> Vec<bool> {
     let normalized: Vec<String> = patterns.iter().map(|pattern| to_posix(pattern)).collect();
     let candidates: Vec<MatchCandidates> = file_paths
         .iter()
-        .map(|path| match_candidates(path, base_dir))
+        .map(|path| match_candidates(path.as_ref(), base_dir))
         .collect();
     let groups: Vec<Vec<&str>> = candidates.iter().map(MatchCandidates::glob_forms).collect();
     expect_core(
@@ -152,8 +155,8 @@ fn paths_matching(file_paths: &[PathBuf], patterns: &[String], base_dir: &Path) 
 }
 
 /// True when the file matches any glob pattern ([`paths_matching`]).
-pub(crate) fn matches_any_pattern(file_path: &Path, patterns: &[String], base_dir: &Path) -> bool {
-    paths_matching(&[file_path.to_path_buf()], patterns, base_dir).contains(&true)
+pub(crate) fn matches_any_pattern(file_path: &Path, patterns: &[&str], base_dir: &Path) -> bool {
+    paths_matching(&[file_path], patterns, base_dir).contains(&true)
 }
 
 /// Strip a leading `./` and normalize separators (exact-pattern form).
@@ -169,7 +172,7 @@ fn normalize_exact_pattern(pattern: &str) -> String {
 /// base dir or its full path (plus parent-directory forms for `SKILL.md`).
 pub(crate) fn matches_any_exact_pattern(
     file_path: &Path,
-    patterns: &[String],
+    patterns: &[&str],
     base_dir: &Path,
 ) -> bool {
     if patterns.is_empty() {
@@ -192,21 +195,14 @@ pub(crate) fn is_enabled_by_overrides(
     patterns: &[String],
     base_dir: &Path,
 ) -> bool {
-    let overrides = override_patterns(patterns);
-    let excludes: Vec<String> = overrides
-        .iter()
+    let excludes: Vec<&str> = override_patterns(patterns)
         .filter_map(|pattern| pattern.strip_prefix('!'))
-        .map(str::to_string)
         .collect();
-    let force_includes: Vec<String> = overrides
-        .iter()
+    let force_includes: Vec<&str> = override_patterns(patterns)
         .filter_map(|pattern| pattern.strip_prefix('+'))
-        .map(str::to_string)
         .collect();
-    let force_excludes: Vec<String> = overrides
-        .iter()
+    let force_excludes: Vec<&str> = override_patterns(patterns)
         .filter_map(|pattern| pattern.strip_prefix('-'))
-        .map(str::to_string)
         .collect();
 
     let mut enabled = true;
@@ -233,19 +229,19 @@ pub(crate) fn apply_patterns(
     patterns: &[String],
     base_dir: &Path,
 ) -> Vec<PathBuf> {
-    let mut includes: Vec<String> = Vec::new();
-    let mut excludes: Vec<String> = Vec::new();
-    let mut force_includes: Vec<String> = Vec::new();
-    let mut force_excludes: Vec<String> = Vec::new();
+    let mut includes: Vec<&str> = Vec::new();
+    let mut excludes: Vec<&str> = Vec::new();
+    let mut force_includes: Vec<&str> = Vec::new();
+    let mut force_excludes: Vec<&str> = Vec::new();
     for pattern in patterns {
         if let Some(rest) = pattern.strip_prefix('+') {
-            force_includes.push(rest.to_string());
+            force_includes.push(rest);
         } else if let Some(rest) = pattern.strip_prefix('-') {
-            force_excludes.push(rest.to_string());
+            force_excludes.push(rest);
         } else if let Some(rest) = pattern.strip_prefix('!') {
-            excludes.push(rest.to_string());
+            excludes.push(rest);
         } else {
-            includes.push(pattern.clone());
+            includes.push(pattern);
         }
     }
 
@@ -320,11 +316,11 @@ pub(crate) fn glob_paths(pattern: &str, root: &Path) -> Vec<PathBuf> {
             }
         }
     }
-    let rels: Vec<String> = candidates.iter().map(|(_, rel)| rel.clone()).collect();
-    let mut matched_paths: Vec<PathBuf> = candidates
+    let (paths, rels): (Vec<PathBuf>, Vec<String>) = candidates.into_iter().unzip();
+    let mut matched_paths: Vec<PathBuf> = paths
         .into_iter()
         .zip(texts_matching(&rels, &[pattern]))
-        .filter_map(|((path, _), matched)| matched.then_some(path))
+        .filter_map(|(path, matched)| matched.then_some(path))
         .collect();
     matched_paths.sort();
     matched_paths

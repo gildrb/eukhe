@@ -7,14 +7,17 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 use bytes::Bytes;
 use eukhe_chord::context::AbortSignal;
-use eukhe_types::pi_ai::{AssistantMessage, AssistantMessageEvent, JsonValue, Model};
+use eukhe_types::pi_ai::{AssistantMessage, AssistantMessageEvent, JsonObject, JsonValue, Model};
 use futures::stream::{BoxStream, Stream, StreamExt};
 
+use crate::api::openai_responses_shared::tags::EventType;
 use crate::quota::CredentialId;
 use crate::types::OnProviderStreamEvent;
 use crate::utils::diagnostics::Thrown;
 use crate::utils::event_stream::AssistantMessageEventStream;
 use crate::utils::js::{js_trim, json_stringify};
+use crate::utils::utf8_stream::Utf8StreamDecoder;
+use crate::utils::wire_type::parse_tag;
 
 use super::errors::{
     aborted_error, codex_api_error, codex_protocol_error, provider_stream_event_callback_error,
@@ -134,83 +137,103 @@ async fn next_mapped_event(state: &mut MapState) -> Option<Result<JsonValue, Thr
         if event_type.is_empty() {
             continue;
         }
+        let event_type: Option<EventType> = parse_tag(event_type);
         if let Some(credential) = state
             .credential
             .as_ref()
-            .filter(|_| event_type == "codex.rate_limits")
+            .filter(|_| event_type == Some(EventType::CodexRateLimits))
         {
             crate::quota::record_codex_frame(&state.model.provider, credential, &event);
         }
 
-        if event_type == "error" {
-            let (code, message) = extract_codex_event_error(&event);
-            let detail = message
-                .filter(|message| !message.is_empty())
-                .or_else(|| code.clone().filter(|code| !code.is_empty()))
-                .unwrap_or_else(|| json_stringify(&event));
-            return Some(Err(codex_api_error(format!("Codex error: {detail}"), code)));
-        }
-
-        if event_type == "response.failed" {
-            let error = event
-                .get("response")
-                .and_then(|response| response.get("error"));
-            let code = error
-                .and_then(|error| error.get("code"))
-                .and_then(JsonValue::as_str)
-                .map(str::to_owned);
-            let message = error
-                .and_then(|error| error.get("message"))
-                .and_then(JsonValue::as_str)
-                .filter(|message| !message.is_empty())
-                .unwrap_or("Codex response failed");
-            return Some(Err(codex_api_error(message.to_owned(), code)));
-        }
-
-        if matches!(
-            event_type,
-            "response.done" | "response.completed" | "response.incomplete"
-        ) {
-            let response = event.get("response");
-            if let Some(end_turn) = response
-                .and_then(|response| response.get("end_turn"))
-                .and_then(JsonValue::as_bool)
-            {
-                *state
-                    .effects
-                    .end_turn
-                    .lock()
-                    .unwrap_or_else(PoisonError::into_inner) = Some(end_turn);
+        match event_type {
+            Some(EventType::Error) => {
+                let (code, message) = extract_codex_event_error(&event);
+                let detail = message
+                    .filter(|message| !message.is_empty())
+                    .or_else(|| code.clone().filter(|code| !code.is_empty()))
+                    .unwrap_or_else(|| json_stringify(&event));
+                return Some(Err(codex_api_error(format!("Codex error: {detail}"), code)));
             }
-            let mut mapped = event.as_object().cloned().unwrap_or_default();
-            mapped.insert(
-                "type".into(),
-                JsonValue::String("response.completed".into()),
-            );
-            let normalized = match response {
-                // TS `response ? { ...response, status } : response`: any truthy value spreads.
-                Some(response) if js_truthy(response) => {
-                    let mut normalized = response.as_object().cloned().unwrap_or_default();
-                    match normalize_codex_status(response.get("status")) {
-                        Some(status) => normalized.insert("status".into(), status),
-                        // `status: undefined` is dropped from the serialized object.
-                        None => normalized.shift_remove("status"),
-                    };
-                    Some(JsonValue::Object(normalized))
+            Some(EventType::Failed) => {
+                let error = event
+                    .get("response")
+                    .and_then(|response| response.get("error"));
+                let code = error
+                    .and_then(|error| error.get("code"))
+                    .and_then(JsonValue::as_str)
+                    .map(str::to_owned);
+                let message = error
+                    .and_then(|error| error.get("message"))
+                    .and_then(JsonValue::as_str)
+                    .filter(|message| !message.is_empty())
+                    .unwrap_or("Codex response failed");
+                return Some(Err(codex_api_error(message.to_owned(), code)));
+            }
+            Some(EventType::Done | EventType::Completed | EventType::Incomplete) => {
+                if let Some(end_turn) = event
+                    .get("response")
+                    .and_then(|response| response.get("end_turn"))
+                    .and_then(JsonValue::as_bool)
+                {
+                    *state
+                        .effects
+                        .end_turn
+                        .lock()
+                        .unwrap_or_else(PoisonError::into_inner) = Some(end_turn);
                 }
-                Some(response) => Some(response.clone()),
-                None => None,
-            };
-            match normalized {
-                Some(normalized) => mapped.insert("response".into(), normalized),
-                None => mapped.shift_remove("response"),
-            };
-            state.finished_after_terminal();
-            return Some(Ok(JsonValue::Object(mapped)));
+                state.finished_after_terminal();
+                return Some(Ok(completed_event(event)));
+            }
+            Some(
+                EventType::Created
+                | EventType::OutputItemAdded
+                | EventType::ReasoningSummaryTextDelta
+                | EventType::ReasoningTextDelta
+                | EventType::ReasoningSummaryPartDone
+                | EventType::OutputTextDelta
+                | EventType::RefusalDelta
+                | EventType::FunctionCallArgumentsDelta
+                | EventType::FunctionCallArgumentsDone
+                | EventType::CustomToolCallInputDelta
+                | EventType::CustomToolCallInputDone
+                | EventType::OutputItemDone
+                | EventType::CodexRateLimits,
+            )
+            | None => {}
         }
 
         return Some(Ok(event));
     }
+}
+
+/// A terminal event as `response.completed`, its truthy `response` with the
+/// normalized `status` (TS `response ? { ...response, status } : response`).
+fn completed_event(event: JsonValue) -> JsonValue {
+    let JsonValue::Object(mut mapped) = event else {
+        return event;
+    };
+    mapped.insert(
+        "type".into(),
+        JsonValue::String("response.completed".into()),
+    );
+    if let Some(response) = mapped
+        .get_mut("response")
+        .filter(|response| js_truthy(response))
+    {
+        let status = normalize_codex_status(response.get("status"));
+        if !response.is_object() {
+            *response = JsonValue::Object(JsonObject::new());
+        }
+        if let JsonValue::Object(response) = response {
+            match status {
+                Some(status) => response.insert("status".into(), status),
+                // `status: undefined` is dropped from the serialized object.
+                None => response.shift_remove("status"),
+            };
+        }
+    }
+    JsonValue::Object(mapped)
 }
 
 impl MapState {
@@ -276,53 +299,6 @@ impl StartEmitter {
 // ---------------------------------------------------------------------------
 // SSE parsing
 // ---------------------------------------------------------------------------
-
-/// Streaming UTF-8 decoding with replacement characters (TS `TextDecoder`
-/// with `{ stream: true }`).
-#[derive(Debug, Default)]
-pub(crate) struct Utf8StreamDecoder {
-    pending: Vec<u8>,
-}
-
-impl Utf8StreamDecoder {
-    /// Decode `chunk`, keeping an incomplete trailing sequence for later.
-    pub(crate) fn decode(&mut self, chunk: &[u8]) -> String {
-        self.pending.extend_from_slice(chunk);
-        let mut out = String::new();
-        let mut rest: &[u8] = &self.pending;
-        loop {
-            match std::str::from_utf8(rest) {
-                Ok(text) => {
-                    out.push_str(text);
-                    rest = &[];
-                    break;
-                }
-                Err(error) => {
-                    let (valid, after) = rest.split_at(error.valid_up_to());
-                    out.push_str(std::str::from_utf8(valid).unwrap_or_default());
-                    if let Some(len) = error.error_len() {
-                        out.push('\u{FFFD}');
-                        rest = &after[len..];
-                    } else {
-                        rest = after;
-                        break;
-                    }
-                }
-            }
-        }
-        self.pending = rest.to_vec();
-        out
-    }
-
-    /// Flush at end of input (TS `decoder.decode()`).
-    pub(crate) fn finish(&mut self) -> String {
-        if self.pending.is_empty() {
-            return String::new();
-        }
-        self.pending.clear();
-        "\u{FFFD}".to_owned()
-    }
-}
 
 struct SseState {
     body: BoxStream<'static, Result<Bytes, Thrown>>,

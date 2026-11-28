@@ -113,7 +113,7 @@ mod tests {
             }
         }
 
-        fn record(&mut self, name: &'static str) -> Result<()> {
+        fn record(&self, name: &'static str) -> Result<()> {
             let mut log = self.log.borrow_mut();
             log.calls.push(name);
             if log.fail_at == Some(name) {

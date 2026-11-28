@@ -14,6 +14,7 @@ pub(crate) mod compat;
 pub(crate) mod convert;
 mod params;
 mod streaming;
+mod tags;
 #[cfg(test)]
 mod tests;
 

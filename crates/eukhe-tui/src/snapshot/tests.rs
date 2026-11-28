@@ -569,7 +569,7 @@ fn decodes_the_user_bash_event_triple() {
     // The `!command` lane (TS `runUserBash`): bash_start carries the
     // command and identity, bash_output one chunk, bash_end the
     // settled outcome -- all decoded whole-object.
-    let start = event_to_update(&event(json!({
+    let start = event_to_update(event(json!({
         "type": "bash_start",
         "command": "echo hi",
         "excludeFromContext": false,
@@ -582,7 +582,7 @@ fn decodes_the_user_bash_event_triple() {
             run: BashRun::default(),
         }
     );
-    let side_start = event_to_update(&event(json!({
+    let side_start = event_to_update(event(json!({
         "type": "bash_start",
         "command": "echo pane",
         "excludeFromContext": true,
@@ -601,13 +601,13 @@ fn decodes_the_user_bash_event_triple() {
         }
     );
     assert_eq!(
-        event_to_update(&event(json!({ "type": "bash_output", "chunk": "hi\n" }))),
+        event_to_update(event(json!({ "type": "bash_output", "chunk": "hi\n" }))),
         TurnUpdate::BashOutput {
             chunk: "hi\n".to_string()
         }
     );
     assert_eq!(
-        event_to_update(&event(json!({
+        event_to_update(event(json!({
             "type": "bash_end",
             "exitCode": 0,
             "cancelled": false,
@@ -641,10 +641,10 @@ fn decodes_run_report_as_the_end_of_run_message() {
     }]);
     assert_eq!(
         [
-            event_to_update(&event(
+            event_to_update(event(
                 json!({ "type": "run_report", "ran": ran, "unknown": [] })
             )),
-            event_to_update(&event(
+            event_to_update(event(
                 json!({ "type": "run_report", "ran": [], "unknown": [] })
             )),
         ],
@@ -659,7 +659,7 @@ fn decodes_run_report_as_the_end_of_run_message() {
 
 #[test]
 fn decodes_session_action_update_as_the_queue_projection() {
-    let update = event_to_update(&event(json!({
+    let update = event_to_update(event(json!({
         "type": "session_action_update",
         "actions": {
             "queuedCount": 1,
@@ -682,7 +682,7 @@ fn decodes_session_action_update_as_the_queue_projection() {
 /// path.
 #[test]
 fn decodes_the_child_status_origin_from_the_live_queue_update() {
-    let update = event_to_update(&event(json!({
+    let update = event_to_update(event(json!({
         "type": "session_action_update",
         "actions": {
             "queuedCount": 2,
@@ -716,7 +716,7 @@ fn decodes_the_child_status_origin_from_the_live_queue_update() {
 /// attach path.
 #[test]
 fn decodes_the_injected_origin_from_the_live_queue_update() {
-    let update = event_to_update(&event(json!({
+    let update = event_to_update(event(json!({
         "type": "session_action_update",
         "actions": {
             "queuedCount": 2,
@@ -768,7 +768,7 @@ fn decodes_the_preparing_turn_label_as_the_starting_row() {
         },
     });
     assert_eq!(
-        event_to_update(&event(preparing)),
+        event_to_update(event(preparing)),
         TurnUpdate::QueueUpdated(crate::queued::QueuedMessages {
             steering: vec![],
             follow_ups: vec![],
@@ -789,7 +789,7 @@ fn decodes_the_preparing_turn_label_as_the_starting_row() {
         },
     });
     assert_eq!(
-        event_to_update(&event(committed)),
+        event_to_update(event(committed)),
         TurnUpdate::QueueUpdated(crate::queued::QueuedMessages::default())
     );
     // An active action that is not a turn never projects a starting
@@ -808,7 +808,7 @@ fn decodes_the_preparing_turn_label_as_the_starting_row() {
         },
     });
     assert_eq!(
-        event_to_update(&event(other_kind)),
+        event_to_update(event(other_kind)),
         TurnUpdate::QueueUpdated(crate::queued::QueuedMessages::default())
     );
 }
@@ -910,7 +910,7 @@ fn aborted_attempts_never_collapse() {
 
 #[test]
 fn decodes_auto_retry_events() {
-    let start = event_to_update(&event(json!({
+    let start = event_to_update(event(json!({
         "type": "auto_retry_start",
         "attempt": 1,
         "maxAttempts": 2,
@@ -927,7 +927,7 @@ fn decodes_auto_retry_events() {
             reason: RetryStartReason::Quick,
         }
     );
-    let backup = event_to_update(&event(json!({
+    let backup = event_to_update(event(json!({
         "type": "auto_retry_start",
         "attempt": 3,
         "maxAttempts": 5,
@@ -948,7 +948,7 @@ fn decodes_auto_retry_events() {
             },
         }
     );
-    let end = event_to_update(&event(json!({
+    let end = event_to_update(event(json!({
         "type": "auto_retry_end",
         "success": false,
         "attempt": 2,
@@ -963,7 +963,7 @@ fn decodes_auto_retry_events() {
             restored_model: None,
         }
     );
-    let settled = event_to_update(&event(json!({
+    let settled = event_to_update(event(json!({
         "type": "auto_retry_end",
         "success": true,
         "attempt": 2,
@@ -1009,7 +1009,7 @@ fn loader_note_comes_from_starting_partials_only() {
 
 #[test]
 fn failed_assistant_message_end_maps_final() {
-    let update = event_to_update(&event(json!({
+    let update = event_to_update(event(json!({
         "type": "message_end",
         "message": {
             "role": "assistant",
@@ -1054,17 +1054,19 @@ fn decodes_block_content() {
         &items[0],
         ChatEntry::Assistant(m) if m.blocks.len() == 2 && m.has_tool_calls
     ));
-    assert!(matches!(&items[1], ChatEntry::Tool(card) if card.name == "bash"));
+    assert!(
+        matches!(&items[1], ChatEntry::Tool(card) if card.name == crate::tool_card::ToolName::Bash)
+    );
 }
 
 #[test]
 fn decodes_streamed_events() {
-    let user = event_to_update(&event(json!({
+    let user = event_to_update(event(json!({
         "type": "message_start",
         "message": { "role": "user", "content": "go" },
     })));
     assert_eq!(user, TurnUpdate::UserMessage("go".to_string()));
-    let partial = event_to_update(&event(json!({
+    let partial = event_to_update(event(json!({
         "type": "message_update",
         "message": { "role": "assistant", "content": [{ "type": "text", "text": "work" }] },
         "assistantMessageEvent": { "type": "text_delta", "delta": "work" },
@@ -1074,7 +1076,7 @@ fn decodes_streamed_events() {
         TurnUpdate::AssistantMessage { message, streaming: true, .. }
             if assistant_text(message) == "work"
     ));
-    let final_message = event_to_update(&event(json!({
+    let final_message = event_to_update(event(json!({
         "type": "message_end",
         "message": { "role": "assistant", "content": [{ "type": "text", "text": "done" }] },
     })));
@@ -1083,14 +1085,14 @@ fn decodes_streamed_events() {
         TurnUpdate::AssistantMessage { message, streaming: false, .. }
             if assistant_text(message) == "done"
     ));
-    let ended = event_to_update(&event(json!({ "type": "turn_end" })));
+    let ended = event_to_update(event(json!({ "type": "turn_end" })));
     assert_eq!(
         ended,
         TurnUpdate::TurnEnded {
             outcome: crate::snapshot::TurnOutcome::Unreported
         }
     );
-    let failed = event_to_update(&event(json!({ "type": "turn_end", "error": "boom" })));
+    let failed = event_to_update(event(json!({ "type": "turn_end", "error": "boom" })));
     assert_eq!(
         failed,
         TurnUpdate::TurnEnded {
@@ -1098,7 +1100,7 @@ fn decodes_streamed_events() {
         }
     );
     assert_eq!(
-        event_to_update(&event(json!({ "type": "agent_end", "messages": [] }))),
+        event_to_update(event(json!({ "type": "agent_end", "messages": [] }))),
         TurnUpdate::Idle
     );
 }
@@ -1128,7 +1130,7 @@ fn session_command_rows_decode_once() {
         },
     });
     assert_eq!(
-        event_to_update(&event(echo.clone())),
+        event_to_update(event(echo.clone())),
         TurnUpdate::CustomRow(ChatEntry::SlashCommand {
             text: "/goal ship it".to_string()
         })
@@ -1138,7 +1140,7 @@ fn session_command_rows_decode_once() {
         "type": "message_end",
         "message": echo["message"].clone(),
     });
-    assert_eq!(event_to_update(&event(end)), TurnUpdate::StatusUpdate);
+    assert_eq!(event_to_update(event(end)), TurnUpdate::StatusUpdate);
 
     let result = json!({
         "type": "message_start",
@@ -1157,7 +1159,7 @@ fn session_command_rows_decode_once() {
     // block (the operator's 2026-09-25 ruling: command output is not
     // user text).
     assert_eq!(
-        event_to_update(&event(result)),
+        event_to_update(event(result)),
         TurnUpdate::CustomRow(ChatEntry::Status {
             text: "Goal active: ship it".to_string(),
             kind: StatusKind::Info
@@ -1178,7 +1180,7 @@ fn session_command_rows_decode_once() {
         },
     });
     assert_eq!(
-        event_to_update(&event(failed)),
+        event_to_update(event(failed)),
         TurnUpdate::CustomRow(ChatEntry::Status {
             text: "Command failed: boom".to_string(),
             kind: StatusKind::Error
@@ -1281,7 +1283,7 @@ fn hidden_continuations_show_live_and_after_reattach() {
             body: Some("Run the tests before you answer.".to_string()),
         }));
         assert_eq!(
-            event_to_update(&event(json!({
+            event_to_update(event(json!({
                 "type": "message_start",
                 "message": hidden(&origin),
             }))),
@@ -1312,7 +1314,7 @@ fn hidden_continuations_show_live_and_after_reattach() {
             "timestamp": 2,
         });
         assert_eq!(
-            event_to_update(&event(
+            event_to_update(event(
                 json!({ "type": "message_start", "message": message.clone() })
             )),
             TurnUpdate::StatusUpdate,
@@ -1540,7 +1542,7 @@ fn transcript_replay_renders_contentless_abort() {
 fn decodes_compaction_events() {
     // The start pair (TS `AgentSession.compact` event).
     assert_eq!(
-        event_to_update(&event(json!({
+        event_to_update(event(json!({
             "type": "compaction_start",
             "reason": "manual",
             "customInstructions": "focus on the goal",
@@ -1551,7 +1553,7 @@ fn decodes_compaction_events() {
         }
     );
     assert_eq!(
-        event_to_update(&event(
+        event_to_update(event(
             json!({ "type": "compaction_start", "reason": "manual" })
         )),
         TurnUpdate::CompactionStart {
@@ -1561,7 +1563,7 @@ fn decodes_compaction_events() {
     );
     // Success carries the client-facing result.
     assert_eq!(
-        event_to_update(&event(json!({
+        event_to_update(event(json!({
             "type": "compaction_end",
             "reason": "manual",
             "result": { "summary": "s", "firstKeptEntryId": "e1", "tokensBefore": 12 },
@@ -1584,7 +1586,7 @@ fn decodes_compaction_events() {
     );
     // A skip carries the warning message; the result stays absent.
     assert_eq!(
-        event_to_update(&event(json!({
+        event_to_update(event(json!({
             "type": "compaction_end",
             "reason": "manual",
             "aborted": false,
@@ -1605,7 +1607,7 @@ fn decodes_compaction_events() {
     // streamed block's input; the settling end stays the summary's
     // only durable source).
     assert_eq!(
-        event_to_update(&event(json!({
+        event_to_update(event(json!({
             "type": "compaction_summary_delta",
             "delta": "The session covered the goal.",
         }))),
@@ -1725,14 +1727,16 @@ fn transcript_replay_skips_contentless_settled_messages() {
         "errorMessage": "Connection error.",
     })));
     assert_eq!(items.len(), 1);
-    assert!(matches!(&items[0], ChatEntry::Tool(card) if card.name == "bash"));
+    assert!(
+        matches!(&items[0], ChatEntry::Tool(card) if card.name == crate::tool_card::ToolName::Bash)
+    );
 }
 
 /// A `loop_update` event decodes to the wire loop status (the session
 /// view owns the status line label).
 #[test]
 fn loop_update_decodes_the_loop_status() {
-    let update = event_to_update(&event(json!({
+    let update = event_to_update(event(json!({
         "type": "loop_update",
         "loop": {
             "phase": { "state": "turn" },
@@ -1789,7 +1793,7 @@ fn attach_snapshot_carries_the_loop_status() {
 /// carries.
 #[test]
 fn unknown_effects_update_decodes_the_ledger() {
-    let update = event_to_update(&event(json!({
+    let update = event_to_update(event(json!({
         "type": "unknown_effects_update",
         "effects": [
             { "id": "tool:c1", "kind": "tool", "what": "bash: make deploy", "at": 5.0 },
@@ -1931,10 +1935,10 @@ fn the_budget_rides_its_update_and_the_attach_snapshot() {
     };
     assert_eq!(
         (
-            event_to_update(&event(
+            event_to_update(event(
                 json!({ "type": "budget_update", "budget": wire_report })
             )),
-            event_to_update(&event(json!({ "type": "budget_update", "budget": null }))),
+            event_to_update(event(json!({ "type": "budget_update", "budget": null }))),
             attached(&wire_report),
             attached(&Value::Null),
         ),
@@ -2126,13 +2130,13 @@ fn continuation_row() -> ChatEntry {
 #[test]
 fn a_hidden_continuation_streams_its_labelled_row() {
     assert_eq!(
-        event_to_update(&event(
+        event_to_update(event(
             json!({ "type": "message_start", "message": hidden_continuation() })
         )),
         TurnUpdate::CustomRow(continuation_row())
     );
     assert_eq!(
-        event_to_update(&event(
+        event_to_update(event(
             json!({ "type": "message_end", "message": hidden_continuation() })
         )),
         TurnUpdate::StatusUpdate

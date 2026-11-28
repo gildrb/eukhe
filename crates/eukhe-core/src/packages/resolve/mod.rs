@@ -150,11 +150,11 @@ pub(crate) struct PackageFilter {
 }
 
 impl PackageFilter {
-    fn get(&self, resource_type: ResourceType) -> Option<&Vec<String>> {
+    fn get(&self, resource_type: ResourceType) -> Option<&[String]> {
         match resource_type {
-            ResourceType::Skills => self.skills.as_ref(),
-            ResourceType::Prompts => self.prompts.as_ref(),
-            ResourceType::Themes => self.themes.as_ref(),
+            ResourceType::Skills => self.skills.as_deref(),
+            ResourceType::Prompts => self.prompts.as_deref(),
+            ResourceType::Themes => self.themes.as_deref(),
         }
     }
 }
@@ -200,12 +200,6 @@ impl ResourceMap {
         self.index.insert(path.to_path_buf(), self.entries.len());
         self.entries.push((path.to_path_buf(), metadata, enabled));
     }
-
-    pub(crate) fn iter(&self) -> impl Iterator<Item = (&PathBuf, &PathMetadata, bool)> {
-        self.entries
-            .iter()
-            .map(|(path, metadata, enabled)| (path, metadata, *enabled))
-    }
 }
 
 /// Per-kind accumulators plus diagnostics and missing packages, assembled
@@ -234,11 +228,12 @@ impl ResourceAccumulator {
 pub(crate) fn to_resolved_paths(accumulator: ResourceAccumulator) -> ResolvedPaths {
     let map_to_resolved = |map: ResourceMap| -> Vec<ResolvedResource> {
         let mut resolved: Vec<ResolvedResource> = map
-            .iter()
+            .entries
+            .into_iter()
             .map(|(path, metadata, enabled)| ResolvedResource {
-                path: path.clone(),
+                path,
                 enabled,
-                metadata: metadata.clone(),
+                metadata,
             })
             .collect();
         resolved.sort_by_key(|resource| resource_precedence_rank(&resource.metadata));

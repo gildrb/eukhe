@@ -246,7 +246,7 @@ pub fn find_rlm_model_matches(
         } else {
             model.name.clone()
         };
-        let fields = [selector.clone(), model.id.clone(), name.clone()];
+        let fields = [selector.as_str(), model.id.as_str(), name.as_str()];
         let normalized_fields: Vec<String> = fields
             .iter()
             .map(|f| normalize_model_search_text(f))

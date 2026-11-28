@@ -117,7 +117,7 @@ impl McpServiceDescriptor {
             description: entry.description.clone(),
             category: entry.category.clone(),
             publisher: entry.publisher.clone(),
-            brand: Some(entry.service.clone()).filter(|brand| brand != &entry.server),
+            brand: (entry.service != entry.server).then(|| entry.service.clone()),
             docs_url: entry.docs_url.clone(),
             homepage: entry.homepage.clone(),
             transport,

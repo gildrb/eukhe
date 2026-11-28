@@ -25,6 +25,18 @@ use crate::kernel::transport::{KernelTransport, KernelWrapper, PathMapError};
 // Startup and child wiring
 // ---------------------------------------------------------------------------
 
+/// An optional number as text, `null` when absent.
+struct NullOr<T>(Option<T>);
+
+impl<T: std::fmt::Display> std::fmt::Display for NullOr<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match &self.0 {
+            Some(value) => value.fmt(f),
+            None => f.write_str("null"),
+        }
+    }
+}
+
 /// Numbers each spawned kernel's orphan journal within this host process.
 static NEXT_ORPHAN_JOURNAL: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
@@ -140,8 +152,7 @@ impl Inner {
 
     /// Child stderr tail for error messages: at most the last 1024 chars.
     fn stderr_tail(&self, limit: usize) -> String {
-        let stderr = lock(&self.guarded).kernel_stderr.clone();
-        let chars: Vec<char> = stderr.chars().collect();
+        let chars: Vec<char> = lock(&self.guarded).kernel_stderr.chars().collect();
         let start = chars.len().saturating_sub(limit);
         chars[start..].iter().collect()
     }
@@ -359,7 +370,6 @@ impl Inner {
                     .flat_map(|skill| [skill.package_path.clone(), skill.package_path.join("src")])
                     .collect();
                 let launch_cwd = cwd
-                    .clone()
                     .or_else(|| std::env::current_dir().ok())
                     .unwrap_or_default();
                 let started = wrapper
@@ -660,8 +670,8 @@ impl Inner {
             if was_live {
                 inner.append_diagnostic(&format!(
                     "unexpected exit code={} signal={}",
-                    exit.code.map_or("null".to_string(), |c| c.to_string()),
-                    exit.signal.map_or("null".to_string(), |s| s.to_string()),
+                    NullOr(exit.code),
+                    NullOr(exit.signal),
                 ));
             }
             live_kernels::remove(&inner);

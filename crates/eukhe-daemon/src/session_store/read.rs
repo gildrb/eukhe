@@ -110,11 +110,7 @@ pub(crate) fn read_first_line_bounded_from(
 
 /// Drop one `\r\n` line return off the line's own bytes, like `str::lines`.
 fn strip_line_return(line: &[u8]) -> Vec<u8> {
-    let mut line = line.to_vec();
-    if line.last() == Some(&b'\r') {
-        line.pop();
-    }
-    line
+    line.strip_suffix(b"\r").unwrap_or(line).to_vec()
 }
 
 /// The session file's header, read from the first line bounded to

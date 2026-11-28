@@ -61,8 +61,8 @@ fn parent_path(entries: &[FileEntry], leaf_id: &str) -> Vec<String> {
         let Some(entry) = entries.iter().find(|entry| entry.id() == Some(id.as_str())) else {
             break;
         };
-        path.push(id.clone());
-        current = entry.parent_id().map(str::to_string);
+        current = entry.parent_id().map(str::to_owned);
+        path.push(id);
     }
     path
 }
@@ -97,7 +97,7 @@ pub fn collect_entries_for_branch_summary(
         else {
             break;
         };
-        current = entry.parent_id().map(str::to_string);
+        current = entry.parent_id().map(str::to_owned);
         collected.push(entry);
     }
     collected.reverse();
@@ -333,7 +333,7 @@ mod tests {
             message,
             base: EntryBase {
                 id: Some(id.to_string()),
-                parent_id: parent.map(str::to_string),
+                parent_id: parent.map(str::to_owned),
                 timestamp: Some("2024-01-01T00:00:00.000Z".to_string()),
                 rest: serde_json::Map::default(),
             },

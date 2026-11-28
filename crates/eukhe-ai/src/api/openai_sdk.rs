@@ -22,7 +22,6 @@ use crate::utils::stream_failure::{
     ProviderConnectionError, ProviderError,
 };
 use eukhe_chord::context::AbortSignal;
-use futures::stream::BoxStream;
 use futures::StreamExt;
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use serde_json::json;
@@ -405,14 +404,10 @@ impl OpenAiClient {
             };
             return Err(status_error(status, &text, response_headers).thrown());
         }
-        let bytes: BoxStream<'static, Result<Vec<u8>, reqwest::Error>> = response
-            .bytes_stream()
-            .map(|chunk| chunk.map(|bytes| bytes.to_vec()))
-            .boxed();
         Ok(OpenAiStreamResponse {
             status,
             headers: response_headers.clone(),
-            events: sse::sse_json_stream(bytes, response_headers, signal),
+            events: sse::sse_json_stream(response.bytes_stream().boxed(), response_headers, signal),
         })
     }
 

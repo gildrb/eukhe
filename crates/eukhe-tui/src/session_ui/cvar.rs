@@ -38,7 +38,7 @@ pub(crate) enum CvarLineFailure {
         "{}",
         error
             .as_deref()
-            .or(data.as_ref().map(|data| data.message.as_str()))
+            .or_else(|| data.as_ref().map(|data| data.message.as_str()))
             .unwrap_or("unknown error")
     )]
     Rejected {

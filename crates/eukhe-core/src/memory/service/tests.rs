@@ -1326,7 +1326,7 @@ async fn turns_wait_while_calls_finish_in_any_order() {
             status.view_lines < status.messages,
             reloaded.render().await.unwrap(),
         ),
-        (Vec::new(), 361, true, last.clone())
+        (Vec::new(), 361, true, last)
     );
     answers.abort();
 }

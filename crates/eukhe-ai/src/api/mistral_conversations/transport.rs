@@ -18,6 +18,7 @@ use crate::utils::js::{is_js_whitespace, js_trim, json_stringify, number_to_js_s
 use crate::utils::json_parse::js_json_parse;
 use crate::utils::pi_user_agent::get_pi_user_agent;
 use crate::utils::sleep::timer_duration;
+use crate::utils::utf8_stream::Utf8StreamDecoder;
 
 /// Default request timeout (TS `options?.timeoutMs ?? 60_000`).
 const DEFAULT_TIMEOUT_MS: f64 = 60_000.0;
@@ -244,55 +245,12 @@ fn parse_mistral_event(raw: &str) -> Result<ParsedEvent, Thrown> {
     Ok(ParsedEvent::Event(parsed))
 }
 
-/// Incremental UTF-8 decoding (TS `TextDecoder` with `{ stream: true }`):
-/// invalid sequences become U+FFFD, an incomplete trailing sequence waits
-/// for the next chunk.
-#[derive(Default)]
-struct Utf8Decoder {
-    pending: Vec<u8>,
-}
-
-impl Utf8Decoder {
-    fn decode(&mut self, bytes: &[u8], out: &mut String) {
-        self.pending.extend_from_slice(bytes);
-        let mut rest: &[u8] = &self.pending;
-        loop {
-            match std::str::from_utf8(rest) {
-                Ok(text) => {
-                    out.push_str(text);
-                    rest = &[];
-                    break;
-                }
-                Err(error) => {
-                    let (valid, after) = rest.split_at(error.valid_up_to());
-                    out.push_str(std::str::from_utf8(valid).unwrap_or_default());
-                    let Some(length) = error.error_len() else {
-                        rest = after;
-                        break;
-                    };
-                    out.push('\u{FFFD}');
-                    rest = &after[length..];
-                }
-            }
-        }
-        self.pending = rest.to_vec();
-    }
-
-    /// `decoder.decode()`: flush an incomplete trailing sequence.
-    fn finish(&mut self, out: &mut String) {
-        if !self.pending.is_empty() {
-            out.push_str(&String::from_utf8_lossy(&self.pending));
-            self.pending.clear();
-        }
-    }
-}
-
 /// TS `readMistralEvents`: the SSE events of a streaming response. Reading
 /// fails with the signal's reason once the caller's signal aborts.
 pub(super) struct MistralEventReader {
     response: reqwest::Response,
     signal: Option<AbortSignal>,
-    decoder: Utf8Decoder,
+    decoder: Utf8StreamDecoder,
     buffer: String,
     body_done: bool,
     finished: bool,
@@ -303,7 +261,7 @@ impl MistralEventReader {
         Self {
             response,
             signal,
-            decoder: Utf8Decoder::default(),
+            decoder: Utf8StreamDecoder::default(),
             buffer: String::new(),
             body_done: false,
             finished: false,
@@ -361,9 +319,9 @@ impl MistralEventReader {
                 signal.throw_if_aborted()?;
             }
             if let Some(bytes) = chunk {
-                self.decoder.decode(&bytes, &mut self.buffer);
+                self.decoder.decode_into(&bytes, &mut self.buffer);
             } else {
-                self.decoder.finish(&mut self.buffer);
+                self.decoder.finish_into(&mut self.buffer);
                 self.body_done = true;
             }
         }
@@ -377,21 +335,21 @@ mod tests {
     #[test]
     fn decoder_joins_split_sequences() {
         let bytes = "héllo 🌍".as_bytes();
-        let mut decoder = Utf8Decoder::default();
+        let mut decoder = Utf8StreamDecoder::default();
         let mut out = String::new();
         for byte in bytes {
-            decoder.decode(std::slice::from_ref(byte), &mut out);
+            decoder.decode_into(std::slice::from_ref(byte), &mut out);
         }
-        decoder.finish(&mut out);
+        decoder.finish_into(&mut out);
         assert_eq!(out, "héllo 🌍");
     }
 
     #[test]
     fn decoder_replaces_invalid_bytes() {
-        let mut decoder = Utf8Decoder::default();
+        let mut decoder = Utf8StreamDecoder::default();
         let mut out = String::new();
-        decoder.decode(&[b'a', 0xFF, b'b', 0xE2, 0x82], &mut out);
-        decoder.finish(&mut out);
+        decoder.decode_into(&[b'a', 0xFF, b'b', 0xE2, 0x82], &mut out);
+        decoder.finish_into(&mut out);
         assert_eq!(out, "a\u{FFFD}b\u{FFFD}");
     }
 

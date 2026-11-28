@@ -6,8 +6,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 /// hex characters of a random UUID.
 #[must_use]
 pub fn new_display_id() -> String {
-    let normalized: String = uuid::Uuid::new_v4().simple().to_string().to_lowercase();
-    normalized[(normalized.len() - 12)..].to_string()
+    let mut simple = uuid::Uuid::new_v4().simple().to_string();
+    simple.split_off(simple.len() - 12)
 }
 
 /// Milliseconds since the Unix epoch.
@@ -42,6 +42,7 @@ pub fn iso_from_unix_ms(ms: u64) -> String {
 /// Epoch milliseconds from an RFC 3339 UTC timestamp
 /// (`YYYY-MM-DDTHH:MM:SS[.fff]Z`, the shape `now_iso` writes and the TS
 /// product's `new Date().toISOString()`). `None` for anything else.
+#[must_use]
 pub fn iso_to_unix_ms(iso: &str) -> Option<u64> {
     let bytes = iso.as_bytes();
     if bytes.len() < 19
@@ -60,15 +61,15 @@ pub fn iso_to_unix_ms(iso: &str) -> Option<u64> {
     let minute = iso.get(14..16)?.parse::<u32>().ok()?;
     let second = iso.get(17..19)?.parse::<u32>().ok()?;
     let millis: u64 = if bytes.len() > 20 && bytes[19] == b'.' {
-        let digits: String = iso[20..].chars().take_while(char::is_ascii_digit).collect();
-        if digits.is_empty() {
+        let digits = bytes[20..].iter().take_while(|byte| byte.is_ascii_digit());
+        if !bytes[20].is_ascii_digit() {
             return None;
         }
         let mut scaled = [b'0'; 3];
-        for (slot, digit) in scaled.iter_mut().zip(digits.as_bytes()) {
+        for (slot, digit) in scaled.iter_mut().zip(digits) {
             *slot = *digit;
         }
-        String::from_utf8(scaled.to_vec()).ok()?.parse().ok()?
+        std::str::from_utf8(&scaled).ok()?.parse().ok()?
     } else {
         0
     };

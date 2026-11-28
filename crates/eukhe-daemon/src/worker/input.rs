@@ -4,6 +4,7 @@
 //! the submission request id, so a retried command never admits twice);
 //! the Harness inbox queues it while a run is busy.
 
+use crate::types::{message_role, BlockKind, MessageRole};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -133,7 +134,7 @@ pub(crate) fn parse_prompt_images(payload: &Value) -> Vec<ImageContent> {
     images
         .iter()
         .filter_map(|image| {
-            if image.get("type").and_then(Value::as_str) != Some("image") {
+            if BlockKind::of(image) != BlockKind::Image {
                 return None;
             }
             Some(ImageContent {
@@ -157,7 +158,7 @@ pub(crate) fn parse_custom_message(
         return Ok(None);
     };
     let object = value.as_object().ok_or(InvalidCustomMessage)?;
-    if object.get("role").and_then(Value::as_str) != Some("custom") {
+    if message_role(value) != Some(MessageRole::Custom) {
         return Err(InvalidCustomMessage);
     }
     if object

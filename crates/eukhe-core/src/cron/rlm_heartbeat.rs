@@ -148,7 +148,8 @@ pub fn handle_rlm_heartbeat_host_request(
     active_session_id: &str,
     binding: &SessionBinding,
 ) -> anyhow::Result<RlmHeartbeatHostOutcome> {
-    let record = payload.as_object().cloned().unwrap_or_default();
+    let empty = serde_json::Map::new();
+    let record = payload.as_object().unwrap_or(&empty);
     let string_field = |name: &str| -> anyhow::Result<Option<String>> {
         match record.get(name) {
             None | Some(Value::Null) => Ok(None),
@@ -173,15 +174,6 @@ pub fn handle_rlm_heartbeat_host_request(
         },
     };
     let now = store_now();
-    let mut create_input = CreateAgentCronJobInput {
-        active_session_id: active_session_id.to_string(),
-        session_id: binding.session_id.clone(),
-        session_file: binding.session_file.clone(),
-        cwd: binding.cwd.clone(),
-        source: Some(JobSource::RlmHeartbeat),
-        now: Some(now),
-        ..Default::default()
-    };
     match request_type {
         "rlm_heartbeat.list" => {
             let include_inactive =
@@ -204,10 +196,19 @@ pub fn handle_rlm_heartbeat_host_request(
             };
             let interval = string_field("interval")?;
             let label = string_field("label")?;
-            create_input.prompt = instruction.to_string();
-            create_input.label = label;
-            create_input.schedule_text = interval.unwrap_or_else(|| "every 5m".to_string());
-            create_input.delivery_mode = delivery_mode;
+            let create_input = CreateAgentCronJobInput {
+                active_session_id: active_session_id.to_string(),
+                session_id: binding.session_id.clone(),
+                session_file: binding.session_file.clone(),
+                cwd: binding.cwd.clone(),
+                source: Some(JobSource::RlmHeartbeat),
+                now: Some(now),
+                prompt: instruction.to_string(),
+                label,
+                schedule_text: interval.unwrap_or_else(|| "every 5m".to_string()),
+                delivery_mode,
+                ..Default::default()
+            };
             let heartbeat = store.create_rlm_heartbeat(&create_input)?;
             let response = json!({ "heartbeat": rlm_heartbeat_host_response(&heartbeat) });
             // TS `createRlmHeartbeatForState` never withdraws a queued
@@ -357,7 +358,7 @@ mod tests {
         assert_eq!(mutation.job.source, JobSource::RlmHeartbeat);
         assert_eq!(mutation.job.active_session_id, "live-1");
         assert!(!mutation.drop_queued);
-        let id = heartbeat["id"].as_str().unwrap().to_string();
+        let id = heartbeat["id"].as_str().unwrap();
         // List.
         let listed = handle_rlm_heartbeat_host_request(
             "rlm_heartbeat.list",

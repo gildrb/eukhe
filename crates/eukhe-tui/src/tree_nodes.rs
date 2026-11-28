@@ -5,6 +5,7 @@
 use std::collections::HashMap;
 
 use eukhe_types::session::FileEntry;
+use serde::Deserialize;
 use serde_json::Value;
 
 /// One wire flat node: the full entry plus its active label.
@@ -25,7 +26,7 @@ pub fn parse_flat_nodes(data: &Value) -> Vec<TreeNodeData> {
                 .filter_map(|node| {
                     let entry = node.get("entry")?;
                     Some(TreeNodeData {
-                        entry: serde_json::from_value(entry.clone()).ok()?,
+                        entry: FileEntry::deserialize(entry).ok()?,
                         label: node
                             .get("label")
                             .and_then(Value::as_str)

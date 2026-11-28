@@ -353,7 +353,7 @@ async fn a_stale_job_is_reported_interrupted_once() {
         .await
         .expect("a later open finds nothing");
 
-    let notices: Vec<String> = root
+    let notices = root
         .entries(ConversationEntryQuery::default(), 100, None, cx)
         .await
         .expect("the entries")
@@ -362,7 +362,7 @@ async fn a_stale_job_is_reported_interrupted_once() {
         .filter(|entry| entry.kind == "eukhe.custom")
         .map(|entry| format!("{:?}", entry.model))
         .filter(|model| model.contains("[job-settled job:shell-cut status:interrupted]"))
-        .collect();
+        .count();
     let ledger: Vec<(String, EffectKind, String, Option<EffectResolution>)> = harness
         .snapshot(&EFFECTS_DOC, root.id(), cx)
         .await
@@ -378,7 +378,7 @@ async fn a_stale_job_is_reported_interrupted_once() {
         .await
         .expect("a read");
     assert_eq!(
-        (notices.len(), ledger, node.is_none()),
+        (notices, ledger, node.is_none()),
         (
             1,
             vec![(

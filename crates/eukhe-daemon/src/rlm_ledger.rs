@@ -57,8 +57,8 @@ pub(crate) use legacy_registry::read_legacy_registry;
 #[cfg(test)]
 use legacy_registry::{legacy_registry_path, LEGACY_REGISTRY_HEADER_READ_MAX_BYTES};
 pub use legacy_registry::{
-    read_rlm_subagent_display, write_rlm_subagent_display, LegacyRlmSubagentEntry,
-    RlmSubagentDisplayEntry,
+    read_rlm_subagent_display, write_rlm_subagent_display, DisplayStatus, DisplayTag,
+    LegacyRlmSubagentEntry, RlmSubagentDisplayEntry,
 };
 
 // The test mass (the ledger battery) moved to the child module at the

@@ -182,7 +182,7 @@ impl super::SessionUi {
     /// retry that never resolves). `None` when the count cannot be read:
     /// the request failed (an older daemon answers the unknown command
     /// with a failure), or the reply is not the runs list.
-    pub(crate) async fn live_factory_runs(&mut self) -> Option<usize> {
+    pub(crate) async fn live_factory_runs(&self) -> Option<usize> {
         let reply = match self
             .bounded_request(
                 Duration::from_millis(UI_REQUEST_TIMEOUT_MS),

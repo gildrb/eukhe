@@ -9,12 +9,10 @@ use super::Value;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HeartbeatJob {
     pub id: String,
-    /// `active` / `paused` (the catalog only carries these two).
-    pub status: String,
-    /// `heartbeat` (user) or `rlm_heartbeat` (agent).
-    pub source: Option<String>,
-    /// `steer` / `follow_up` (defaults to steer).
-    pub delivery_mode: Option<String>,
+    pub status: JobStatus,
+    pub source: Option<JobSource>,
+    /// Absent: steer.
+    pub delivery_mode: Option<DeliveryMode>,
     pub active_session_id: String,
     pub session_id: String,
     pub label: Option<String>,
@@ -27,10 +25,78 @@ pub struct HeartbeatJob {
     pub run_count: u64,
 }
 
+/// A job's status (the catalog carries `active` and `paused`); any other
+/// word renders as sent.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum JobStatus {
+    Active,
+    Paused,
+    Other(String),
+}
+
+impl JobStatus {
+    fn parse(status: String) -> Self {
+        match status.as_str() {
+            "active" => Self::Active,
+            "paused" => Self::Paused,
+            _ => Self::Other(status),
+        }
+    }
+
+    /// The wire word.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::Active => "active",
+            Self::Paused => "paused",
+            Self::Other(status) => status,
+        }
+    }
+}
+
+impl std::fmt::Display for JobStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// Who created a job: the user's `heartbeat`, else an agent's
+/// (`rlm_heartbeat` or a source this build does not know).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum JobSource {
+    User,
+    Agent,
+}
+
+impl JobSource {
+    fn parse(source: &str) -> Self {
+        match source {
+            "heartbeat" => Self::User,
+            _ => Self::Agent,
+        }
+    }
+}
+
+/// How a run's prompt reaches the session (`deliveryMode`); any word
+/// but `follow_up` steers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DeliveryMode {
+    Steer,
+    FollowUp,
+}
+
+impl DeliveryMode {
+    fn parse(mode: &str) -> Self {
+        match mode {
+            "follow_up" => Self::FollowUp,
+            _ => Self::Steer,
+        }
+    }
+}
+
 impl HeartbeatJob {
-    /// The job's status word, `active` or `paused`.
     pub(crate) fn is_active(&self) -> bool {
-        self.status == "active"
+        self.status == JobStatus::Active
     }
 
     /// Whether this job belongs to the session: its durable session
@@ -45,7 +111,7 @@ impl HeartbeatJob {
 
     /// Whether an agent created this job (TS source label test).
     fn is_user_created(&self) -> bool {
-        self.source.as_deref() == Some("heartbeat")
+        self.source == Some(JobSource::User)
     }
 }
 
@@ -74,9 +140,15 @@ pub fn parse_heartbeat_job(job: &Value) -> Option<HeartbeatJob> {
     let id = text("id").filter(|id| !id.is_empty())?;
     Some(HeartbeatJob {
         id,
-        status: text("status").unwrap_or_else(|| "active".to_string()),
-        source: text("source"),
-        delivery_mode: text("deliveryMode"),
+        status: text("status").map_or(JobStatus::Active, JobStatus::parse),
+        source: job
+            .get("source")
+            .and_then(Value::as_str)
+            .map(JobSource::parse),
+        delivery_mode: job
+            .get("deliveryMode")
+            .and_then(Value::as_str)
+            .map(DeliveryMode::parse),
         active_session_id: text("activeSessionId").unwrap_or_default(),
         session_id: text("sessionId").unwrap_or_default(),
         label: text("label").filter(|label| !label.trim().is_empty()),

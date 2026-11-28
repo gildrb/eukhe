@@ -303,7 +303,7 @@ fn assistant(blocks: Vec<crate::chat::MessageBlock>, streaming: bool) -> ChatEnt
 fn running_bash(output: &str) -> ChatEntry {
     ChatEntry::Tool(Box::new(crate::chat::ToolCallCard {
         id: "call-1".to_string(),
-        name: "bash".to_string(),
+        name: crate::tool_card::ToolName::Bash,
         args: serde_json::json!({ "command": "make test" }),
         started: true,
         started_at: Some(std::time::Instant::now()),

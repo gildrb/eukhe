@@ -23,7 +23,8 @@ pub(crate) fn pending_work_hook(deps: &Arc<HostDeps>) -> HookRegistration {
         &*GENERATION_TASK,
         GenerationHooks {
             pending_work: Some(Arc::new(move |api: &HookApi, cx: &Context| {
-                let (deps, conversation_id, cx) = (deps.clone(), api.conversation_id(), cx.clone());
+                let (deps, conversation_id, cx) =
+                    (Weak::clone(&deps), api.conversation_id(), cx.clone());
                 async move {
                     let Some(deps) = deps.upgrade() else {
                         return Ok(false);

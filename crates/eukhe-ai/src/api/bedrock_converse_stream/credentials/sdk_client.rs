@@ -238,11 +238,7 @@ async fn configured_endpoint(env: &CredentialEnv<'_>, service: AwsService) -> Op
         None,
         PreferredFile::Config,
         |env| {
-            let suffix = service_id
-                .split(' ')
-                .map(str::to_uppercase)
-                .collect::<Vec<_>>()
-                .join("_");
+            let suffix = service_id.replace(' ', "_").to_uppercase();
             env.truthy_var(&format!("AWS_ENDPOINT_URL_{suffix}"))
                 .or_else(|| env.truthy_var("AWS_ENDPOINT_URL"))
         },
@@ -250,11 +246,7 @@ async fn configured_endpoint(env: &CredentialEnv<'_>, service: AwsService) -> Op
             if let Some(services) = profile.get("services") {
                 // A missing section throws, which the loader treats as unset.
                 let section = config_file.get(&format!("services.{services}"))?;
-                let prefix = service_id
-                    .split(' ')
-                    .map(str::to_lowercase)
-                    .collect::<Vec<_>>()
-                    .join("_");
+                let prefix = service_id.replace(' ', "_").to_lowercase();
                 if let Some(url) = section.get(&format!("{prefix}.endpoint_url")) {
                     return Some(url.to_owned());
                 }

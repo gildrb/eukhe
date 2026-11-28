@@ -119,7 +119,7 @@ async fn end(call: HostCall) -> anyhow::Result<Value> {
         .and_then(Value::as_u64)
         .and_then(|ordinal| u32::try_from(ordinal).ok())
         .ok_or_else(|| anyhow::anyhow!("tree.batch_end: ordinal must be a whole number"))?;
-    let state = call.data.get("state").cloned().unwrap_or(Value::Null);
+    let state = call.data.get("state").unwrap_or(&Value::Null);
     if state.get("settled") != Some(&Value::Bool(true)) {
         anyhow::bail!("tree.batch_end: agent {ordinal} has not settled");
     }
@@ -127,8 +127,7 @@ async fn end(call: HostCall) -> anyhow::Result<Value> {
         Some("done") => Outcome::Finished,
         Some(_) | None => Outcome::Failed,
     };
-    let written = tree::written(&state);
-    let patch = written.patch.clone();
+    let tree::Written { patch, conflicts } = tree::written(state);
     let conversation_id = api.conversation_id();
     let settled = api
         .commit(
@@ -136,7 +135,7 @@ async fn end(call: HostCall) -> anyhow::Result<Value> {
             &BACKGROUND_CONTEXT,
         )
         .await?;
-    Ok(json!({ "conflicts": written.conflicts, "settled": settled }))
+    Ok(json!({ "conflicts": conflicts, "settled": settled }))
 }
 
 /// `tree.batch_drop`: see the module doc.

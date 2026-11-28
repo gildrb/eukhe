@@ -92,7 +92,7 @@ impl AuthStorageData {
     pub fn credential(&self, provider: &str) -> Option<AuthCredential> {
         let entry = self.0.get(provider)?;
         if !super::accounts::keeps_accounts(provider) {
-            return serde_json::from_value(entry.clone()).ok();
+            return AuthCredential::deserialize(entry).ok();
         }
         let first = super::accounts::accounts_of(provider, entry)
             .into_iter()

@@ -287,7 +287,7 @@ impl ScopedModelsSelector {
                 })
                 .collect();
             let positions: Vec<usize> = (0..listed.len()).collect();
-            crate::fuzzy::fuzzy_filter(&positions, &query, |at| texts[*at].clone())
+            crate::fuzzy::fuzzy_filter(&positions, &query, |at| texts[*at].as_str())
                 .into_iter()
                 .map(|at| listed[at].clone())
                 .collect()

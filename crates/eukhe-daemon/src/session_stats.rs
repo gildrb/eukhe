@@ -6,12 +6,13 @@
 //! wire JSON, counted with the session model's tokenizer
 //! ([`ContextMeter`]).
 
+use crate::types::{message_role, BlockKind, MessageRole};
 use eukhe_tokens::MessageParts;
 use serde_json::{json, Value};
 
 use eukhe_types::usage::{calculate_context_tokens, valid_assistant_usage};
 
-use crate::session_store::{SessionEntry, SessionFile};
+use crate::session_store::{EntryType, SessionEntry, SessionFile};
 use crate::state_getters::ContextMeter;
 
 /// Compute the `get_session_stats` response data for one session file.
@@ -38,7 +39,7 @@ pub fn session_stats(store: &SessionFile, meter: Option<&ContextMeter>) -> Value
     let branch = store.branch();
     let messages: Vec<&Value> = branch
         .iter()
-        .filter(|entry| entry.type_ == "message")
+        .filter(|entry| entry.type_ == EntryType::Message)
         .filter_map(|entry| entry.fields.get("message"))
         .collect();
     let (durable_messages, boundary) = kept_region_messages(store);
@@ -52,9 +53,9 @@ pub fn session_stats(store: &SessionFile, meter: Option<&ContextMeter>) -> Value
     let mut cache_write = 0u64;
     let mut cost = 0.0;
     for message in &durable_messages {
-        match message.get("role").and_then(Value::as_str) {
-            Some("user") => user_messages += 1,
-            Some("assistant") => {
+        match message_role(message) {
+            Some(MessageRole::User) => user_messages += 1,
+            Some(MessageRole::Assistant) => {
                 assistant_messages += 1;
                 tool_calls += tool_call_count(message);
                 if let Some(usage) = message.get("usage") {
@@ -81,8 +82,8 @@ pub fn session_stats(store: &SessionFile, meter: Option<&ContextMeter>) -> Value
                         .unwrap_or_default();
                 }
             }
-            Some("toolResult") => tool_results += 1,
-            _ => {}
+            Some(MessageRole::ToolResult) => tool_results += 1,
+            Some(MessageRole::Custom | MessageRole::Other) | None => {}
         }
     }
     // A windowed store never loads the discarded prefix, but without a
@@ -159,7 +160,7 @@ fn kept_region_messages(store: &SessionFile) -> (Vec<&Value>, Option<usize>) {
     let boundary = chain
         .iter()
         .rev()
-        .find(|position| entries[**position].type_ == "compaction")
+        .find(|position| entries[**position].type_ == EntryType::Compaction)
         .map(|compaction| {
             entries[*compaction]
                 .fields
@@ -174,7 +175,7 @@ fn kept_region_messages(store: &SessionFile) -> (Vec<&Value>, Option<usize>) {
             Some(boundary) => **position >= *boundary,
             None => true,
         })
-        .filter(|position| entries[**position].type_ == "message")
+        .filter(|position| entries[**position].type_ == EntryType::Message)
         .filter_map(|position| entries[*position].fields.get("message"))
         .collect();
     (messages, boundary.copied())
@@ -190,7 +191,7 @@ pub(crate) fn store_context_usage(
     let branch = store.branch();
     let messages: Vec<&Value> = branch
         .iter()
-        .filter(|entry| entry.type_ == "message")
+        .filter(|entry| entry.type_ == EntryType::Message)
         .filter_map(|entry| entry.fields.get("message"))
         .collect();
     context_usage(&branch, &messages, meter)
@@ -204,7 +205,7 @@ fn tool_call_count(message: &Value) -> u64 {
         .map(|blocks| {
             blocks
                 .iter()
-                .filter(|block| block.get("type").and_then(Value::as_str) == Some("toolCall"))
+                .filter(|block| BlockKind::of(block) == BlockKind::ToolCall)
                 .count() as u64
         })
         .unwrap_or_default()
@@ -224,7 +225,9 @@ fn context_usage(
 
     // The latest compaction entry on the branch, if any (TS
     // `getLatestCompactionEntry`).
-    let compaction_index = branch.iter().rposition(|entry| entry.type_ == "compaction");
+    let compaction_index = branch
+        .iter()
+        .rposition(|entry| entry.type_ == EntryType::Compaction);
     if let Some(compaction_index) = compaction_index {
         // Only usage from an assistant that responded after the compaction
         // boundary is trustworthy: earlier usage reflects the pre-compaction

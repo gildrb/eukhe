@@ -144,7 +144,7 @@ impl JsonObject {
     /// Entries in key order.
     #[must_use]
     pub fn iter(&self) -> impl ExactSizeIterator<Item = (&str, &JsonValue)> + '_ {
-        self.entries.iter().map(|(key, value)| (&**key, value))
+        self.into_iter()
     }
 
     /// Entries in key order with shared key strings.
@@ -194,11 +194,19 @@ impl<K: Into<Arc<str>>, V: Into<JsonValue>> Extend<(K, V)> for JsonObject {
     }
 }
 
+/// One entry with its shared key seen as `&str`.
+fn borrowed_entry<'a>((key, value): (&'a Arc<str>, &'a JsonValue)) -> (&'a str, &'a JsonValue) {
+    (key, value)
+}
+
 impl<'a> IntoIterator for &'a JsonObject {
     type Item = (&'a str, &'a JsonValue);
-    type IntoIter = Box<dyn ExactSizeIterator<Item = (&'a str, &'a JsonValue)> + 'a>;
+    type IntoIter = std::iter::Map<
+        indexmap::map::Iter<'a, Arc<str>, JsonValue>,
+        fn((&'a Arc<str>, &'a JsonValue)) -> (&'a str, &'a JsonValue),
+    >;
 
     fn into_iter(self) -> Self::IntoIter {
-        Box::new(self.iter())
+        self.entries.iter().map(borrowed_entry as _)
     }
 }

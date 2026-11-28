@@ -51,13 +51,13 @@ impl ShellGateRunner {
 impl GateCommandRunner for ShellGateRunner {
     fn run_gate(&self, command: &str, timeout_ms: u64) -> GateRunFuture<'_> {
         let command = command.to_string();
-        let cwd = self.cwd.clone();
-        Box::pin(async move { run_gate_command(&command, &cwd, timeout_ms).await })
+        let cwd = &self.cwd;
+        Box::pin(async move { run_gate_command(&command, cwd, timeout_ms).await })
     }
 
     fn capture_snapshot(&self) -> SnapshotFuture<'_> {
-        let cwd = self.cwd.clone();
-        Box::pin(async move { capture_git_worktree_snapshot(&cwd).await })
+        let cwd = &self.cwd;
+        Box::pin(async move { capture_git_worktree_snapshot(cwd).await })
     }
 }
 

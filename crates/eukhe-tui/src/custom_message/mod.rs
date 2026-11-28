@@ -48,6 +48,7 @@ use crate::theme::ThemeColor;
 use eukhe_types::ai::{UserContent, UserContentBlock};
 use eukhe_types::custom_type::CustomType;
 use eukhe_types::job::BashStopper;
+use serde::Deserialize;
 use serde_json::Value;
 
 // ---------------------------------------------------------------------------
@@ -327,10 +328,10 @@ fn slash_row_entries(
         // the "no active goal" reply being a user prompt): it renders in
         // the status-row class, the severity driving the tone like the
         // compaction and retry outcome rows.
-        let kind = match details.get("severity").and_then(Value::as_str) {
-            Some("error") => StatusKind::Error,
-            Some("warning") => StatusKind::Warning,
-            _ => StatusKind::Info,
+        let kind = match details.get("severity").map(Severity::deserialize) {
+            Some(Ok(Severity::Error)) => StatusKind::Error,
+            Some(Ok(Severity::Warning)) => StatusKind::Warning,
+            Some(Ok(Severity::Info) | Err(_)) | None => StatusKind::Info,
         };
         vec![ChatEntry::Status {
             text: text.to_string(),
@@ -342,33 +343,57 @@ fn slash_row_entries(
 /// TS `isCompactionOutcomeMessage` envelope: content string + a known
 /// reason/outcome pair; anything else is the malformed notice.
 fn compaction_outcome_entry(content: &UserContent, details: &Value) -> ChatEntry {
-    let valid = matches!(content, UserContent::Text(_))
-        && matches!(
-            details.get("reason").and_then(Value::as_str),
-            Some("threshold" | "overflow" | "requested")
-        )
-        && matches!(
-            details.get("outcome").and_then(Value::as_str),
-            Some("skipped" | "cancelled" | "failed")
-        );
-    if !valid {
-        return ChatEntry::Status {
+    let outcome = details
+        .is_object()
+        .then(|| CompactionOutcome::deserialize(details).ok())
+        .flatten();
+    match (content, outcome) {
+        (UserContent::Text(_), Some(CompactionOutcome { outcome, .. })) => ChatEntry::Status {
+            text: crate::snapshot::content_text(content),
+            kind: match outcome {
+                CompactionVerdict::Skipped => StatusKind::Warning,
+                CompactionVerdict::Cancelled | CompactionVerdict::Failed => StatusKind::Error,
+            },
+        },
+        (UserContent::Text(_) | UserContent::Blocks(_), _) => ChatEntry::Status {
             text: "[Malformed compaction outcome message]".to_string(),
             kind: StatusKind::Error,
-        };
-    }
-    let outcome = details
-        .get("outcome")
-        .and_then(Value::as_str)
-        .unwrap_or("failed");
-    ChatEntry::Status {
-        text: crate::snapshot::content_text(content),
-        kind: if outcome == "skipped" {
-            StatusKind::Warning
-        } else {
-            StatusKind::Error
         },
     }
+}
+
+/// A session-command result's tone (`details.severity`); anything else
+/// renders as info.
+#[derive(Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum Severity {
+    Info,
+    Warning,
+    Error,
+}
+
+/// TS `isCompactionOutcomeMessage`'s reason/outcome pair.
+#[derive(Deserialize)]
+struct CompactionOutcome {
+    #[serde(rename = "reason")]
+    _reason: CompactionReason,
+    outcome: CompactionVerdict,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum CompactionReason {
+    Threshold,
+    Overflow,
+    Requested,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum CompactionVerdict {
+    Skipped,
+    Cancelled,
+    Failed,
 }
 
 /// TS `isAgentSessionMessage`: string `details.id` + string
@@ -441,7 +466,7 @@ fn shell_completion_row(content: &UserContent, details: &Value) -> ShellCompleti
     let command = details.get("command").and_then(Value::as_str);
     let exit_code = details.get("exitCode").and_then(Value::as_i64);
     let stopped_by = details.get("stoppedBy").map_or(Ok(None), |stopper| {
-        serde_json::from_value::<BashStopper>(stopper.clone()).map(Some)
+        BashStopper::deserialize(stopper).map(Some)
     });
     let valid = details.is_object()
         && pid.is_some_and(|pid| pid > 0)

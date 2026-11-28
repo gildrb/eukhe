@@ -57,7 +57,7 @@ fn stream_with(
         model,
         context,
         options,
-        Box::new(|model, options| {
+        |model, options| {
             let api_key = options
                 .stream
                 .request
@@ -69,7 +69,7 @@ fn stream_with(
                         .thrown()
                 })?;
             create_client(model, api_key, options.stream.request.headers.as_ref())
-        }),
+        },
     )
 }
 

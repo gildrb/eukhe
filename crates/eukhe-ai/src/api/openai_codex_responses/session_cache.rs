@@ -12,12 +12,13 @@ use std::sync::{Arc, LazyLock, Mutex, MutexGuard, Once, PoisonError};
 use eukhe_chord::context::AbortSignal;
 use eukhe_types::pi_ai::IndexMap;
 use eukhe_types::pi_ai::{
-    AssistantMessage, Context, JsonValue, Message, Model, ProviderEnv, Transport,
+    AssistantMessage, Context, JsonObject, JsonValue, Message, Model, ProviderEnv, Transport,
 };
 use reqwest::header::HeaderMap;
 use serde::Serialize;
 use serde_json::json;
 
+use crate::api::openai_responses_shared::tags::ItemType;
 use crate::api::openai_responses_shared::{
     convert_responses_messages, process_responses_stream, ConvertResponsesMessagesOptions,
 };
@@ -26,6 +27,7 @@ use crate::utils::diagnostics::{format_thrown_value, Thrown};
 use crate::utils::event_stream::AssistantMessageEventStream;
 use crate::utils::js::json_stringify;
 use crate::utils::transcript::normalize_context;
+use crate::utils::wire_type::wire_type;
 
 use super::events::{map_codex_events, start_output_on_first_event, OutputEffects, StartEmitter};
 use super::websocket::{
@@ -411,9 +413,13 @@ async fn acquire_websocket(
 
 /// TS `requestBodyWithoutInput` serialized.
 fn request_body_without_input(body: &JsonValue) -> String {
-    let mut rest = body.as_object().cloned().unwrap_or_default();
-    rest.shift_remove("input");
-    rest.shift_remove("previous_response_id");
+    let rest: JsonObject = body
+        .as_object()
+        .into_iter()
+        .flatten()
+        .filter(|(key, _)| !matches!(key.as_str(), "input" | "previous_response_id"))
+        .map(|(key, value)| (key.clone(), value.clone()))
+        .collect();
     json_stringify(&JsonValue::Object(rest))
 }
 
@@ -423,11 +429,12 @@ fn body_input(body: &JsonValue) -> &[JsonValue] {
         .map_or(&[], Vec::as_slice)
 }
 
-/// TS `getCachedWebSocketInputDelta`.
-fn get_cached_websocket_input_delta(
-    body: &JsonValue,
+/// TS `getCachedWebSocketInputDelta`: the input items of `body` after the
+/// last request's input and response items.
+fn get_cached_websocket_input_delta<'a>(
+    body: &'a JsonValue,
     continuation: &ContinuationState,
-) -> Option<Vec<JsonValue>> {
+) -> Option<&'a [JsonValue]> {
     if request_body_without_input(body)
         != request_body_without_input(&continuation.last_request_body)
     {
@@ -435,23 +442,20 @@ fn get_cached_websocket_input_delta(
     }
 
     let current_input = body_input(body);
-    let baseline: Vec<JsonValue> = body_input(&continuation.last_request_body)
+    let last_input = body_input(&continuation.last_request_body);
+    let baseline_len = last_input.len() + continuation.last_response_items.len();
+    if current_input.len() < baseline_len {
+        return None;
+    }
+
+    // Same length, so the arrays stringify alike exactly when every item does.
+    let (prefix, delta) = current_input.split_at(baseline_len);
+    let baseline = last_input.iter().chain(&continuation.last_response_items);
+    prefix
         .iter()
-        .chain(&continuation.last_response_items)
-        .cloned()
-        .collect();
-    if current_input.len() < baseline.len() {
-        return None;
-    }
-
-    let prefix = &current_input[..baseline.len()];
-    if json_stringify(&JsonValue::Array(prefix.to_vec()))
-        != json_stringify(&JsonValue::Array(baseline))
-    {
-        return None;
-    }
-
-    Some(current_input[prefix.len()..].to_vec())
+        .zip(baseline)
+        .all(|(current, last)| json_stringify(current) == json_stringify(last))
+        .then_some(delta)
 }
 
 /// TS `buildCachedWebSocketRequestBody`.
@@ -470,12 +474,24 @@ fn build_cached_websocket_request_body(
         return body.clone();
     };
 
-    let mut next = body.as_object().cloned().unwrap_or_default();
-    next.insert(
-        "previous_response_id".into(),
-        JsonValue::String(continuation.last_response_id.clone()),
-    );
-    next.insert("input".into(), JsonValue::Array(delta));
+    // `{ ...body, previous_response_id, input: delta }`: replaced keys keep
+    // their place; new keys follow in that order.
+    let response_id = || JsonValue::String(continuation.last_response_id.clone());
+    let mut next = JsonObject::new();
+    for (key, value) in body.as_object().into_iter().flatten() {
+        let value = match key.as_str() {
+            "previous_response_id" => response_id(),
+            "input" => JsonValue::Array(delta.to_vec()),
+            _ => value.clone(),
+        };
+        next.insert(key.clone(), value);
+    }
+    if !next.contains_key("previous_response_id") {
+        next.insert("previous_response_id".into(), response_id());
+    }
+    if !next.contains_key("input") {
+        next.insert("input".into(), JsonValue::Array(delta.to_vec()));
+    }
     JsonValue::Object(next)
 }
 
@@ -684,8 +700,8 @@ fn response_items(
         .into_iter()
         .filter(|item| {
             !matches!(
-                item.get("type").and_then(JsonValue::as_str),
-                Some("function_call_output" | "custom_tool_call_output")
+                wire_type(item),
+                Some(ItemType::FunctionCallOutput | ItemType::CustomToolCallOutput)
             )
         })
         .collect())

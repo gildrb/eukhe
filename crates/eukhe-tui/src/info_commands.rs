@@ -339,7 +339,7 @@ pub fn render_client_text(rows: &[ClientLine], theme: &Theme, width: usize) -> V
         let row_count = wrapped.len();
         for (index, mut line) in wrapped.into_iter().enumerate() {
             let padding_style = if index + 1 < row_count {
-                line.last().map_or(Style::default(), |span| span.style)
+                line.last().map_or_else(Style::default, |span| span.style)
             } else {
                 Style::default()
             };

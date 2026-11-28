@@ -9,8 +9,10 @@ use super::parse::{epoch_ms, get_json, header_number, minutes, number, permille,
 use super::{CredentialId, CredentialKind, PlanCredential, PlanQuota, QuotaBoard, QuotaError};
 use super::{QuotaSource, QuotaWindow};
 use crate::api::openai_codex_responses::extract_account_id;
+use crate::api::openai_responses_shared::tags::EventType;
 use crate::auth::oauth::http::FetchRequest;
 use crate::utils::pi_user_agent::get_pi_user_agent;
+use crate::utils::wire_type::wire_type;
 
 pub(super) const PROVIDER: &str = "openai-codex";
 const USAGE_URL: &str = "https://chatgpt.com/backend-api/wham/usage";
@@ -53,7 +55,7 @@ pub(super) fn parse_headers(provider: &str, headers: &HeaderMap, now_ms: u64) ->
 
 /// A `codex.rate_limits` frame as a reading; `None` for any other event.
 pub(super) fn parse_frame(provider: &str, event: &Value, now_ms: u64) -> Option<PlanQuota> {
-    if event.get("type").and_then(Value::as_str) != Some("codex.rate_limits") {
+    if wire_type(event) != Some(EventType::CodexRateLimits) {
         return None;
     }
     let limits = event.get("rate_limits")?;

@@ -139,7 +139,7 @@ pub(crate) struct ContextState {
     node_index: HashMap<(Slot, usize), NodeId>,
     pub(crate) sources: Vec<Vec<JsonValue>>,
     pub(crate) dirty: Vec<NodeId>,
-    pub(crate) ops: Option<Arc<Vec<crate::delta::Op>>>,
+    pub(crate) ops: Option<Arc<[crate::delta::Op]>>,
     pub(crate) replacement: bool,
     pub(crate) base_value: Option<JsonValue>,
     pub(crate) overlay_released: bool,

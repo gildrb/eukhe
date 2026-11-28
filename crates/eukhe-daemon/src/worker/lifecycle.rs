@@ -1,6 +1,7 @@
 //! Session lifecycle on the worker: the graceful shutdown, the scheduled
 //! jobs binding, and the wait-for-idle arms.
 
+use super::session_core::RuntimeKind;
 use eukhe_bend::rules::headless::{settle, Settle, SettleFacts};
 use eukhe_chord::context::BACKGROUND_CONTEXT;
 use eukhe_core::durable::children::unsettled_child_tasks;
@@ -238,8 +239,12 @@ impl Worker {
 /// TS `activeLifecycleForSession`: a resident subagent is visible before
 /// its first message; a message-less top-level session is a draft; a busy
 /// run is live even before its first message lands.
-pub(super) fn active_lifecycle(runtime_kind: &str, messageless: bool, busy: bool) -> &'static str {
-    if runtime_kind == "subagent" || !messageless || busy {
+pub(super) fn active_lifecycle(
+    runtime_kind: RuntimeKind,
+    messageless: bool,
+    busy: bool,
+) -> &'static str {
+    if runtime_kind == RuntimeKind::Subagent || !messageless || busy {
         "live"
     } else {
         "draft"

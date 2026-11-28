@@ -99,7 +99,7 @@ impl Editor {
     ) -> (Vec<LayoutLine>, usize, usize, usize) {
         self.last_width = width.max(1);
         self.terminal_rows = terminal_rows;
-        let layout_lines = self.layout_text(self.last_width);
+        let mut layout_lines = self.layout_text(self.last_width);
         let max_visible = (f32::from(terminal_rows) * 0.3).floor().max(5.0) as usize;
         let cursor_line_index = layout_lines.iter().position(|l| l.has_cursor).unwrap_or(0);
         if cursor_line_index < self.scroll_offset {
@@ -110,8 +110,9 @@ impl Editor {
         let max_scroll = layout_lines.len().saturating_sub(max_visible);
         self.scroll_offset = self.scroll_offset.min(max_scroll);
         let end = (self.scroll_offset + max_visible).min(layout_lines.len());
-        let visible: Vec<LayoutLine> = layout_lines[self.scroll_offset..end].to_vec();
         let below = layout_lines.len().saturating_sub(end);
+        layout_lines.truncate(end);
+        let visible: Vec<LayoutLine> = layout_lines.split_off(self.scroll_offset);
         (visible, self.scroll_offset, self.scroll_offset, below)
     }
 }

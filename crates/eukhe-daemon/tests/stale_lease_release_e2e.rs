@@ -457,7 +457,7 @@ fn a_worker_that_fails_to_death_releases_the_session_hold() {
             .filter(|pid| process_alive(*pid))
             .collect::<Vec<_>>();
         if worker_serving(&worker_socket) {
-            let ready = serving_since.get_or_insert(Instant::now()).elapsed() >= replay_grace;
+            let ready = serving_since.get_or_insert_with(Instant::now).elapsed() >= replay_grace;
             if let (Some(worker), true) = (alive.first(), ready) {
                 kill_hard(*worker);
             }
@@ -590,7 +590,7 @@ fn the_give_up_sweep_reaps_a_live_leftover_of_the_abandoned_id() {
             .filter(|pid| process_alive(*pid))
             .collect::<Vec<_>>();
         if worker_serving(&worker_socket) {
-            let ready = serving_since.get_or_insert(Instant::now()).elapsed() >= replay_grace;
+            let ready = serving_since.get_or_insert_with(Instant::now).elapsed() >= replay_grace;
             if let (Some(worker), true) = (alive.first(), ready) {
                 kill_hard(*worker);
             }

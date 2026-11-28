@@ -17,6 +17,7 @@ use super::{ProviderFailure, ProviderResult, Resolution};
 use crate::env_api_keys::AWS_WEB_IDENTITY_TOKEN_FILE_ENV;
 use crate::utils::diagnostics::ErrorObject;
 use crate::utils::js::number_to_js_string;
+use crate::utils::text::join_with;
 
 /// The body of a raw `<Tag>…</Tag>` element (first occurrence), entities
 /// decoded; `<Tag/>` reads as empty.
@@ -166,12 +167,13 @@ fn parse_credentials(reply: &HttpReply) -> Result<Option<AwsCredentials>, Attemp
 
 /// `x-www-form-urlencoded` body with the SDK's query serializer escaping.
 fn query_body(pairs: &[(&str, String)]) -> Vec<u8> {
-    pairs
-        .iter()
-        .map(|(key, value)| format!("{key}={}", escape_uri(value)))
-        .collect::<Vec<_>>()
-        .join("&")
-        .into_bytes()
+    join_with(
+        "&",
+        pairs
+            .iter()
+            .map(|(key, value)| format!("{key}={}", escape_uri(value))),
+    )
+    .into_bytes()
 }
 
 /// Send one STS operation and read its credentials.

@@ -47,6 +47,43 @@ const THINKING_FORMATS: &[&str] = &[
     "qwen-chat-template",
 ];
 
+/// The compat schemas, one per family of APIs that declares one.
+#[derive(Clone, Copy)]
+enum CompatSchema {
+    OpenAiCompletions,
+    OpenAiResponses,
+    AnthropicMessages,
+}
+
+impl CompatSchema {
+    fn of_api(api: &str) -> Option<Self> {
+        match api {
+            "openai-completions" => Some(Self::OpenAiCompletions),
+            "openai-responses" | "openai-codex-responses" | "azure-openai-responses" => {
+                Some(Self::OpenAiResponses)
+            }
+            "anthropic-messages" => Some(Self::AnthropicMessages),
+            _ => None,
+        }
+    }
+
+    const fn keys(self) -> &'static [&'static str] {
+        match self {
+            Self::OpenAiCompletions => OPENAI_COMPLETIONS_KEYS,
+            Self::OpenAiResponses => OPENAI_RESPONSES_KEYS,
+            Self::AnthropicMessages => ANTHROPIC_MESSAGES_KEYS,
+        }
+    }
+
+    fn field_valid(self, key: &str, value: &Value) -> bool {
+        match self {
+            Self::OpenAiCompletions => completions_field_valid(key, value),
+            // Responses/anthropic compat: every declared key is a boolean.
+            Self::OpenAiResponses | Self::AnthropicMessages => value.is_boolean(),
+        }
+    }
+}
+
 /// Whether a catalog entry's `compat` object is valid for its `api`.
 ///
 /// `None` (no compat) is always valid. APIs without a declared compat shape
@@ -58,27 +95,15 @@ pub fn is_model_compat(api: &str, compat: Option<&serde_json::Map<String, Value>
     let Some(compat) = compat else {
         return true;
     };
-    let Some(keys) = (match api {
-        "openai-completions" => Some(OPENAI_COMPLETIONS_KEYS),
-        "openai-responses" | "openai-codex-responses" | "azure-openai-responses" => {
-            Some(OPENAI_RESPONSES_KEYS)
-        }
-        "anthropic-messages" => Some(ANTHROPIC_MESSAGES_KEYS),
-        _ => None,
-    }) else {
+    let Some(schema) = CompatSchema::of_api(api) else {
         return false;
     };
-    compat.keys().all(|key| keys.contains(&key.as_str()))
-        && compat
-            .iter()
-            .all(|(key, value)| field_valid(api, key, value))
+    compat
+        .iter()
+        .all(|(key, value)| schema.keys().contains(&key.as_str()) && schema.field_valid(key, value))
 }
 
-fn field_valid(api: &str, key: &str, value: &Value) -> bool {
-    if api != "openai-completions" {
-        // Responses/anthropic compat: every declared key is a boolean.
-        return value.is_boolean();
-    }
+fn completions_field_valid(key: &str, value: &Value) -> bool {
     match key {
         "maxTokensField" => matches!(value.as_str(), Some("max_completion_tokens" | "max_tokens")),
         "thinkingFormat" => THINKING_FORMATS.contains(&value.as_str().unwrap_or_default()),

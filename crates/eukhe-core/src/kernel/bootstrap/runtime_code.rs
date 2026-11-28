@@ -30,8 +30,10 @@ pub fn parse_unavailable_python_skills(stdout: &str) -> Option<UnavailablePython
     let errors = parsed
         .into_iter()
         .filter_map(|(name, error)| {
-            let error = error.as_str()?;
-            (!error.is_empty()).then(|| (name, error.to_string()))
+            let serde_json::Value::String(error) = error else {
+                return None;
+            };
+            (!error.is_empty()).then_some((name, error))
         })
         .collect::<UnavailablePythonSkills>();
     (!errors.is_empty()).then_some(errors)

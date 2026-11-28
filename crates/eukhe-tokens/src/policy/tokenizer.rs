@@ -78,12 +78,9 @@ impl ModelTokenizer {
     }
 }
 
-fn claude_tokenizer(identity: &ModelIdentity) -> Option<ModelTokenizer> {
-    if identity.class != "anthropic" {
-        return None;
-    }
+fn claude_tokenizer(identity: &ModelIdentity) -> ModelTokenizer {
     let revision = identity.revision;
-    Some(match identity.family {
+    match identity.family {
         Some("opus") if at_least(revision, "5") => ModelTokenizer::ClaudeV5,
         Some("opus") if at_least(revision, "4.7") => ModelTokenizer::ClaudeV47,
         Some("sonnet" | "fable" | "mythos") if at_least(revision, "5") => {
@@ -94,16 +91,13 @@ fn claude_tokenizer(identity: &ModelIdentity) -> Option<ModelTokenizer> {
         // is the nearest.
         Some("haiku") if at_least(revision, "5.5") => ModelTokenizer::ClaudeV5Sonnet,
         _ => ModelTokenizer::ClaudeV3,
-    })
+    }
 }
 
 /// GPT-5 and later bill text in `o200k_base`, GPT-3.5 and GPT-4 (Turbo) in
 /// `cl100k_base`. GPT-4.1, GPT-4.5, gpt-4o and the o-series are `o200k`
 /// too, which is the default for a model without a tokenizer.
 fn openai_tokenizer(identity: &ModelIdentity) -> Option<ModelTokenizer> {
-    if identity.class != "openai" {
-        return None;
-    }
     let revision = identity.revision;
     if at_least(revision, "5") {
         return Some(ModelTokenizer::O200k);
@@ -118,16 +112,16 @@ fn resolve_uncached(model_id: &str, provider: &str) -> Option<ModelTokenizer> {
     // provider-agnostic so unrelated namespaces never inherit them.
     let identity = classify_model(provider, bare_of(model_id));
     let revision = identity.revision;
-    claude_tokenizer(&identity)
-        .or_else(|| {
-            (identity.class == "qwen" && at_least(revision, "3.5")).then_some(ModelTokenizer::Qwen3)
-        })
-        .or_else(|| (identity.class == "deepseek").then_some(ModelTokenizer::DeepSeekV3))
-        .or_else(|| (identity.class == "kimi").then_some(ModelTokenizer::KimiK2))
-        .or_else(|| {
-            (identity.class == "glm" && at_least(revision, "5")).then_some(ModelTokenizer::Glm5)
-        })
-        .or_else(|| openai_tokenizer(&identity))
+    // `class` is a taxonomy id from the embedded class table.
+    match identity.class {
+        "anthropic" => Some(claude_tokenizer(&identity)),
+        "qwen" => at_least(revision, "3.5").then_some(ModelTokenizer::Qwen3),
+        "deepseek" => Some(ModelTokenizer::DeepSeekV3),
+        "kimi" => Some(ModelTokenizer::KimiK2),
+        "glm" => at_least(revision, "5").then_some(ModelTokenizer::Glm5),
+        "openai" => openai_tokenizer(&identity),
+        _ => None,
+    }
 }
 
 // Resolution is pure and catalog ids recur across providers and aliases.

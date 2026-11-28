@@ -131,7 +131,7 @@ impl Backend {
 
     /// Stop one handle; the descriptor goes when its last handle does. No
     /// event is read for the handle afterwards.
-    pub(super) fn remove(&mut self, handle: HandleId) {
+    pub(super) fn remove(&self, handle: HandleId) {
         let Some(instance) = &self.instance else {
             return;
         };

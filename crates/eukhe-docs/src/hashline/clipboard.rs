@@ -94,7 +94,7 @@ fn write_register(
     range: ParsedRange,
     register: Option<&str>,
     line_num: u32,
-    file_lines: &[String],
+    file_lines: &[&str],
     clipboard: &mut Clipboard,
 ) -> Result<(), EditError> {
     if range.start.line == 0 || range.end.line as usize > file_lines.len() {
@@ -104,7 +104,11 @@ fn write_register(
             file_lines.len()
         )));
     }
-    let captured = file_lines[(range.start.line - 1) as usize..range.end.line as usize].to_vec();
+    let captured: Vec<String> = file_lines
+        [(range.start.line - 1) as usize..range.end.line as usize]
+        .iter()
+        .map(|&line| line.to_owned())
+        .collect();
     if let Some(register) = register {
         clipboard
             .named
@@ -124,7 +128,7 @@ fn write_register(
 /// file lines.
 pub(crate) fn resolve_clipboard_edits(
     edits: &[Edit],
-    file_lines: &[String],
+    file_lines: &[&str],
     clipboard: &mut Clipboard,
     on_warning: &mut dyn FnMut(String),
 ) -> Result<Vec<Edit>, EditError> {

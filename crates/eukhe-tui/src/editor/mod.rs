@@ -129,7 +129,7 @@ pub struct Editor {
     terminal_rows: u16,
 
     // Autocomplete
-    autocomplete_provider: Option<Box<dyn crate::autocomplete::AutocompleteProvider + Send>>,
+    autocomplete_provider: Option<crate::autocomplete::CombinedAutocompleteProvider>,
     autocomplete: Option<crate::autocomplete::AutocompleteState>,
     /// A suggestion request waiting to materialize (TS `getSuggestions` is
     /// async: the dropdown opens after the keystroke batch, so a typed
@@ -197,11 +197,11 @@ impl Editor {
             disable_submit: false,
             keybindings: KeybindingsManager::new(),
             terminal_rows: 24,
-            autocomplete_provider: Some(Box::new(
+            autocomplete_provider: Some(
                 crate::autocomplete::CombinedAutocompleteProvider::from_registry(
                     std::env::current_dir().unwrap_or_default(),
                 ),
-            )),
+            ),
             autocomplete: None,
             pending_autocomplete: None,
             autocomplete_search: None,
@@ -226,7 +226,7 @@ impl Editor {
 
     pub fn set_autocomplete_provider(
         &mut self,
-        provider: Box<dyn crate::autocomplete::AutocompleteProvider + Send>,
+        provider: crate::autocomplete::CombinedAutocompleteProvider,
     ) {
         self.cancel_autocomplete();
         self.autocomplete_provider = Some(provider);
@@ -294,7 +294,7 @@ impl Editor {
     pub fn command_table(&self) -> Option<&crate::command_paths::CommandTable> {
         self.autocomplete_provider
             .as_ref()
-            .and_then(|provider| provider.command_table())
+            .map(crate::autocomplete::CombinedAutocompleteProvider::command_table)
     }
 
     /// Replace the provider's `skill:` commands (TS
@@ -351,8 +351,7 @@ impl Editor {
     // ---- state helpers -------------------------------------------------
 
     fn segment(&self, text: &str) -> Vec<Segment> {
-        let pastes = self.pastes.clone();
-        segment_with_markers(text, &move |id| pastes.contains_key(&id))
+        segment_with_markers(text, &|id| self.pastes.contains_key(&id))
     }
 
     #[must_use]
@@ -513,7 +512,7 @@ impl Editor {
         if trimmed.is_empty() {
             return;
         }
-        if self.history.first() == Some(&trimmed.to_string()) {
+        if self.history.first().is_some_and(|last| last == trimmed) {
             return;
         }
         self.history.insert(0, trimmed.to_string());

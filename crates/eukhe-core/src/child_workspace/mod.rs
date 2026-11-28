@@ -630,9 +630,9 @@ fn hand_back_at(root: &Path, units: &[String], scope: &[bool]) -> anyhow::Result
 /// leave `tree` a symlink to the parent's workspace. Idempotent.
 fn finish(root: &Path, parent: &Path) -> io::Result<()> {
     let tree = root.join(TREE);
-    for dir in [root.join(BASE), tree.clone()] {
-        match fs::symlink_metadata(&dir) {
-            Ok(meta) if meta.file_type().is_dir() => fs::remove_dir_all(&dir)?,
+    for dir in [&root.join(BASE), &tree] {
+        match fs::symlink_metadata(dir) {
+            Ok(meta) if meta.file_type().is_dir() => fs::remove_dir_all(dir)?,
             Ok(_) => {}
             Err(error) if error.kind() == io::ErrorKind::NotFound => {}
             Err(error) => return Err(error),

@@ -34,7 +34,7 @@ fn heartbeat_job(command: &Value) -> Value {
         "id": "hb-1",
         "status": "active",
         "source": "heartbeat",
-        "deliveryMode": command.get("deliveryMode").cloned().unwrap_or(json!("steer")),
+        "deliveryMode": command.get("deliveryMode").cloned().unwrap_or_else(|| json!("steer")),
         "activeSessionId": "s1",
         "sessionId": "sess-1",
         "sessionFile": "/tmp/sess-1.jsonl",

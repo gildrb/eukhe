@@ -344,8 +344,8 @@ impl Chat {
             i: part.i * 2 + 1,
         };
         Some(Step::Merge {
-            left: self.nodes.0.get(&left)?.clone(),
-            right: self.nodes.0.get(&right)?.clone(),
+            left: Arc::clone(self.nodes.0.get(&left)?),
+            right: Arc::clone(self.nodes.0.get(&right)?),
         })
     }
 

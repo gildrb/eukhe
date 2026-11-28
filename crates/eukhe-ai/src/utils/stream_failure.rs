@@ -654,15 +654,10 @@ fn extract_parts_from_http(error: &ProviderHttpError) -> ExtractedParts {
         if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(body) {
             // Error bodies come nested differently per SDK: Anthropic/OpenAI expose
             // `error.error = {type|code, message}` (sometimes doubly nested).
-            let mut node = &parsed;
-            if let Some(nested) = node.get("error") {
-                if nested.is_object() && nested.get("error").is_some() {
-                    node = nested.get("error").unwrap();
-                }
-                if nested.is_object() {
-                    node = nested;
-                }
-            }
+            let node = parsed
+                .get("error")
+                .filter(|nested| nested.is_object())
+                .unwrap_or(&parsed);
             if let Some(value) = node.get("type").or_else(|| node.get("code")) {
                 if let Some(text) = value.as_str() {
                     body_type = Some(text.to_string());

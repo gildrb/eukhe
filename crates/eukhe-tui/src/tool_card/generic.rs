@@ -45,7 +45,11 @@ pub fn render(
     let diff = card
         .result
         .as_ref()
-        .filter(|result| card.name == "edit" && !card.result_partial && !result.is_error)
+        .filter(|result| {
+            card.name == crate::tool_card::ToolName::Edit
+                && !card.result_partial
+                && !result.is_error
+        })
         .and_then(|result| EditDiff::from_details(&result.details));
     let summary = summary_row(card, output, diff.as_ref());
     let failed = summary.status == Status::Error;
@@ -81,14 +85,14 @@ fn summary_row<'a>(
     output: &str,
     diff: Option<&EditDiff<'_>>,
 ) -> SummaryRow<'a> {
-    let (argument, mut results) = call_summary(&card.name, &card.args);
+    let (argument, mut results) = call_summary(card.name.as_str(), &card.args);
     if let Some(diff) = diff {
         let (added, removed) = diff.counts();
         results = vec![(row_counts(added, removed), ThemeColor::Dim)];
     }
     let mut status = panel_status(card);
     if let Some(result) = &card.result {
-        if card.name != "edit" {
+        if card.name != crate::tool_card::ToolName::Edit {
             if let Some(count) = line_count(output) {
                 results.push((count, ThemeColor::Dim));
             }
@@ -99,7 +103,7 @@ fn summary_row<'a>(
     }
     SummaryRow {
         status,
-        name: &card.name,
+        name: card.name.as_str(),
         argument,
         results,
         duration: duration(card),

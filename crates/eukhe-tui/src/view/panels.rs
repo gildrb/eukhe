@@ -100,7 +100,7 @@ impl AgentView {
     }
 
     /// The autocomplete dropdown, mounted just above the prompt.
-    fn render_autocomplete_overlay(&mut self, width: usize) -> Vec<Line> {
+    fn render_autocomplete_overlay(&self, width: usize) -> Vec<Line> {
         editor_surface::overlay(&self.editor, &self.theme, width)
     }
 

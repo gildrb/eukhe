@@ -17,6 +17,7 @@
 //! out of this session's account ([`super::budget`]); its unspent part
 //! returns when it settles.
 
+use std::borrow::Cow;
 use std::sync::{Arc, Mutex, PoisonError};
 
 use anyhow::{anyhow, bail};
@@ -485,7 +486,7 @@ pub(super) async fn admit_spawns(
                     };
                     let task_id = tx
                         .create_task(
-                            task.clone(),
+                            Arc::clone(&task),
                             to_json(&input)?,
                             TaskOptions {
                                 ownership: TaskOwnership::Conversation,
@@ -966,23 +967,28 @@ fn spawn_check(index: usize, item: &Value, operation: &str) -> anyhow::Result<Ch
     let Value::Object(fields) = item else {
         bail!("{what} must be a check object, e.g. {{\"kind\": \"command\", \"command\": \"pytest -q\", \"expect\": 0}}");
     };
-    let fields: Map<String, Value> = fields
-        .iter()
-        .map(|(key, value)| {
-            let key = if key == "timeout_ms" {
-                "timeoutMs"
-            } else {
-                key.as_str()
-            };
-            (key.to_owned(), value.clone())
-        })
-        .collect();
+    let fields: Cow<'_, Map<String, Value>> = if fields.contains_key("timeout_ms") {
+        Cow::Owned(
+            fields
+                .iter()
+                .map(|(key, value)| {
+                    let key = if key == "timeout_ms" {
+                        "timeoutMs"
+                    } else {
+                        key.as_str()
+                    };
+                    (key.to_owned(), value.clone())
+                })
+                .collect(),
+        )
+    } else {
+        Cow::Borrowed(fields)
+    };
     let kind = fields
         .get("kind")
         .and_then(Value::as_str)
-        .unwrap_or_default()
-        .to_owned();
-    let Some(keys) = check_keys(&kind) else {
+        .unwrap_or_default();
+    let Some(keys) = check_keys(kind) else {
         bail!("{what} kind must be \"command\", \"judge\", \"until\" or \"intent\"");
     };
     if let Some(key) = fields.keys().find(|key| !keys.contains(&key.as_str())) {
@@ -991,7 +997,7 @@ fn spawn_check(index: usize, item: &Value, operation: &str) -> anyhow::Result<Ch
             keys.join(", ")
         );
     }
-    let check: CheckSpec = serde_json::from_value(Value::Object(fields))
+    let check = CheckSpec::deserialize(&*fields)
         .map_err(|error| anyhow!("{what} is not a {kind} check: {error}"))?;
     let blank = match &check {
         CheckSpec::Command { command, .. } | CheckSpec::Until { command, .. } => {
@@ -1100,12 +1106,15 @@ async fn wait_for_admission(
     }
     let key = task_id.to_string();
     let outcome = loop {
-        let state = read_children(harness, conversation_id, &cx())
+        let mut state = read_children(harness, conversation_id, &cx())
             .await
             .map_err(session_error)?;
-        let row = state.children.get(&key);
-        if let Some(row) = row.filter(|row| row.status != ChildStatus::Spawning) {
-            break Ok(row.clone());
+        if let Some(row) = state
+            .children
+            .swap_remove(&key)
+            .filter(|row| row.status != ChildStatus::Spawning)
+        {
+            break Ok(row);
         }
         let record = harness
             .get_task(task_id, &cx())

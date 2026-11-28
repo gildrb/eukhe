@@ -10,7 +10,7 @@ use std::sync::Arc;
 use eukhe_types::pi_ai::IndexMap;
 use eukhe_types::pi_ai::ProviderEnv;
 use futures::{SinkExt, StreamExt};
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::sync::mpsc;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
@@ -156,10 +156,7 @@ impl WebSocketLike for TungsteniteWebSocket {
     }
 }
 
-trait Io: AsyncRead + AsyncWrite + Unpin + Send {}
-impl<T: AsyncRead + AsyncWrite + Unpin + Send> Io for T {}
-
-type Socket = WebSocketStream<tokio_tungstenite::MaybeTlsStream<Box<dyn Io>>>;
+type Socket = WebSocketStream<tokio_tungstenite::MaybeTlsStream<TcpStream>>;
 
 /// HTTP `CONNECT` tunnel through `proxy` to the request's host.
 async fn tunnel(proxy: &Url, host: &str, port: u16) -> std::io::Result<TcpStream> {
@@ -204,14 +201,14 @@ async fn tunnel(proxy: &Url, host: &str, port: u16) -> std::io::Result<TcpStream
     }
 }
 
-async fn open(request: Request, proxy: Option<Url>) -> Result<Socket, WsError> {
-    let uri = request.uri().clone();
-    let host = uri.host().unwrap_or_default().to_owned();
+async fn open(request: Request, proxy: Option<&Url>) -> Result<Socket, WsError> {
+    let uri = request.uri();
+    let host = uri.host().unwrap_or_default();
     let secure = uri.scheme_str() == Some("wss");
     let port = uri.port_u16().unwrap_or(if secure { 443 } else { 80 });
-    let stream: Box<dyn Io> = match &proxy {
-        Some(proxy) => Box::new(tunnel(proxy, &host, port).await?),
-        None => Box::new(TcpStream::connect((host.as_str(), port)).await?),
+    let stream = match proxy {
+        Some(proxy) => tunnel(proxy, host, port).await?,
+        None => TcpStream::connect((host, port)).await?,
     };
     let (socket, _response) = tokio_tungstenite::client_async_tls(request, stream).await?;
     Ok(socket)
@@ -287,7 +284,7 @@ async fn run(
             }
             return;
         }
-        result = open(request, proxy) => result,
+        result = open(request, proxy.as_ref()) => result,
     };
     let socket = match socket {
         Ok(socket) => socket,

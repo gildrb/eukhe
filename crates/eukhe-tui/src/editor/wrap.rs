@@ -368,7 +368,7 @@ mod tests {
         for c in &chunks {
             assert!(str_width(&c.text) <= 10, "chunk too wide: {:?}", c.text);
         }
-        let joined: String = chunks.iter().map(|c| c.text.clone()).collect::<String>();
+        let joined: String = chunks.iter().map(|c| c.text.as_str()).collect::<String>();
         assert_eq!(joined, "hello world this wraps");
     }
 
@@ -380,7 +380,7 @@ mod tests {
     fn cjk_wider_than_editor_does_not_panic() {
         let line = "你好世界，这是一段很长的中文文本，超过了编辑器的宽度，会触发换行逻辑。";
         let chunks = word_wrap_line(line, 10, None);
-        let joined: String = chunks.iter().map(|c| c.text.clone()).collect();
+        let joined: String = chunks.iter().map(|c| c.text.as_str()).collect();
         assert_eq!(joined, line);
         for c in &chunks {
             assert!(str_width(&c.text) <= 10, "chunk too wide: {:?}", c.text);
@@ -455,7 +455,7 @@ mod tests {
 
     fn assert_wraps_back_to_source(line: &str, max_width: usize) -> Vec<TextChunk> {
         let chunks = word_wrap_line(line, max_width, None);
-        let joined: String = chunks.iter().map(|c| c.text.clone()).collect();
+        let joined: String = chunks.iter().map(|c| c.text.as_str()).collect();
         assert_eq!(
             joined, line,
             "chunks must concatenate to the source line (width {max_width})"
@@ -515,7 +515,7 @@ mod tests {
         // char offsets, not byte offsets or grapheme ordinals.
         let line = "ab你好 cd";
         let chunks = word_wrap_line(line, 4, None);
-        let joined: String = chunks.iter().map(|c| c.text.clone()).collect();
+        let joined: String = chunks.iter().map(|c| c.text.as_str()).collect();
         assert_eq!(joined, line);
         let mut expected_start = 0usize;
         for c in &chunks {
@@ -596,7 +596,7 @@ mod tests {
             // so this exercises the plain-grapheme segment branch).
             let segments = segment_with_markers(&line, &|_| false);
             let chunks = word_wrap_line(&line, 5, Some(segments));
-            let joined: String = chunks.iter().map(|c| c.text.clone()).collect();
+            let joined: String = chunks.iter().map(|c| c.text.as_str()).collect();
             assert_eq!(joined, line);
             for c in &chunks {
                 assert!(str_width(&c.text) <= 5, "chunk too wide: {:?}", c.text);

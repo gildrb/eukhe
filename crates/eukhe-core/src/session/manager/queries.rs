@@ -186,16 +186,15 @@ impl SessionManager {
             return Ok(());
         };
         window.ensure_full_history().await?;
-        let mut entries = window.entries().to_vec();
+        let (mut entries, _) = window.take_retained();
         let loaded_ids: std::collections::HashSet<String> = entries
             .iter()
             .filter_map(|entry| entry.id().map(str::to_owned))
             .collect();
         entries.extend(
-            self.file_entries
-                .iter()
-                .filter(|entry| entry.id().is_some_and(|id| !loaded_ids.contains(id)))
-                .cloned(),
+            std::mem::take(&mut self.file_entries)
+                .into_iter()
+                .filter(|entry| entry.id().is_some_and(|id| !loaded_ids.contains(id))),
         );
         let leaf = self.leaf_id.clone();
         self.file_entries = entries;

@@ -11,6 +11,7 @@ use eukhe_types::pi_ai::{
 };
 
 use crate::utils::js::{js_trim, json_stringify};
+use crate::utils::wire_type::parse_tag;
 
 /// Errors of constrained-sampling resolution. Every variant displays the
 /// TS message verbatim.
@@ -77,17 +78,41 @@ fn unsupported(message: impl Into<String>) -> ConstrainedSamplingError {
     ConstrainedSamplingError::UnsupportedStrictJsonSchema(message.into())
 }
 
+/// A JSON Schema `type` name eukhe checks for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum SchemaType {
+    Object,
+    Array,
+    String,
+    Null,
+}
+
+/// The schema's `type`, a name or a list of names.
+fn has_schema_type(schema: &JsonObject, kind: SchemaType) -> bool {
+    let is_kind = |value: &JsonValue| value.as_str().and_then(parse_tag) == Some(kind);
+    match schema.get("type") {
+        Some(single @ JsonValue::String(_)) => is_kind(single),
+        Some(JsonValue::Array(list)) => list.iter().any(is_kind),
+        _ => false,
+    }
+}
+
+/// The schema's `type` is the single name `kind`.
+fn is_schema_type(schema: &JsonObject, kind: SchemaType) -> bool {
+    schema
+        .get("type")
+        .and_then(JsonValue::as_str)
+        .and_then(parse_tag)
+        == Some(kind)
+}
+
 fn is_structured_schema(schema: &JsonValue) -> bool {
     let Some(schema) = schema.as_object() else {
         return false;
     };
-    let has_type = |name: &str| match schema.get("type") {
-        Some(JsonValue::String(kind)) => kind == name,
-        Some(JsonValue::Array(kinds)) => kinds.iter().any(|kind| kind.as_str() == Some(name)),
-        _ => false,
-    };
-    has_type("object")
-        || has_type("array")
+    has_schema_type(schema, SchemaType::Object)
+        || has_schema_type(schema, SchemaType::Array)
         || schema.contains_key("properties")
         || schema.contains_key("items")
 }
@@ -96,12 +121,8 @@ fn schema_allows_null(schema: &JsonValue) -> bool {
     let Some(schema) = schema.as_object() else {
         return false;
     };
-    match schema.get("type") {
-        Some(JsonValue::String(kind)) if kind == "null" => return true,
-        Some(JsonValue::Array(kinds)) if kinds.iter().any(|kind| kind.as_str() == Some("null")) => {
-            return true
-        }
-        _ => {}
+    if has_schema_type(schema, SchemaType::Null) {
+        return true;
     }
     if matches!(schema.get("const"), Some(JsonValue::Null)) {
         return true;
@@ -157,7 +178,7 @@ fn make_json_schema_node_strict(
         make_json_schema_node_strict(items, is_unsupported_keyword)?;
     }
 
-    let is_object_schema = object.get("type").and_then(JsonValue::as_str) == Some("object");
+    let is_object_schema = is_schema_type(object, SchemaType::Object);
     if object.contains_key("properties") && !is_object_schema {
         return Err(unsupported("properties require type object"));
     }
@@ -233,11 +254,7 @@ pub fn make_strict_json_schema(
     }
     make_json_schema_node_strict(&mut cloned, is_unsupported_keyword)?;
     match cloned {
-        JsonValue::Object(object)
-            if object.get("type").and_then(JsonValue::as_str) == Some("object") =>
-        {
-            Ok(object)
-        }
+        JsonValue::Object(object) if is_schema_type(&object, SchemaType::Object) => Ok(object),
         _ => Err(unsupported("root schema must have type object")),
     }
 }
@@ -387,7 +404,7 @@ fn infer_grammar_input_property(tool: &Tool) -> Result<String, GrammarInputError
     let Some(schema) = tool
         .parameters
         .as_object()
-        .filter(|schema| schema.get("type").and_then(JsonValue::as_str) == Some("object"))
+        .filter(|schema| is_schema_type(schema, SchemaType::Object))
     else {
         return Err(GrammarInputError::NotAnObject);
     };
@@ -408,7 +425,10 @@ fn infer_grammar_input_property(tool: &Tool) -> Result<String, GrammarInputError
             property: input_property,
         });
     };
-    if property.get("type").and_then(JsonValue::as_str) != Some("string") {
+    if !property
+        .as_object()
+        .is_some_and(|property| is_schema_type(property, SchemaType::String))
+    {
         return Err(GrammarInputError::NotAString {
             property: input_property,
         });

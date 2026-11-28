@@ -184,7 +184,7 @@ impl Converter {
 
     /// `FromUnion`: keep a value some member accepts; else the first member
     /// conversion (of a clone) the whole union accepts.
-    fn convert_union(&self, type_: &JsonValue, value: &mut JsValue) -> Converted {
+    fn convert_union(&self, type_: &JsonValue, value: &JsValue) -> Converted {
         let members = type_
             .get("anyOf")
             .and_then(JsonValue::as_array)

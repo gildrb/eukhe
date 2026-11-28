@@ -764,7 +764,7 @@ fn generic_mcp_skill_renders_in_the_prompt_inventory() {
         .find(|segment| {
             matches!(segment.kind, SegmentKind::Dynamic) && segment.text.starts_with("<skills>")
         })
-        .map(|segment| segment.text.clone())
+        .map(|segment| &segment.text)
         .expect("the skills inventory segment renders");
     assert!(
         inventory.lines().any(|line| line.starts_with("- mcp: ")),

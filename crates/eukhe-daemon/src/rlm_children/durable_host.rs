@@ -99,8 +99,10 @@ async fn display_running(child_dir: &Path, child_id: &str) -> Result<bool> {
     let child_dir = child_dir.to_path_buf();
     let child_id = child_id.to_owned();
     let display = tokio::task::spawn_blocking(move || {
-        crate::rlm_ledger::read_rlm_subagent_display(&child_dir)
-            .is_some_and(|display| display.child_id == child_id && display.status == "running")
+        crate::rlm_ledger::read_rlm_subagent_display(&child_dir).is_some_and(|display| {
+            display.child_id == child_id
+                && display.status == crate::rlm_ledger::DisplayStatus::Running
+        })
     })
     .await?;
     Ok(display)
@@ -1184,9 +1186,9 @@ impl SupervisorChildSessions {
                 .await;
             match killed {
                 Err(error) if !format!("{error:#}").starts_with(UNKNOWN_SESSION) => {
-                    first_error.get_or_insert(
-                        error.context(format!("close RLM child session {session_id}")),
-                    );
+                    first_error.get_or_insert_with(|| {
+                        error.context(format!("close RLM child session {session_id}"))
+                    });
                 }
                 Ok(_) | Err(_) => {
                     self.inner.durable_calls().spawned.remove(session_id);

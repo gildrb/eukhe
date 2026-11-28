@@ -191,7 +191,7 @@ impl ReplKernelManager {
         });
         {
             let mut g = lock(&self.inner.guarded);
-            g.active_execution = Some(execution.clone());
+            g.active_execution = Some(Arc::clone(&execution));
         }
 
         // Abort watcher: interrupts the kernel out-of-band, then kills it

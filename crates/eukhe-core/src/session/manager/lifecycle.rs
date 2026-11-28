@@ -146,7 +146,7 @@ impl SessionManager {
                 .parent_session
                 .as_deref()
                 .map(|_| 0)
-                .or(Some(root_rlm_depth_from_env())),
+                .or_else(|| Some(root_rlm_depth_from_env())),
         };
         let header = FileEntry::Header {
             header: SessionHeader {

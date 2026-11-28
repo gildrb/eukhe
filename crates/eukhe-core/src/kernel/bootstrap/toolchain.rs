@@ -427,7 +427,7 @@ async fn fetch_uv(dir: &KernelDir, reached: &Reached) -> anyhow::Result<()> {
 /// beside it, then renamed). The caller holds the setup lock, so a staged
 /// file already there is a dead attempt's: it is removed.
 fn unpack_uv(archive: &[u8], dest: &Path) -> anyhow::Result<()> {
-    let parent = dest.parent().unwrap_or(Path::new("/"));
+    let parent = dest.parent().unwrap_or_else(|| Path::new("/"));
     std::fs::create_dir_all(parent)?;
     for entry in std::fs::read_dir(parent)?.filter_map(Result::ok) {
         if entry.file_name().to_string_lossy().ends_with(STAGED_SUFFIX) {

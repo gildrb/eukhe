@@ -239,8 +239,8 @@ fn serialize_tagged_block<T: Serialize, S: serde::Serializer>(
     content: &T,
     serializer: S,
 ) -> Result<S::Ok, S::Error> {
-    let mut value = serde_json::to_value(content)
-        .map_err(|e| <S::Error as serde::ser::Error>::custom(e.to_string()))?;
+    let mut value =
+        serde_json::to_value(content).map_err(<S::Error as serde::ser::Error>::custom)?;
     let Some(map) = value.as_object_mut() else {
         return Err(<S::Error as serde::ser::Error>::custom(
             "content block must serialize to an object",
@@ -250,34 +250,46 @@ fn serialize_tagged_block<T: Serialize, S: serde::Serializer>(
     value.serialize(serializer)
 }
 
-impl<'de> Deserialize<'de> for UserContentBlock {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let value = Value::deserialize(deserializer)?;
-        let Some(kind) = value.get("type").and_then(Value::as_str) else {
-            return Ok(Self::Raw(value));
-        };
-        let payload = strip_block_tag(&value);
-        match kind {
-            "text" => serde_json::from_value::<TextContent>(payload)
-                .map(Self::Text)
-                .map_err(|e| <D::Error as serde::de::Error>::custom(e.to_string())),
-            "image" => serde_json::from_value::<ImageContent>(payload)
-                .map(Self::Image)
-                .map_err(|e| <D::Error as serde::de::Error>::custom(e.to_string())),
-            _ => Ok(Self::Raw(value)),
+/// The `type` tags of the modeled user content blocks.
+#[derive(Clone, Copy)]
+enum UserBlockKind {
+    Text,
+    Image,
+}
+
+impl UserBlockKind {
+    fn parse(tag: &str) -> Option<Self> {
+        match tag {
+            "text" => Some(Self::Text),
+            "image" => Some(Self::Image),
+            _ => None,
         }
     }
 }
 
-/// Copy of the block without its `type` tag, so the tag is not captured
-/// into the content catch-all map (the derived tagged form consumed it the
-/// same way and never exposed it in `rest`).
-fn strip_block_tag(value: &Value) -> Value {
-    let mut payload = value.clone();
-    if let Some(map) = payload.as_object_mut() {
+impl<'de> Deserialize<'de> for UserContentBlock {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let mut map = match Value::deserialize(deserializer)? {
+            Value::Object(map) => map,
+            other => return Ok(Self::Raw(other)),
+        };
+        let Some(kind) = map
+            .get("type")
+            .and_then(Value::as_str)
+            .and_then(UserBlockKind::parse)
+        else {
+            return Ok(Self::Raw(Value::Object(map)));
+        };
+        // The derived tagged form consumed the tag the same way and never
+        // exposed it in the content catch-all map.
         map.remove("type");
+        let payload = Value::Object(map);
+        let block = match kind {
+            UserBlockKind::Text => serde_json::from_value(payload).map(Self::Text),
+            UserBlockKind::Image => serde_json::from_value(payload).map(Self::Image),
+        };
+        block.map_err(<D::Error as serde::de::Error>::custom)
     }
-    payload
 }
 
 impl UserContentBlock {

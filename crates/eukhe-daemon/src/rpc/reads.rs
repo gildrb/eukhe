@@ -2,6 +2,7 @@
 //! conversation's live and inbox documents, its fork-aware history, its
 //! context as wire `AgentMessage` JSON, and its resolved model.
 
+use crate::types::{message_role, BlockKind, MessageRole};
 use eukhe_chord::context::{Context, BACKGROUND_CONTEXT};
 use eukhe_chord::json::{from_json, JsonValue};
 use eukhe_core::durable::EukheSession;
@@ -135,7 +136,7 @@ pub(crate) fn last_assistant_text(messages: &[Value]) -> Option<String> {
     let message = messages
         .iter()
         .rev()
-        .find(|message| message.get("role").and_then(Value::as_str) == Some("assistant"))?;
+        .find(|message| message_role(message) == Some(MessageRole::Assistant))?;
     Some(
         message
             .get("content")
@@ -143,7 +144,7 @@ pub(crate) fn last_assistant_text(messages: &[Value]) -> Option<String> {
             .map(|blocks| {
                 blocks
                     .iter()
-                    .filter(|block| block.get("type").and_then(Value::as_str) == Some("text"))
+                    .filter(|block| BlockKind::of(block) == BlockKind::Text)
                     .filter_map(|block| block.get("text").and_then(Value::as_str))
                     .collect::<String>()
             })

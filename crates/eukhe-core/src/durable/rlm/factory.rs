@@ -26,7 +26,7 @@ use std::path::PathBuf;
 use anyhow::anyhow;
 use serde_json::Value;
 
-use crate::kernel::shared::{FACTIVITY_WATCH_TIMEOUT_MS_CAP, FACTORY_ACTIVITY_ACTIONS};
+use crate::kernel::shared::FACTIVITY_WATCH_TIMEOUT_MS_CAP;
 use crate::models::registry::ModelRegistry;
 use crate::models::resolver::find_exact_model_reference_match;
 use eukhe_types::ai::Model as AiModel;
@@ -401,12 +401,50 @@ fn split_harness_scope(id: &str) -> (Scope, &str) {
     (Scope::Any, id)
 }
 
+/// One `factory_activity` action (the kernel's `ACTIVITY_ACTIONS`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FactoryActivityAction {
+    Graph,
+    Status,
+    Watch,
+    Run,
+    Stop,
+    Resume,
+}
+
+impl FactoryActivityAction {
+    /// The action's wire name.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Graph => "graph",
+            Self::Status => "status",
+            Self::Watch => "watch",
+            Self::Run => "run",
+            Self::Stop => "stop",
+            Self::Resume => "resume",
+        }
+    }
+
+    fn parse(action: &str) -> Option<Self> {
+        match action {
+            "graph" => Some(Self::Graph),
+            "status" => Some(Self::Status),
+            "watch" => Some(Self::Watch),
+            "run" => Some(Self::Run),
+            "stop" => Some(Self::Stop),
+            "resume" => Some(Self::Resume),
+            _ => None,
+        }
+    }
+}
+
 /// The out-of-band request the bridge sends into the kernel, validated
 /// host-side before the frame: one action with its target and the watch
 /// bound.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FactoryActivityRequest {
-    pub action: &'static str,
+    pub action: FactoryActivityAction,
     pub run_id: Option<String>,
     pub spec_id: Option<String>,
     pub timeout_ms: Option<u64>,
@@ -427,18 +465,27 @@ impl FactoryActivityRequest {
         spec_id: Option<&str>,
         timeout_ms: Option<u64>,
     ) -> anyhow::Result<Self> {
-        let Some(action) = FACTORY_ACTIVITY_ACTIONS
-            .iter()
-            .find(|known| **known == action)
-            .copied()
-        else {
+        let Some(action) = FactoryActivityAction::parse(action) else {
             return Err(anyhow!("unknown factory activity action"));
         };
-        if action == "run" && spec_id.is_none_or(|id| id.trim().is_empty()) {
-            return Err(anyhow!("factory activity run requires specId"));
-        }
-        if action != "graph" && action != "run" && run_id.is_none_or(|id| id.trim().is_empty()) {
-            return Err(anyhow!("factory activity {action} requires runId"));
+        let run_id = run_id.filter(|id| !id.trim().is_empty());
+        let spec_id = spec_id.filter(|id| !id.trim().is_empty());
+        match action {
+            FactoryActivityAction::Graph => {}
+            FactoryActivityAction::Run => {
+                if spec_id.is_none() {
+                    return Err(anyhow!("factory activity run requires specId"));
+                }
+            }
+            FactoryActivityAction::Status
+            | FactoryActivityAction::Watch
+            | FactoryActivityAction::Stop
+            | FactoryActivityAction::Resume => {
+                if run_id.is_none() {
+                    let action = action.as_str();
+                    return Err(anyhow!("factory activity {action} requires runId"));
+                }
+            }
         }
         if let Some(timeout_ms) = timeout_ms {
             if timeout_ms > FACTIVITY_WATCH_TIMEOUT_MS_CAP {
@@ -449,12 +496,8 @@ impl FactoryActivityRequest {
         }
         Ok(Self {
             action,
-            run_id: run_id
-                .filter(|id| !id.trim().is_empty())
-                .map(str::to_string),
-            spec_id: spec_id
-                .filter(|id| !id.trim().is_empty())
-                .map(str::to_string),
+            run_id: run_id.map(str::to_owned),
+            spec_id: spec_id.map(str::to_owned),
             timeout_ms,
         })
     }

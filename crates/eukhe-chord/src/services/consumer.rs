@@ -425,7 +425,9 @@ struct KeyedBinding {
     transport: Arc<dyn RemoteServiceTransport>,
     report: ErrorReporter,
     assert_access: AccessGuard,
-    on_empty: Box<dyn Fn() + Send + Sync>,
+    /// The binding that lists this keyed binding, released when the last
+    /// observer leaves.
+    owner: Weak<BindingInner>,
     instances: InstanceDirectory<KeyedInstance>,
     state: Mutex<KeyedState>,
 }
@@ -503,10 +505,36 @@ impl KeyedBinding {
             stop.dispose();
             if let Some(binding) = binding.upgrade() {
                 if binding.instances.observer_count() == 0 {
-                    (binding.on_empty)();
+                    binding.release();
                 }
             }
         }))
+    }
+
+    /// Remove this binding from its owner, when it is still the listed one,
+    /// and close it in the background.
+    fn release(self: Arc<Self>) {
+        let Some(inner) = self.owner.upgrade() else {
+            return;
+        };
+        {
+            let mut state = lock(&inner.state);
+            let current = state
+                .keyed
+                .get(self.service.id())
+                .is_some_and(|candidate| Arc::ptr_eq(candidate, &self));
+            if !current {
+                return;
+            }
+            state.keyed.shift_remove(self.service.id());
+            state.readiness_revision += 1;
+        }
+        let report = Arc::clone(&inner.report);
+        spawn_detached(async move {
+            if let Err(error) = self.close(BACKGROUND_CONTEXT.clone()).await {
+                report(error);
+            }
+        });
     }
 
     async fn rebind(self: Arc<Self>, bound: bool, context: Context) -> Result<(), ChordError> {
@@ -1019,53 +1047,23 @@ impl RemoteServiceBinding {
             if let Some(binding) = state.keyed.get(service.id()) {
                 Arc::clone(binding)
             } else {
-                let binding = Arc::new_cyclic(|weak: &Weak<KeyedBinding>| {
-                    let weak = weak.clone();
-                    let binding_inner = Arc::downgrade(inner);
-                    let service_id = service.id().to_owned();
-                    KeyedBinding {
-                        service: service.clone(),
-                        transport: Arc::clone(&inner.transport),
-                        report: Arc::clone(&inner.report),
-                        assert_access: inner.handle_access(),
-                        on_empty: Box::new(move || {
-                            let (Some(binding), Some(inner)) =
-                                (weak.upgrade(), binding_inner.upgrade())
-                            else {
-                                return;
-                            };
-                            {
-                                let mut state = lock(&inner.state);
-                                let current = state
-                                    .keyed
-                                    .get(&service_id)
-                                    .is_some_and(|candidate| Arc::ptr_eq(candidate, &binding));
-                                if !current {
-                                    return;
-                                }
-                                state.keyed.shift_remove(&service_id);
-                                state.readiness_revision += 1;
-                            }
-                            let report = Arc::clone(&inner.report);
-                            spawn_detached(async move {
-                                if let Err(error) = binding.close(BACKGROUND_CONTEXT.clone()).await
-                                {
-                                    report(error);
-                                }
-                            });
-                        }),
-                        instances: InstanceDirectory::new(
-                            Readiness::Pending,
-                            Arc::clone(&inner.report),
-                        ),
-                        state: Mutex::new(KeyedState {
-                            subscription: None,
-                            starting: None,
-                            closed: false,
-                            bound: state.bound,
-                            revision: 0,
-                        }),
-                    }
+                let binding = Arc::new(KeyedBinding {
+                    service: service.clone(),
+                    transport: Arc::clone(&inner.transport),
+                    report: Arc::clone(&inner.report),
+                    assert_access: inner.handle_access(),
+                    owner: Arc::downgrade(inner),
+                    instances: InstanceDirectory::new(
+                        Readiness::Pending,
+                        Arc::clone(&inner.report),
+                    ),
+                    state: Mutex::new(KeyedState {
+                        subscription: None,
+                        starting: None,
+                        closed: false,
+                        bound: state.bound,
+                        revision: 0,
+                    }),
                 });
                 state
                     .keyed

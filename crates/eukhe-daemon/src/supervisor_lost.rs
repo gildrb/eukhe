@@ -56,8 +56,8 @@ fn lost_exit_ms() -> u64 {
 fn lost_exit_ms_from(raw: Option<&str>) -> u64 {
     raw.and_then(|raw| raw.parse::<f64>().ok())
         .filter(|value| value.is_finite() && *value >= 0.0)
-        .map_or(
-            crate::timeouts::derived().worker_lost_exit_default_ms,
+        .map_or_else(
+            || crate::timeouts::derived().worker_lost_exit_default_ms,
             |value| value as u64,
         )
 }

@@ -477,7 +477,7 @@ fn snapshot_of(current: &Current) -> SnapshotEvent {
         }
     }
     SnapshotEvent {
-        entries: current.view.entries().as_ref().clone(),
+        entries: current.view.entries().to_vec(),
         run: parts.live("run").map(|run| SnapshotRun {
             inputs: decode(&run["inputs"]),
         }),

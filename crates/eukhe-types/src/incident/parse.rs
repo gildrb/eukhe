@@ -32,7 +32,7 @@ pub fn timestamp_to_ms(ts: &str) -> Option<i64> {
     let mut second = 0u32;
     let mut millis = 0i64;
     let mut offset_ms = 0i64;
-    if let Some(after_date) = rest.strip_prefix('T').or(rest.strip_prefix(' ')) {
+    if let Some(after_date) = rest.strip_prefix('T').or_else(|| rest.strip_prefix(' ')) {
         rest = after_date;
         hour = take_digits(&mut rest, 2)?;
         rest = rest.strip_prefix(':')?;
@@ -158,8 +158,9 @@ pub fn parse_incident_log_line(line: &str) -> Option<IncidentLogEntry> {
     if trimmed.is_empty() {
         return None;
     }
-    let parsed: serde_json::Value = serde_json::from_str(trimmed).ok()?;
-    let record = parsed.as_object()?;
+    let serde_json::Value::Object(record) = serde_json::from_str(trimmed).ok()? else {
+        return None;
+    };
     let ts = record.get("ts")?.as_str()?;
     let msg = record.get("msg")?.as_str()?.to_string();
     let time_ms = timestamp_to_ms(ts)?;
@@ -181,7 +182,7 @@ pub fn parse_incident_log_line(line: &str) -> Option<IncidentLogEntry> {
             .and_then(serde_json::Value::as_str)
             .map(str::to_string),
         pid: record.get("pid").and_then(pid_number),
-        fields: record.clone(),
+        fields: record,
     })
 }
 

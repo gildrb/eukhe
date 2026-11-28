@@ -359,8 +359,8 @@ impl ProviderRuntime {
         });
         for provider in models.get_providers() {
             let mut provider = (*provider).clone();
-            let original_stream = provider.stream.clone();
-            let original_simple = provider.stream_simple.clone();
+            let original_stream = Arc::clone(&provider.stream);
+            let original_simple = Arc::clone(&provider.stream_simple);
             runtime
                 .inner
                 .originals
@@ -368,7 +368,7 @@ impl ProviderRuntime {
                 .unwrap_or_else(poisoned)
                 .insert(
                     provider.id.clone(),
-                    (original_stream.clone(), original_simple.clone()),
+                    (Arc::clone(&original_stream), Arc::clone(&original_simple)),
                 );
             let weak = Arc::downgrade(&runtime.inner);
             provider.stream = Arc::new(move |model, context, options| {
@@ -377,7 +377,7 @@ impl ProviderRuntime {
                 };
                 let carried = CarriedOptions::of(&options.stream.request);
                 let dispatch: OriginalDispatch = {
-                    let original = original_stream.clone();
+                    let original = Arc::clone(&original_stream);
                     let settings = Arc::clone(&inner.deps.settings);
                     let privacy = inner.privacy.clone();
                     let options = options;
@@ -403,7 +403,7 @@ impl ProviderRuntime {
                 };
                 let carried = CarriedOptions::of(&options.stream.request);
                 let dispatch: OriginalDispatch = {
-                    let original = original_simple.clone();
+                    let original = Arc::clone(&original_simple);
                     let settings = Arc::clone(&inner.deps.settings);
                     let privacy = inner.privacy.clone();
                     let options = options;

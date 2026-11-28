@@ -277,10 +277,7 @@ impl SlashCommandRegistry {
         self.alias_to_name
             .get(name)
             .copied()
-            .or(match self.by_name.get(name) {
-                Some(command) => Some(command.name),
-                None => None,
-            })
+            .or_else(|| self.by_name.get(name).map(|command| command.name))
     }
 
     #[must_use]

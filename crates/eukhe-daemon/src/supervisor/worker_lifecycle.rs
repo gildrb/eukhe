@@ -624,29 +624,32 @@ impl Supervisor {
         // retries; best-effort because the ledger tombstone is the
         // authority.
         let display = crate::rlm_ledger::read_rlm_subagent_display(Path::new(&session_dir));
-        let tombstone = crate::rlm_ledger::RlmSubagentDisplayEntry {
-            type_tag: "rlm_subagent".to_string(),
-            child_id: child_id.clone(),
-            session_name: display
-                .as_ref()
-                .map(|entry| entry.session_name.clone())
-                .unwrap_or_default(),
-            session_dir,
-            session_file: display
-                .as_ref()
-                .map_or_else(|| session_file.clone(), |entry| entry.session_file.clone()),
-            rlm_parent_node_id: display
-                .as_ref()
-                .and_then(|entry| entry.rlm_parent_node_id.clone()),
-            prompt: display.as_ref().and_then(|entry| entry.prompt.clone()),
-            spawn_code: display.as_ref().and_then(|entry| entry.spawn_code.clone()),
-            model: display.as_ref().and_then(|entry| entry.model.clone()),
-            status: "deleted".to_string(),
-            created_at: display.as_ref().map_or(0, |entry| entry.created_at),
+        let status = crate::rlm_ledger::DisplayStatus::Deleted;
+        let tombstone = match display {
+            Some(entry) => crate::rlm_ledger::RlmSubagentDisplayEntry {
+                child_id,
+                session_dir,
+                status,
+                ..entry
+            },
+            None => crate::rlm_ledger::RlmSubagentDisplayEntry {
+                type_tag: crate::rlm_ledger::DisplayTag::RlmSubagent,
+                child_id,
+                session_name: String::new(),
+                session_dir,
+                session_file,
+                rlm_parent_node_id: None,
+                prompt: None,
+                spawn_code: None,
+                model: None,
+                status,
+                created_at: 0,
+            },
         };
         if let Err(error) = crate::rlm_ledger::write_rlm_subagent_display(&tombstone) {
             self.log_line(&format!(
-                "failed to reconcile display entry for tombstoned RLM subagent {child_id}: {error:#}"
+                "failed to reconcile display entry for tombstoned RLM subagent {}: {error:#}",
+                tombstone.child_id
             ));
         }
         Ok(())

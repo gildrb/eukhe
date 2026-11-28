@@ -35,6 +35,9 @@ mod window_tests;
 // entry-id mint) moved to the child module at the same tree position
 // (session_store::index); the facade re-imports keep the bare-path callers
 // in scope (the read/write arms and the stream equivalence tests).
+mod entry_type;
+pub use entry_type::EntryType;
+
 mod index;
 
 use index::fold_child_usage_attributions;
@@ -74,10 +77,8 @@ mod view;
 
 use view::{message_text, normalize_state_status};
 
-// The message-role helper's remaining bare-path callers are the test
-// children; the binding rides the test builds only.
 #[cfg(test)]
-use view::message_role;
+use crate::types::message_role;
 
 // The per-file info scan (the resumable listing fold: the generation
 // identity, the LRU-bounded scan-state cache, the resumed line fold, and
@@ -134,7 +135,7 @@ pub use crate::session_scan::list_sessions;
 #[serde(rename_all = "camelCase")]
 pub struct SessionEntry {
     #[serde(rename = "type")]
-    pub type_: String,
+    pub type_: EntryType,
     pub id: String,
     #[serde(default)]
     pub parent_id: Option<String>,

@@ -164,7 +164,7 @@ impl Select {
 
     /// The model's cells its state covers: its range, else its press.
     fn span(&self) -> Option<(Cell, Cell)> {
-        self.range.or(self.press.map(|at| (at, at)))
+        self.range.or_else(|| self.press.map(|at| (at, at)))
     }
 
     /// The transcript row id of the model's row `row`.

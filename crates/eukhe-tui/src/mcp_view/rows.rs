@@ -3,6 +3,8 @@
 //! render/search projection (the label line, the trailing status, the
 //! detail copy, the Enter action hint, and the search-band fields).
 
+use std::borrow::Cow;
+
 use serde_json::Value;
 
 use crate::theme::ThemeColor;
@@ -14,11 +16,11 @@ use crate::theme::ThemeColor;
 pub(super) struct McpServiceRow {
     pub service_id: String,
     pub label: String,
-    pub connection_status: String,
+    pub connection_status: ConnectionStatus,
     pub connectable: bool,
     pub login_pending: bool,
     pub uses_oauth: bool,
-    pub source: String,
+    pub source: ServiceSource,
     pub connection_ids: Vec<String>,
     /// The paste-panel marker: a requires-setup token service collecting
     /// exactly one credential. Never a connected/verified claim.
@@ -31,6 +33,52 @@ pub(super) struct McpServiceRow {
     pub setup_hint: Option<String>,
     pub tool_count: Option<usize>,
     pub verified_at: Option<u64>,
+}
+
+/// A service's connection state (`connectionStatus`); a word this build
+/// does not know renders like `not_connected`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum ConnectionStatus {
+    Connected,
+    Pending,
+    Error,
+    SetupRequired,
+    Disabled,
+    NotConnected,
+    Unrecognized,
+}
+
+impl ConnectionStatus {
+    fn parse(status: &str) -> Self {
+        match status {
+            "connected" => Self::Connected,
+            "pending" => Self::Pending,
+            "error" => Self::Error,
+            "setup_required" => Self::SetupRequired,
+            "disabled" => Self::Disabled,
+            "not_connected" => Self::NotConnected,
+            _ => Self::Unrecognized,
+        }
+    }
+}
+
+/// Where a service is declared (`source`): the user's own server config,
+/// the catalog, or a source this build does not know.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum ServiceSource {
+    User,
+    Catalog,
+    Unrecognized,
+}
+
+impl ServiceSource {
+    fn parse(source: &str) -> Self {
+        match source {
+            "user" => Self::User,
+            "catalog" => Self::Catalog,
+            _ => Self::Unrecognized,
+        }
+    }
 }
 
 impl McpServiceRow {
@@ -50,18 +98,17 @@ impl McpServiceRow {
                 .unwrap_or_default()
                 .to_string(),
             connection_status: if connected {
-                "connected"
+                ConnectionStatus::Connected
             } else {
-                "not_connected"
-            }
-            .to_string(),
+                ConnectionStatus::NotConnected
+            },
             connectable: !connected,
             login_pending: false,
             uses_oauth: value
                 .get("usesOAuth")
                 .and_then(Value::as_bool)
                 .unwrap_or(false),
-            source: "catalog".to_string(),
+            source: ServiceSource::Catalog,
             connection_ids: Vec::new(),
             paste_token: false,
             aliases: Vec::new(),
@@ -97,8 +144,7 @@ impl McpServiceRow {
             connection_status: value
                 .get("connectionStatus")
                 .and_then(Value::as_str)
-                .unwrap_or("not_connected")
-                .to_string(),
+                .map_or(ConnectionStatus::NotConnected, ConnectionStatus::parse),
             connectable: value
                 .get("connectable")
                 .and_then(Value::as_bool)
@@ -114,8 +160,7 @@ impl McpServiceRow {
             source: value
                 .get("source")
                 .and_then(Value::as_str)
-                .unwrap_or("catalog")
-                .to_string(),
+                .map_or(ServiceSource::Catalog, ServiceSource::parse),
             connection_ids,
             paste_token: value
                 .get("pasteToken")
@@ -163,42 +208,42 @@ impl McpServiceRow {
     /// The trailing status text (TS `statusText`, catalog mode): the honest
     /// state vocabulary, with the record-carried tool count on connected
     /// rows (the picker reads local state only, like TS).
-    pub(super) fn status_text(&self) -> (ThemeColor, String) {
+    pub(super) fn status_text(&self) -> (ThemeColor, Cow<'static, str>) {
         if self.login_pending {
-            return (ThemeColor::Warning, "Login in progress".to_string());
+            return (ThemeColor::Warning, Cow::Borrowed("Login in progress"));
         }
-        match self.connection_status.as_str() {
-            "connected" => (
+        match self.connection_status {
+            ConnectionStatus::Connected => (
                 ThemeColor::Success,
                 match self.tool_count {
-                    Some(tool_count) => format!("Connected - {tool_count} tools"),
-                    None => "Connected".to_string(),
+                    Some(tool_count) => Cow::Owned(format!("Connected - {tool_count} tools")),
+                    None => Cow::Borrowed("Connected"),
                 },
             ),
-            "pending" => (ThemeColor::Warning, "Needs verification".to_string()),
-            "error" => (
+            ConnectionStatus::Pending => (ThemeColor::Warning, Cow::Borrowed("Needs verification")),
+            ConnectionStatus::Error => (
                 ThemeColor::Error,
-                if self.connectable {
+                Cow::Borrowed(if self.connectable {
                     "Reconnect"
                 } else {
                     "Needs attention"
-                }
-                .to_string(),
+                }),
             ),
-            "setup_required" => (ThemeColor::Warning, "Requires setup".to_string()),
-            "disabled" => (ThemeColor::Muted, "Disabled".to_string()),
-            _ => (
+            ConnectionStatus::SetupRequired => {
+                (ThemeColor::Warning, Cow::Borrowed("Requires setup"))
+            }
+            ConnectionStatus::Disabled => (ThemeColor::Muted, Cow::Borrowed("Disabled")),
+            ConnectionStatus::NotConnected | ConnectionStatus::Unrecognized => (
                 if self.connectable {
                     ThemeColor::Text
                 } else {
                     ThemeColor::Muted
                 },
-                if self.connectable {
+                Cow::Borrowed(if self.connectable {
                     "Connect"
                 } else {
                     "Not connected"
-                }
-                .to_string(),
+                }),
             ),
         }
     }
@@ -206,11 +251,14 @@ impl McpServiceRow {
     /// The selected row's detail copy (TS `secondaryText`, catalog mode):
     /// the honest setup guidance for setup-required/error rows, the
     /// description otherwise.
-    pub(super) fn detail_text(&self) -> Option<String> {
-        if self.connection_status == "setup_required" || self.connection_status == "error" {
-            self.setup_hint.clone().or_else(|| self.description.clone())
+    pub(super) fn detail_text(&self) -> Option<&str> {
+        if matches!(
+            self.connection_status,
+            ConnectionStatus::SetupRequired | ConnectionStatus::Error
+        ) {
+            self.setup_hint.as_deref().or(self.description.as_deref())
         } else {
-            self.description.clone().or_else(|| self.setup_hint.clone())
+            self.description.as_deref().or(self.setup_hint.as_deref())
         }
     }
 
@@ -236,15 +284,18 @@ impl McpServiceRow {
         if !self.connection_ids.is_empty() {
             return "manage accounts";
         }
-        if self.source == "user" && !self.uses_oauth {
+        if self.source == ServiceSource::User && !self.uses_oauth {
             return "manage";
         }
-        match self.connection_status.as_str() {
-            "connected" => "re-verify",
-            "pending" => "verify",
+        match self.connection_status {
+            ConnectionStatus::Connected => "re-verify",
+            ConnectionStatus::Pending => "verify",
             _ if !self.connectable => "setup guidance",
-            "error" => "reconnect",
-            _ => "connect",
+            ConnectionStatus::Error => "reconnect",
+            ConnectionStatus::SetupRequired
+            | ConnectionStatus::Disabled
+            | ConnectionStatus::NotConnected
+            | ConnectionStatus::Unrecognized => "connect",
         }
     }
 }

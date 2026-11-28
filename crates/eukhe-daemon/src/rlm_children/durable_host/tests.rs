@@ -412,7 +412,7 @@ async fn a_resumed_watch_fails_a_child_whose_run_was_interrupted() {
             .join("sub-0192a000"),
     )
     .unwrap();
-    assert_eq!(display.status, "running");
+    assert_eq!(display.status, crate::rlm_ledger::DisplayStatus::Running);
 }
 
 /// A resumed watch over an interrupted child no worker hosts (the parent's
@@ -479,7 +479,7 @@ async fn an_idle_child_with_a_pending_job_is_not_settled() {
             .join("sub-0192a000"),
     )
     .unwrap();
-    assert_eq!(display.status, "running");
+    assert_eq!(display.status, crate::rlm_ledger::DisplayStatus::Running);
 }
 
 /// Regression (stuck.md causes 3 and 6): a child whose run ended on a
@@ -508,7 +508,7 @@ async fn a_child_run_ended_by_a_provider_error_settles_failed() {
             .join("sub-0192a000"),
     )
     .unwrap();
-    assert_eq!(display.status, "running");
+    assert_eq!(display.status, crate::rlm_ledger::DisplayStatus::Running);
 }
 
 /// Regression (H5): a live child whose probes fail (refused as

@@ -249,18 +249,17 @@ impl Editor {
     }
 
     pub(crate) fn request_autocomplete(&mut self, force: bool, explicit_tab: bool) {
-        let Some(provider) = self.autocomplete_provider.as_ref() else {
+        if self.autocomplete_provider.is_none() {
             return;
-        };
-        if force {
-            let should = provider.should_trigger_file_completion(
+        }
+        if force
+            && !crate::autocomplete::should_trigger_file_completion(
                 &self.lines,
                 self.cursor_line,
                 self.cursor_col,
-            );
-            if !should {
-                return;
-            }
+            )
+        {
+            return;
         }
         // A new request aborts the in-flight search (TS cancels the
         // previous lookup at request time): dropping the handle sets

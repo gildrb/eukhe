@@ -665,9 +665,9 @@ pub(super) async fn perform(
     caller: Caller,
     cx: &Context,
 ) -> Result<Result<Performed, Rejection>, JoinError> {
-    let (api, witness): (_, Box<dyn Witness + Send>) = match caller {
-        Caller::Tool(api) => (Some(Arc::clone(&api)), Box::new(ProbeWitness::new(api, cx))),
-        Caller::Kernel(api) => (api, Box::new(Unwitnessed)),
+    let (api, witness) = match caller {
+        Caller::Tool(api) => (Some(Arc::clone(&api)), Some(ProbeWitness::new(api, cx))),
+        Caller::Kernel(api) => (api, None),
     };
     let gate = host.gate(workspace, api.as_deref(), cx).await;
     let url = match function {
@@ -684,8 +684,12 @@ pub(super) async fn perform(
             let blocking = Arc::clone(host);
             let (done, accesses) = tokio::task::spawn_blocking(move || {
                 let gate = RecordingGate::new(gate);
+                let witness: &dyn Witness = match &witness {
+                    Some(probe) => probe,
+                    None => &Unwitnessed,
+                };
                 let done =
-                    perform_blocking(&blocking.documents, function, &cwd, args, &gate, &*witness);
+                    perform_blocking(&blocking.documents, function, &cwd, args, &gate, witness);
                 (done, gate.into_ran())
             })
             .await?;

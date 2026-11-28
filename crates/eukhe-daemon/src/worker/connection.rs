@@ -23,6 +23,42 @@ pub(crate) enum AuthOutcome {
     Failed,
 }
 
+/// The commands the connection loop answers or gates itself, parsed once
+/// from the frame's `commandType`; every other name reaches `dispatch`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LoopCommand {
+    WorkerAuth,
+    PeerAuth,
+    RegisterPeerTransport,
+    Ping,
+    Shutdown,
+    Handover,
+    CancelRequest,
+    /// A wait the supervisor parks (`cancel_request` aborts it).
+    Watch,
+    Attach,
+    Detach,
+    Dispatched,
+}
+
+impl LoopCommand {
+    fn parse(command_type: &str) -> Self {
+        match command_type {
+            "worker_auth" => Self::WorkerAuth,
+            "peer_auth" => Self::PeerAuth,
+            "worker_register_peer_transport" => Self::RegisterPeerTransport,
+            "worker_ping" => Self::Ping,
+            "shutdown" => Self::Shutdown,
+            "worker_handover" => Self::Handover,
+            "cancel_request" => Self::CancelRequest,
+            "wait_for_idle" | "wait_for_headless_completion" => Self::Watch,
+            "attach" => Self::Attach,
+            "detach" => Self::Detach,
+            _ => Self::Dispatched,
+        }
+    }
+}
+
 /// A command's answer as the worker writes it to its connection.
 pub(crate) enum WorkerAnswer {
     /// A response serialized at the write.
@@ -139,7 +175,7 @@ struct AttachSnapshot<'a> {
 /// routing (clients attached to the session).
 pub(crate) struct OutboundFrame {
     pub(crate) payload: Vec<u8>,
-    pub(crate) outbound_type: &'static str,
+    pub(crate) outbound_type: OutboundType,
     /// The pump-assigned broadcast sequence. Connection sinks use it as a
     /// flush position so response frames cannot overtake event frames.
     pub(crate) seq: u64,
@@ -149,7 +185,7 @@ impl OutboundFrame {
     pub(crate) fn session_event(payload: Vec<u8>) -> Self {
         OutboundFrame {
             payload,
-            outbound_type: "session_event",
+            outbound_type: OutboundType::SessionEvent,
             seq: 0,
         }
     }
@@ -157,7 +193,7 @@ impl OutboundFrame {
     pub(crate) fn side_question_event(payload: Vec<u8>) -> Self {
         OutboundFrame {
             payload,
-            outbound_type: "side_question_event",
+            outbound_type: OutboundType::SideQuestionEvent,
             seq: 0,
         }
     }
@@ -168,7 +204,7 @@ impl OutboundFrame {
     pub(crate) fn editor_permission(payload: Vec<u8>) -> Self {
         OutboundFrame {
             payload,
-            outbound_type: crate::editor_permission::EDITOR_PERMISSION_FRAME,
+            outbound_type: OutboundType::EditorPermission,
             seq: 0,
         }
     }
@@ -178,7 +214,7 @@ impl OutboundFrame {
     pub(crate) fn state_tree_update(payload: Vec<u8>) -> Self {
         OutboundFrame {
             payload,
-            outbound_type: crate::peer::STATE_TREE_UPDATE_FRAME,
+            outbound_type: OutboundType::StateTreeUpdate,
             seq: 0,
         }
     }
@@ -189,7 +225,7 @@ impl OutboundFrame {
     pub(crate) fn heartbeats_changed() -> Self {
         OutboundFrame {
             payload: br#"{"type":"heartbeats_changed"}"#.to_vec(),
-            outbound_type: "heartbeats_changed",
+            outbound_type: OutboundType::HeartbeatsChanged,
             seq: 0,
         }
     }
@@ -200,14 +236,51 @@ impl OutboundFrame {
     pub(crate) fn cron_changed() -> Self {
         OutboundFrame {
             payload: br#"{"type":"cron_changed"}"#.to_vec(),
-            outbound_type: CRON_CHANGED_FRAME,
+            outbound_type: OutboundType::CronChanged,
             seq: 0,
         }
     }
 }
 
-/// The outbound type of [`OutboundFrame::cron_changed`].
-pub(crate) const CRON_CHANGED_FRAME: &str = "cron_changed";
+/// A private frame's `outboundType` header.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum OutboundType {
+    Response,
+    SessionEvent,
+    SideQuestionEvent,
+    EditorPermission,
+    StateTreeUpdate,
+    HeartbeatsChanged,
+    CronChanged,
+}
+
+impl OutboundType {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Response => "response",
+            Self::SessionEvent => "session_event",
+            Self::SideQuestionEvent => "side_question_event",
+            Self::EditorPermission => "editor_permission",
+            Self::StateTreeUpdate => "state_tree_update",
+            Self::HeartbeatsChanged => "heartbeats_changed",
+            Self::CronChanged => "cron_changed",
+        }
+    }
+
+    /// The type a header names; `None` for any other name.
+    pub(crate) fn parse(outbound_type: &str) -> Option<Self> {
+        Some(match outbound_type {
+            "response" => Self::Response,
+            "session_event" => Self::SessionEvent,
+            "side_question_event" => Self::SideQuestionEvent,
+            "editor_permission" => Self::EditorPermission,
+            "state_tree_update" => Self::StateTreeUpdate,
+            "heartbeats_changed" => Self::HeartbeatsChanged,
+            "cron_changed" => Self::CronChanged,
+            _ => return None,
+        })
+    }
+}
 
 /// The worker's outbound event pump: one sequence-stamped broadcast stream
 /// shared by every frame-emitting path (turns, compaction, side questions,
@@ -614,7 +687,7 @@ impl Worker {
                                         let active_session_id = active_session_id_of(&frame.payload);
                                         let header = json!({
                                             "kind": "outbound",
-                                            "outboundType": frame.outbound_type,
+                                            "outboundType": frame.outbound_type.as_str(),
                                             "activeSessionId": active_session_id,
                                         });
                                         if worker
@@ -682,6 +755,7 @@ impl Worker {
                 .and_then(Value::as_str)
                 .unwrap_or_default()
                 .to_string();
+            let command = LoopCommand::parse(&command_type);
             let mut payload: Value = serde_json::from_slice(&frame.payload)
                 .with_context(|| format!("invalid worker command JSON for {command_type}"))?;
             if std::env::var("EUKHE_DAEMON_DEBUG").is_ok() {
@@ -694,7 +768,7 @@ impl Worker {
                     // The first command authenticates the connection; a
                     // failed authentication ends it (TS worker branch).
                     let outcome = self
-                        .authenticate_connection(&command_type, &payload, &request_id, &role, &sink)
+                        .authenticate_connection(command, &payload, &request_id, &role, &sink)
                         .await;
                     if outcome == AuthOutcome::Failed {
                         // Failed auth ends the connection: wake the fan-out
@@ -704,7 +778,7 @@ impl Worker {
                     }
                 }
                 ConnectionRole::Supervisor { ref generation } => {
-                    if command_type == "worker_register_peer_transport" {
+                    if command == LoopCommand::RegisterPeerTransport {
                         let response =
                             self.handle_worker_register_peer_transport(&payload, generation);
                         self.write_response_frame(&sink, &request_id, response)
@@ -715,7 +789,7 @@ impl Worker {
                     // on the connection loop itself: a worker that still
                     // reads its socket is running, however long its
                     // commands take.
-                    if command_type == "worker_ping" {
+                    if command == LoopCommand::Ping {
                         let response = response_success(None, "worker_ping", None);
                         self.write_response_frame(&sink, &request_id, response)
                             .await;
@@ -726,7 +800,7 @@ impl Worker {
                     // TS daemon's async handlers: a long-running command (a
                     // turn, a compaction) must not block aborts or state
                     // reads from other clients.
-                    if command_type == "shutdown" {
+                    if command == LoopCommand::Shutdown {
                         let response = self.dispatch(&command_type, &payload).await;
                         // The reply must precede the exit (the response is
                         // consumed by the write), so capture the outcome
@@ -749,13 +823,13 @@ impl Worker {
                     // The handover stays sequential too: its reply precedes
                     // the exit. It has no close tail (the session is not
                     // closed; the next worker resumes it from storage).
-                    if command_type == "worker_handover" {
+                    if command == LoopCommand::Handover {
                         let response = self.dispatch(&command_type, &payload).await;
                         self.write_response_frame(&sink, &request_id, response)
                             .await;
                         std::process::exit(0);
                     }
-                    if command_type == "cancel_request" {
+                    if command == LoopCommand::CancelRequest {
                         let watch = match serde_json::from_value(payload) {
                             Ok(DaemonWorkerCommand::CancelRequest { request_id, .. }) => {
                                 parked_watches
@@ -770,13 +844,9 @@ impl Worker {
                         }
                         continue;
                     }
-                    let watch = matches!(
-                        command_type.as_str(),
-                        "wait_for_idle" | "wait_for_headless_completion"
-                    );
+                    let watch = command == LoopCommand::Watch;
                     let worker = Arc::clone(&self);
                     let sink = Arc::clone(&sink);
-                    let command_type = command_type.clone();
                     let parked = Arc::clone(&parked_watches);
                     // The registration happens under the lock the task's
                     // own removal takes, so a fast task cannot finish
@@ -798,7 +868,7 @@ impl Worker {
                         }
                     });
                     if watch {
-                        registry.insert(request_id.clone(), task.abort_handle());
+                        registry.insert(request_id, task.abort_handle());
                     }
                 }
                 ConnectionRole::SessionClient { ref session } => {
@@ -806,7 +876,7 @@ impl Worker {
                     // (the registry keys this connection's retained ids
                     // by it; a failed attach's release is the idempotent
                     // no-op).
-                    if matches!(command_type.as_str(), "attach" | "detach") {
+                    if matches!(command, LoopCommand::Attach | LoopCommand::Detach) {
                         if let Some(object) = payload.as_object_mut() {
                             object.insert("connectionToken".to_string(), json!(connection_token));
                         }
@@ -827,8 +897,6 @@ impl Worker {
                     // reason as the supervisor arm above.
                     let worker = Arc::clone(&self);
                     let sink = Arc::clone(&sink);
-                    let request_id = request_id.clone();
-                    let command_type = command_type.clone();
                     let session = Arc::clone(session);
                     tokio::spawn(async move {
                         let response = worker.answer(&command_type, &payload).await;
@@ -836,10 +904,18 @@ impl Worker {
                         // before the write consumes the response.
                         let success = response.success();
                         if success {
-                            match command_type.as_str() {
-                                "attach" => session.mark_attached(),
-                                "detach" => session.mark_detached(),
-                                _ => {}
+                            match command {
+                                LoopCommand::Attach => session.mark_attached(),
+                                LoopCommand::Detach => session.mark_detached(),
+                                LoopCommand::WorkerAuth
+                                | LoopCommand::PeerAuth
+                                | LoopCommand::RegisterPeerTransport
+                                | LoopCommand::Ping
+                                | LoopCommand::Shutdown
+                                | LoopCommand::Handover
+                                | LoopCommand::CancelRequest
+                                | LoopCommand::Watch
+                                | LoopCommand::Dispatched => {}
                             }
                         }
                         worker
@@ -864,8 +940,6 @@ impl Worker {
                     // Delivery runs concurrently, like the other planes.
                     let worker = Arc::clone(&self);
                     let sink = Arc::clone(&sink);
-                    let request_id = request_id.clone();
-                    let command_type = command_type.clone();
                     tokio::spawn(async move {
                         let response = worker.dispatch(&command_type, &payload).await;
                         worker
@@ -883,16 +957,16 @@ impl Worker {
     /// client role holding a burned single-use grant. Writes the response.
     async fn authenticate_connection(
         self: &Arc<Self>,
-        command_type: &str,
+        command: LoopCommand,
         payload: &Value,
         request_id: &str,
         role: &Arc<std::sync::Mutex<ConnectionRole>>,
         sink: &ConnectionSink,
     ) -> AuthOutcome {
-        if command_type == "peer_auth" {
+        if command == LoopCommand::PeerAuth {
             return self.handle_peer_auth(payload, request_id, role, sink).await;
         }
-        if command_type != "worker_auth" {
+        if command != LoopCommand::WorkerAuth {
             let failure = response_failure(
                 Some(request_id),
                 "worker_auth",
@@ -1028,7 +1102,7 @@ impl Worker {
         let mut header = json!({
             "kind": "outbound",
             "requestId": request_id,
-            "outboundType": "response",
+            "outboundType": OutboundType::Response.as_str(),
         });
         // The attach family's response header carries the scalars the
         // supervisor's routed bookkeeping reads (success, the attach's

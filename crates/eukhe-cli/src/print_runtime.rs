@@ -700,7 +700,7 @@ async fn run_exit(
             if !json_mode {
                 eprintln!("{}", outcome.content);
             }
-            if outcome.outcome == "failed" {
+            if outcome.outcome == crate::headless_terminal::CompactionResult::Failed {
                 facts.compaction_failed = true;
             }
         }

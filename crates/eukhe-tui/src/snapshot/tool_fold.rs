@@ -36,14 +36,14 @@ pub fn apply_streamed_tool_card(
     match card_index {
         Some(index) => {
             if let Some(ChatEntry::Tool(card)) = view.chat.get_mut(index) {
-                card.name = name.to_string();
+                card.name = crate::tool_card::ToolName::from(name);
                 card.args = args.clone();
             }
             view.mark_entry_stale(index);
         }
         None => view.push_entry(ChatEntry::Tool(Box::new(ToolCallCard {
             id: id.to_string(),
-            name: name.to_string(),
+            name: crate::tool_card::ToolName::from(name),
             args: args.clone(),
             started: false,
             ..Default::default()
@@ -112,8 +112,8 @@ pub fn apply_tool_execution_start(
         if let Some(ChatEntry::Tool(card)) = view.chat.get_mut(index) {
             card.started = true;
             card.started_at = Some(std::time::Instant::now());
-            if card.name.is_empty() && !tool_name.is_empty() {
-                card.name = tool_name.to_string();
+            if card.name.as_str().is_empty() && !tool_name.is_empty() {
+                card.name = crate::tool_card::ToolName::from(tool_name);
             }
             if !args.is_null() {
                 card.args = args;
@@ -124,7 +124,7 @@ pub fn apply_tool_execution_start(
     }
     view.push_entry(ChatEntry::Tool(Box::new(ToolCallCard {
         id: tool_call_id.to_string(),
-        name: tool_name.to_string(),
+        name: crate::tool_card::ToolName::from(tool_name),
         args,
         started: true,
         started_at: Some(std::time::Instant::now()),
@@ -214,7 +214,7 @@ pub fn assistant_value_to_entries(message: &eukhe_types::ai::AssistantMessage) -
     for (id, name, args) in tool_calls {
         entries.push(ChatEntry::Tool(Box::new(ToolCallCard {
             id,
-            name,
+            name: crate::tool_card::ToolName::from(name),
             args,
             started: false,
             ..Default::default()

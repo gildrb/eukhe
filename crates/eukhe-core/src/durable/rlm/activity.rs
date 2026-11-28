@@ -12,7 +12,9 @@ use eukhe_types::daemon::KERNEL_NOT_RUNNING_MESSAGE;
 use serde_json::Value;
 
 use super::super::HostDeps;
-use super::factory::{FactoryActivityRequest, FactoryHost, FactoryHostConfig};
+use super::factory::{
+    FactoryActivityAction, FactoryActivityRequest, FactoryHost, FactoryHostConfig,
+};
 use crate::kernel::manager::ReplKernelManager;
 use crate::refinement::{get_global_harness_state_dir, get_local_harness_state_dir};
 
@@ -173,7 +175,7 @@ pub async fn kernel_factory_activity(
     request: FactoryActivityRequest,
     cx: &Context,
 ) -> Result<Value, KernelActivityError> {
-    if request.action == "run" {
+    if request.action == FactoryActivityAction::Run {
         let spec_id = request.spec_id.clone().ok_or_else(|| {
             KernelActivityError::Failed(anyhow::anyhow!("factory activity run requires specId"))
         })?;
@@ -194,7 +196,7 @@ pub async fn kernel_factory_activity(
     let manager = running_manager(deps, conversation.id())?;
     manager
         .factory_activity(
-            request.action,
+            request.action.as_str(),
             request.run_id.as_deref(),
             request.spec_id.as_deref(),
             request.timeout_ms,

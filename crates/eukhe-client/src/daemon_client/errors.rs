@@ -245,9 +245,17 @@ pub fn rejected_provider_unauthenticated(error: &anyhow::Error) -> Option<String
 
 /// Wire `type` tag of a command, for error messages.
 pub(super) fn command_type_debug(command: &DaemonCommand) -> String {
-    serde_json::to_value(command)
+    #[derive(serde::Deserialize)]
+    struct CommandTag<'a> {
+        #[serde(rename = "type", borrow)]
+        kind: std::borrow::Cow<'a, str>,
+    }
+    serde_json::to_string(command)
         .ok()
-        .and_then(|value| value.get("type").cloned())
-        .and_then(|value| value.as_str().map(str::to_string))
+        .and_then(|json| {
+            serde_json::from_str::<CommandTag<'_>>(&json)
+                .ok()
+                .map(|tag| tag.kind.into_owned())
+        })
         .unwrap_or_else(|| "command".to_string())
 }

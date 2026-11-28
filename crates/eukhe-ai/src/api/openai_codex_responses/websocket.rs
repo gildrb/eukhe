@@ -13,10 +13,12 @@ use futures::StreamExt;
 use reqwest::header::HeaderMap;
 use tokio::sync::mpsc;
 
+use crate::api::openai_responses_shared::tags::EventType;
 use crate::utils::diagnostics::{format_thrown_value, ErrorObject, Thrown};
 use crate::utils::headers::headers_to_record;
 use crate::utils::js::number_to_js_string;
 use crate::utils::sleep::timer_duration;
+use crate::utils::wire_type::wire_type;
 
 use super::errors::{
     aborted_error, codex_protocol_error, extract_websocket_close_error, extract_websocket_error,
@@ -260,11 +262,9 @@ impl ParseState {
                 }
                 match serde_json::from_str::<JsonValue>(&text) {
                     Ok(parsed) => {
-                        let event_type =
-                            parsed.get("type").and_then(JsonValue::as_str).unwrap_or("");
                         if matches!(
-                            event_type,
-                            "response.completed" | "response.done" | "response.incomplete"
+                            wire_type(&parsed),
+                            Some(EventType::Completed | EventType::Done | EventType::Incomplete)
                         ) {
                             self.saw_completion = true;
                             self.done = true;

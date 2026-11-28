@@ -421,10 +421,9 @@ pub async fn mcp_refresh_token(
             );
         }
     }
-    let stored_token_endpoint = token_endpoint.clone();
+    let stored_token_endpoint = token_endpoint.as_deref();
     let token_endpoint = stored_token_endpoint
-        .clone()
-        .unwrap_or_else(|| discovery.metadata.token_endpoint.clone());
+        .map_or_else(|| discovery.metadata.token_endpoint.clone(), str::to_string);
     if let Some(stored_endpoint) = stored_token_endpoint {
         if stored_endpoint != discovery.metadata.token_endpoint {
             bail!(
@@ -829,16 +828,12 @@ mod tests {
         let auth_url = Url::parse(&ui.auth_url.lock().unwrap()).unwrap();
         assert!(!auth_url.query_pairs().any(|(key, _)| key == "resource"));
         // The root PRM location is never probed for a pathful resource.
-        let urls: Vec<String> = http
+        assert!(!http
             .seen
             .lock()
             .unwrap()
             .iter()
-            .map(|(url, _)| url.clone())
-            .collect();
-        assert!(
-            !urls.contains(&"https://srv.test/.well-known/oauth-protected-resource".to_string())
-        );
+            .any(|(url, _)| url == "https://srv.test/.well-known/oauth-protected-resource"));
     }
 
     /// A `WWW-Authenticate` resource pointer wins over the derived location.
@@ -896,14 +891,12 @@ mod tests {
             other => panic!("oauth credential expected, got {other:?}"),
         }
         // The derived PRM URL was never fetched.
-        let urls: Vec<String> = http
+        assert!(!http
             .seen
             .lock()
             .unwrap()
             .iter()
-            .map(|(url, _)| url.clone())
-            .collect();
-        assert!(!urls.contains(&PLANE_PRM_URL.to_string()));
+            .any(|(url, _)| url == PLANE_PRM_URL));
     }
 
     /// Metadata for a different resource fails closed.
@@ -1188,14 +1181,12 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(error.contains("token endpoint does not match"), "{error}");
-        let urls: Vec<String> = http
+        assert!(!http
             .seen
             .lock()
             .unwrap()
             .iter()
-            .map(|(url, _)| url.clone())
-            .collect();
-        assert!(!urls.contains(&"https://attacker.example/token".to_string()));
+            .any(|(url, _)| url == "https://attacker.example/token"));
     }
 
     /// A discovery-mode change (origin-only credentials against a
@@ -1232,14 +1223,12 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(error.contains("discovery mode changed"), "{error}");
-        let urls: Vec<String> = http
+        assert!(!http
             .seen
             .lock()
             .unwrap()
             .iter()
-            .map(|(url, _)| url.clone())
-            .collect();
-        assert!(!urls.contains(&PLANE_TOKEN.to_string()));
+            .any(|(url, _)| url == PLANE_TOKEN));
     }
 
     /// The origin-level fixture: discovery, registration, and the token
@@ -1422,14 +1411,12 @@ mod tests {
             }
             other => panic!("oauth credential expected, got {other:?}"),
         }
-        let urls: Vec<String> = http
+        assert!(!http
             .seen
             .lock()
             .unwrap()
             .iter()
-            .map(|(url, _)| url.clone())
-            .collect();
-        assert!(!urls.contains(&ORIGIN_REGISTER.to_string()));
+            .any(|(url, _)| url == ORIGIN_REGISTER));
     }
 
     /// Every candidate busy: the login says why the browser cannot hand

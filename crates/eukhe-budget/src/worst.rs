@@ -203,7 +203,7 @@ mod tests {
             .flatten()
             .filter(|tier| billed_input > tier.input_tokens_above)
             .max_by_key(|tier| tier.input_tokens_above)
-            .map_or(cost.rates(), ModelCostTier::rates)
+            .map_or_else(|| cost.rates(), ModelCostTier::rates)
     }
 
     #[test]

@@ -291,7 +291,7 @@ pub async fn open_session(config: SessionConfig, cx: &Context) -> Result<EukheSe
         // ride the wire).
         let ledger_path = storage_dir.as_deref().and_then(|dir| {
             observe::semantic_edges::semantic_edge_ledger_path(
-                parent.as_ref().and(dir.parent()),
+                parent.as_ref().and_then(|_| dir.parent()),
                 session_artifact_dir_for_log(dir).as_deref(),
             )
         });
@@ -388,7 +388,7 @@ pub async fn open_session(config: SessionConfig, cx: &Context) -> Result<EukheSe
         tracing::warn!(session_id = %session_id, error = %error, "durable harness report");
     });
     let mut options = HarnessOptions::new(models.clone(), Arc::new(registry.clone()));
-    options.settings = Some(settings.clone());
+    options.settings = Some(Arc::<EukheSettings>::clone(&settings));
     options.env = Some(env_factory(&config.cwd));
     options.now.clone_from(&config.now);
     options.on_report = Some(on_report);

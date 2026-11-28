@@ -242,7 +242,7 @@ impl Parser<'_> {
         let length = self
             .rest()
             .find(|c: char| !(c.is_alphanumeric() || c == '_' || c == '$'))
-            .unwrap_or(self.rest().len());
+            .unwrap_or_else(|| self.rest().len());
         let word = self.rest()[..length].to_owned();
         self.at += length;
         word
@@ -347,7 +347,7 @@ impl Parser<'_> {
         let length = self
             .rest()
             .find(|c: char| !(c.is_ascii_digit() || matches!(c, '-' | '+' | '.' | 'e' | 'E')))
-            .unwrap_or(self.rest().len());
+            .unwrap_or_else(|| self.rest().len());
         let text = &self.rest()[..length];
         let value = if let Ok(integer) = text.parse::<i64>() {
             Value::Number(integer.into())

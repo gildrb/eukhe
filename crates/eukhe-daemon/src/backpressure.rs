@@ -567,8 +567,8 @@ mod tests {
                         &command,
                         "client",
                         &attached,
-                        "c-1".to_string(),
-                        "wait_for_idle".to_string(),
+                        "c-1",
+                        "wait_for_idle",
                         None,
                     )
                     .await

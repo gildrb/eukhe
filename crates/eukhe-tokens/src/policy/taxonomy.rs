@@ -497,7 +497,7 @@ fn collapse_variant_id<'a>(provider: &str, model: &'a str) -> std::borrow::Cow<'
         }
         let lane_tail = model
             .get(trimmed.len()..)
-            .unwrap_or(&lower[trimmed.len()..]);
+            .unwrap_or_else(|| &lower[trimmed.len()..]);
         return Cow::Owned(format!("{base}{lane_tail}"));
     }
     Cow::Borrowed(model)

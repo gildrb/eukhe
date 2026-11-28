@@ -2,7 +2,7 @@
 //! `buildParams`, `convertMessages`, the per-message effort plan,
 //! `convertTools`, and the content/tool helpers they use.
 
-use std::borrow::Borrow;
+use std::borrow::{Borrow, Cow};
 use std::collections::HashSet;
 
 use eukhe_types::pi_ai::{
@@ -12,6 +12,7 @@ use eukhe_types::pi_ai::{
 };
 use serde_json::json;
 
+use super::tags::{BlockType, Role, ThinkingType};
 use super::{
     adaptive_only_thinking, billing, get_anthropic_compat, model_compat, AnthropicOptions,
     AnthropicToolChoice, ADAPTIVE_TAG_EFFORT, CLAUDE_CODE_SYSTEM_PROMPT,
@@ -33,6 +34,7 @@ use crate::utils::provider_env::get_provider_env_value;
 use crate::utils::sanitize_unicode::sanitize_surrogates;
 use crate::utils::text::{render_system_message_update, split_system_prompt};
 use crate::utils::transcript::{get_current_tools, get_initial_system_message};
+use crate::utils::wire_type::{wire_tag, wire_type};
 
 const FINE_GRAINED_TOOL_STREAMING_BETA: &str = "fine-grained-tool-streaming-2025-05-14";
 const INTERLEAVED_THINKING_BETA: &str = "interleaved-thinking-2025-05-14";
@@ -197,7 +199,16 @@ fn convert_tool_result(message: &ToolResultMessage) -> JsonValue {
 
 /// TS `isAnthropicEffort`.
 pub(crate) fn is_anthropic_effort(value: &str) -> bool {
-    matches!(value, "low" | "medium" | "high" | "xhigh" | "max")
+    matches!(
+        ThinkingLevel::parse(value),
+        Some(
+            ThinkingLevel::Low
+                | ThinkingLevel::Medium
+                | ThinkingLevel::High
+                | ThinkingLevel::Xhigh
+                | ThinkingLevel::Max
+        )
+    )
 }
 
 /// What a reply of a per-message-effort model records in
@@ -255,7 +266,7 @@ fn convert_messages(
                     blocks.push(json!({ "type": "text", "text": sanitize_surrogates(&text) }));
                 }
                 if let Some(native) = settings.native_tools {
-                    let added = message.tools_added.clone().unwrap_or_default();
+                    let added = message.tools_added.as_deref().unwrap_or_default();
                     let redefined: HashSet<&str> =
                         added.iter().map(|tool| tool.name.as_str()).collect();
                     for tool in message.tools_removed.iter().flatten() {
@@ -273,7 +284,7 @@ fn convert_messages(
                         }));
                     }
                     for definition in convert_tools(
-                        &added,
+                        added,
                         settings.is_oauth_token,
                         native.supports_eager_tool_input_streaming,
                         native.strict,
@@ -420,16 +431,18 @@ fn convert_messages(
     params.append(&mut pending_system);
 
     if let (Some(cache_control), Some(last)) = (settings.cache_control, params.last_mut()) {
-        let role = last.get("role").and_then(JsonValue::as_str);
-        if matches!(role, Some("user" | "system")) {
+        if matches!(wire_tag(last, "role"), Some(Role::User | Role::System)) {
             match last.get_mut("content") {
                 Some(JsonValue::Array(blocks)) => {
                     if let Some(block) = blocks.last_mut() {
-                        let kind = block.get("type").and_then(JsonValue::as_str);
                         if matches!(
-                            kind,
+                            wire_type(block),
                             Some(
-                                "text" | "image" | "tool_result" | "tool_addition" | "tool_removal"
+                                BlockType::Text
+                                    | BlockType::Image
+                                    | BlockType::ToolResult
+                                    | BlockType::ToolAddition
+                                    | BlockType::ToolRemoval
                             )
                         ) {
                             block["cache_control"] = cache_control.clone();
@@ -454,32 +467,32 @@ fn convert_messages(
 }
 
 /// The effort plan: the request's effort controls.
-struct EffortPlan {
+struct EffortPlan<'a> {
     /// Top-level `output_config.effort`: byte-stable across a conversation,
     /// the first recorded request's effort, or this request's when none is
     /// recorded.
-    top_level: Option<String>,
+    top_level: Option<&'a str>,
     /// Per-message effort controls: the wire index each goes before, and
     /// its effort.
     inserts: Vec<(usize, String)>,
     /// The effort in force after this request: what its reply records.
-    tail: Option<String>,
+    tail: Option<&'a str>,
 }
 
 /// Plans the effort controls: top-level effort stays the first
 /// recorded request's, every recorded change replays as a per-message
 /// control before the reply of the request that made it, and this request's
 /// own change (`current`) goes last.
-fn plan_effort_controls(
+fn plan_effort_controls<'a>(
     messages: &[JsonValue],
-    records: &[EffortRecord],
-    current: Option<&str>,
-) -> EffortPlan {
+    records: &'a [EffortRecord],
+    current: Option<&'a str>,
+) -> EffortPlan<'a> {
     let top_level = match records.first() {
-        Some((_, first)) => first.clone(),
-        None => current.map(str::to_owned),
+        Some((_, first)) => first.as_deref(),
+        None => current,
     };
-    let mut tail = top_level.clone();
+    let mut tail = top_level;
     let mut inserts: Vec<(usize, String)> = Vec::new();
     let change = |index: usize, effort: &str, inserts: &mut Vec<(usize, String)>| match inserts
         .iter_mut()
@@ -490,24 +503,24 @@ fn plan_effort_controls(
     };
     for (index, recorded) in records {
         if let Some(recorded) = recorded {
-            if tail.as_deref() != Some(recorded.as_str()) {
+            if tail != Some(recorded.as_str()) {
                 change(
                     effort_insert_index(messages, *index),
                     recorded,
                     &mut inserts,
                 );
-                tail = Some(recorded.clone());
+                tail = Some(recorded);
             }
         }
     }
     if let Some(current) = current {
-        if tail.as_deref() != Some(current) {
+        if tail != Some(current) {
             change(
                 effort_insert_index(messages, messages.len()),
                 current,
                 &mut inserts,
             );
-            tail = Some(current.to_owned());
+            tail = Some(current);
         }
     }
     EffortPlan {
@@ -542,9 +555,9 @@ fn is_tool_results(message: &JsonValue) -> bool {
         .and_then(JsonValue::as_array)
         .is_some_and(|blocks| {
             !blocks.is_empty()
-                && blocks.iter().all(|block| {
-                    block.get("type").and_then(JsonValue::as_str) == Some("tool_result")
-                })
+                && blocks
+                    .iter()
+                    .all(|block| wire_type(block) == Some(BlockType::ToolResult))
         })
 }
 
@@ -556,7 +569,11 @@ fn effort_controls_block_disabled_thinking(
     records: &[EffortRecord],
 ) -> bool {
     let plan = plan_effort_controls(messages, records, None);
-    !plan.inserts.is_empty() || matches!(plan.top_level.as_deref(), Some("xhigh" | "max"))
+    !plan.inserts.is_empty()
+        || matches!(
+            plan.top_level.and_then(ThinkingLevel::parse),
+            Some(ThinkingLevel::Xhigh | ThinkingLevel::Max)
+        )
 }
 
 /// The wire messages with the planned effort controls spliced in.
@@ -855,16 +872,16 @@ pub(crate) fn build_params(
     } else {
         &transformed[..]
     };
-    let initial_tools: Vec<Tool> = initial_system
-        .and_then(|system| system.tools_added.clone())
+    let initial_tools: &[Tool] = initial_system
+        .and_then(|system| system.tools_added.as_deref())
         .unwrap_or_default();
     let native_tool_changes = compat.supports_mid_convo_system_messages
         && compat.supports_mid_convo_tool_changes
         && !initial_tools.is_empty();
-    let request_tools: Vec<Tool> = if native_tool_changes {
-        initial_tools.clone()
+    let request_tools: Cow<'_, [Tool]> = if native_tool_changes {
+        Cow::Borrowed(initial_tools)
     } else {
-        get_current_tools(messages)
+        Cow::Owned(get_current_tools(messages))
     };
     let added_tools = conversation
         .iter()
@@ -895,20 +912,18 @@ pub(crate) fn build_params(
             }),
         },
     )?;
-    let display = options
-        .thinking_display
-        .clone()
-        .unwrap_or_else(|| "summarized".to_owned());
+    let display = options.thinking_display.as_deref().unwrap_or("summarized");
     // A per-message-effort model: the request's own
     // thinking and effort, the prefix binding, then the effort plan.
     let mut effort_thinking: Option<JsonValue> = None;
+    let current_effort: Option<String>;
     let mut effort_plan: Option<EffortPlan> = None;
     let wire_messages = if mid_convo_effort {
         let records = &converted.assistant_levels;
         let (mut thinking, current) = per_message_effort_thinking(
             options,
             model_compat.and_then(|compat| compat.disabled_thinking),
-            &display,
+            display,
             &converted.messages,
             records,
         );
@@ -917,18 +932,26 @@ pub(crate) fn build_params(
             .unwrap_or(true);
         if binding {
             let bound = thinking.get_or_insert_with(|| json!({ "type": "adaptive" }));
-            if matches!(bound["type"].as_str(), Some("adaptive" | "enabled")) {
+            if matches!(
+                wire_type(bound),
+                Some(ThinkingType::Adaptive | ThinkingType::Enabled)
+            ) {
                 bound["block_binding"] = json!({ "prefix_mismatch_behavior": "drop_block" });
             }
         }
-        let mut plan = plan_effort_controls(&converted.messages, records, current.as_deref());
+        current_effort = current;
+        let mut plan =
+            plan_effort_controls(&converted.messages, records, current_effort.as_deref());
         // `between_tools` is a 400 at `xhigh`/`max` effort, and the effort in
         // force outlives a thinking toggle: the default adaptive request
         // accepts every effort.
         if thinking
             .as_ref()
-            .is_some_and(|thinking| thinking["type"] == "between_tools")
-            && matches!(plan.top_level.as_deref(), Some("xhigh" | "max"))
+            .is_some_and(|thinking| wire_type(thinking) == Some(ThinkingType::BetweenTools))
+            && matches!(
+                plan.top_level.and_then(ThinkingLevel::parse),
+                Some(ThinkingLevel::Xhigh | ThinkingLevel::Max)
+            )
         {
             thinking = None;
         }
@@ -1020,7 +1043,7 @@ pub(crate) fn build_params(
     let tools_cache = tool_cache_control.filter(|_| tools_mark);
     if native_tool_changes {
         let mut tools = convert_tools(
-            &initial_tools,
+            initial_tools,
             is_oauth_token,
             compat.supports_eager_tool_input_streaming,
             &strict,
@@ -1048,7 +1071,7 @@ pub(crate) fn build_params(
         if let Some(effort) = &plan.top_level {
             params.insert("output_config".into(), json!({ "effort": effort }));
         }
-        Some(plan.tail.unwrap_or_else(|| NO_EFFORT.to_owned()))
+        Some(plan.tail.unwrap_or(NO_EFFORT).to_owned())
     } else {
         None
     };

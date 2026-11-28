@@ -8,6 +8,7 @@
 //! `agent_begin/end`, `session_action_update`) map to nothing, exactly like
 //! the TS switch's default arm.
 
+use crate::types::{message_role, BlockKind, MessageRole};
 use std::collections::HashMap;
 
 use eukhe_types::acceptance::{AcceptanceCheck, AcceptanceState, CheckSpec, CheckVerdict};
@@ -97,10 +98,10 @@ impl WireMappingState {
         let mut thinking = String::new();
         let mut pieces = Vec::new();
         for block in blocks {
-            let (run, published, is_text) = match block.get("type").and_then(Value::as_str) {
-                Some("text") => (&mut text, self.published.text.len(), true),
-                Some("thinking") => (&mut thinking, self.published.thinking.len(), false),
-                _ => continue,
+            let (run, published, is_text) = match BlockKind::of(block) {
+                BlockKind::Text => (&mut text, self.published.text.len(), true),
+                BlockKind::Thinking => (&mut thinking, self.published.thinking.len(), false),
+                BlockKind::Image | BlockKind::ToolCall | BlockKind::Other => continue,
             };
             let field = if is_text { "text" } else { "thinking" };
             let Some(content) = block.get(field).and_then(Value::as_str) else {
@@ -143,11 +144,7 @@ impl WireMappingState {
 
 /// Whether `event` carries an assistant message.
 fn is_assistant(event: &Value) -> bool {
-    event
-        .get("message")
-        .and_then(|message| message.get("role"))
-        .and_then(Value::as_str)
-        == Some("assistant")
+    event.get("message").and_then(message_role) == Some(MessageRole::Assistant)
 }
 
 /// The assistant stop reason carried by one `message_end` event: the
@@ -164,7 +161,7 @@ pub fn assistant_stop(event: &Value) -> Option<AssistantStop> {
         return None;
     }
     let message = event.get("message")?;
-    if message.get("role").and_then(Value::as_str) != Some("assistant") {
+    if message_role(message) != Some(MessageRole::Assistant) {
         return None;
     }
     Some(AssistantStop {
@@ -703,7 +700,7 @@ pub fn assistant_answer(event: &Value) -> Option<String> {
         .get("content")?
         .as_array()?
         .iter()
-        .filter(|block| block.get("type").and_then(Value::as_str) == Some("text"))
+        .filter(|block| BlockKind::of(block) == BlockKind::Text)
         .filter_map(|block| block.get("text").and_then(Value::as_str))
         .collect::<String>();
     (!text.trim().is_empty()).then_some(text)
@@ -735,7 +732,7 @@ pub(super) fn tool_result_text(result: Option<&Value>) -> Option<String> {
     let parts: Vec<String> = content
         .iter()
         .filter_map(|block| {
-            (block.get("type").and_then(Value::as_str) == Some("text"))
+            (BlockKind::of(block) == BlockKind::Text)
                 .then(|| {
                     block
                         .get("text")

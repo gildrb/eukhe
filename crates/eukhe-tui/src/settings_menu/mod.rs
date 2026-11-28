@@ -737,7 +737,7 @@ impl SettingsMenu {
                 .iter()
                 .map(|&index| self.rows[index].clone())
                 .collect();
-            crate::fuzzy::fuzzy_filter(&candidates, &query, |row| row.label.to_string())
+            crate::fuzzy::fuzzy_filter(&candidates, &query, |row| row.label)
                 .iter()
                 .map(|row| {
                     tab.rows

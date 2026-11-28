@@ -69,7 +69,7 @@ impl Workspace {
             });
         }
         let repo = Repo {
-            root: PathBuf::from(text(&top.stdout).trim()),
+            root: PathBuf::from(String::from_utf8_lossy(&top.stdout).trim()),
         };
         let branch = repo.branch().await?;
         Ok(Self {
@@ -232,7 +232,7 @@ impl Repo {
         let out = self
             .run(&["status", "--porcelain=v1", "-z", "--untracked-files=all"])
             .await?;
-        Ok(parse_status(&text(&out.stdout)))
+        Ok(parse_status(&String::from_utf8_lossy(&out.stdout)))
     }
 
     /// Commit every change of the tree with `message`; the note says what
@@ -249,7 +249,10 @@ impl Repo {
         }
         self.run(&["commit", "-q", "-m", message]).await?;
         let head = self.run(&["rev-parse", "--short=12", "HEAD"]).await?;
-        Ok(format!("committed {}", text(&head.stdout).trim()))
+        Ok(format!(
+            "committed {}",
+            String::from_utf8_lossy(&head.stdout).trim()
+        ))
     }
 
     /// Drop every change since `HEAD`: `reset --hard HEAD`, then
@@ -270,7 +273,7 @@ impl Repo {
             bail!(
                 "git {} failed: {}",
                 args.join(" "),
-                text(&out.stderr).trim()
+                String::from_utf8_lossy(&out.stderr).trim()
             );
         }
         Ok(out)
@@ -319,7 +322,11 @@ fn normalize(spec: &str) -> String {
 fn within(path: &str, spec: &str) -> bool {
     let spec = normalize(spec);
     let path = normalize(path);
-    spec == "." || path == spec || path.starts_with(&format!("{spec}/"))
+    spec == "."
+        || path == spec
+        || path
+            .strip_prefix(spec.as_str())
+            .is_some_and(|rest| rest.starts_with('/'))
 }
 
 /// The changed paths outside `scope` (when it names any) or inside

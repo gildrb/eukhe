@@ -38,7 +38,7 @@ const MOUNTED_KINDS: [&str; 5] = ["pi.agent", "pi.live", "pi.inbox", "pi.provide
 #[derive(Clone, Debug)]
 pub struct ConversationView {
     conversation: Arc<ConversationRecord>,
-    entries: Arc<Vec<Arc<EntryRecord>>>,
+    entries: Arc<[Arc<EntryRecord>]>,
     entries_json: JsonValue,
     docs: Arc<JsonObject>,
     json: JsonValue,
@@ -48,7 +48,7 @@ impl ConversationView {
     fn new(
         conversation: Arc<ConversationRecord>,
         conversation_json: JsonValue,
-        entries: Arc<Vec<Arc<EntryRecord>>>,
+        entries: Arc<[Arc<EntryRecord>]>,
         entries_json: JsonValue,
         docs: Arc<JsonObject>,
     ) -> Self {
@@ -75,7 +75,7 @@ impl ConversationView {
     /// non-head entries from its head. The records are the published ones,
     /// shared with every event and reader that holds them.
     #[must_use]
-    pub fn entries(&self) -> &Arc<Vec<Arc<EntryRecord>>> {
+    pub fn entries(&self) -> &Arc<[Arc<EntryRecord>]> {
         &self.entries
     }
 
@@ -473,7 +473,7 @@ impl Inner {
             value: ConversationView::new(
                 Arc::new(conversation),
                 conversation_json,
-                Arc::new(entries),
+                entries.into(),
                 entries_json,
                 Arc::new(docs),
             ),
@@ -557,7 +557,7 @@ fn advance(id: ConversationId, mount: &SharedMount, publication: &CommitPublicat
                 CommitChange::Entry(entry) if entry.conversation_id == id => {
                     let (list, json) = entries.get_or_insert_with(|| {
                         (
-                            mounted.value.entries.as_ref().clone(),
+                            mounted.value.entries.to_vec(),
                             mounted
                                 .value
                                 .entries_json
@@ -644,7 +644,7 @@ fn advance(id: ConversationId, mount: &SharedMount, publication: &CommitPublicat
                 apply_docs(&before.docs, &doc_ops)
             };
             let (entries, entries_json) = match entries {
-                Some((list, json)) => (Arc::new(list), JsonValue::Array(Arc::new(json))),
+                Some((list, json)) => (Arc::from(list), JsonValue::Array(Arc::new(json))),
                 None => (Arc::clone(&before.entries), before.entries_json.clone()),
             };
             mounted.value = ConversationView::new(

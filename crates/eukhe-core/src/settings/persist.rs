@@ -64,8 +64,13 @@ impl fmt::Display for Persisted {
         match self {
             Persisted::Applies => write!(f, "saved"),
             Persisted::Shadowed(shadows) => {
-                let texts: Vec<String> = shadows.iter().map(Shadow::to_string).collect();
-                write!(f, "{}", texts.join("; "))
+                for (index, shadow) in shadows.iter().enumerate() {
+                    if index > 0 {
+                        f.write_str("; ")?;
+                    }
+                    write!(f, "{shadow}")?;
+                }
+                Ok(())
             }
         }
     }

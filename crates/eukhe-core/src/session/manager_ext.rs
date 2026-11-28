@@ -4,7 +4,6 @@
 use eukhe_types::session::{AgentMessage, FileEntry, GitContext, GitStateEntry, LabelEntry};
 
 use super::manager::SessionManager;
-use super::CONTENT_ENTRY_TYPES;
 
 impl SessionManager {
     /// True when the session holds user-meaningful content beyond the default
@@ -12,30 +11,14 @@ impl SessionManager {
     #[must_use]
     pub fn has_user_content(&self) -> bool {
         let owned_entries = self.get_entries();
-        let content_entries: Vec<&FileEntry> = owned_entries
+        let mut content = owned_entries
             .iter()
-            .filter(|entry| CONTENT_ENTRY_TYPES.contains(&entry_type(entry)))
-            .collect();
-        let mut start = 0usize;
-        if matches!(
-            content_entries.get(start),
-            Some(FileEntry::ModelChange { .. })
-        ) {
-            start += 1;
-        }
-        if matches!(
-            content_entries.get(start),
-            Some(FileEntry::ThinkingLevelChange { .. })
-        ) {
-            start += 1;
-        }
-        if matches!(
-            content_entries.get(start),
-            Some(FileEntry::ServiceTierChange { .. })
-        ) {
-            start += 1;
-        }
-        content_entries.len() > start
+            .filter(|entry| is_content(entry))
+            .peekable();
+        content.next_if(|entry| matches!(entry, FileEntry::ModelChange { .. }));
+        content.next_if(|entry| matches!(entry, FileEntry::ThinkingLevelChange { .. }));
+        content.next_if(|entry| matches!(entry, FileEntry::ServiceTierChange { .. }));
+        content.next().is_some()
     }
 
     /// Append a `git_state` row; returns the new entry id.
@@ -110,18 +93,17 @@ impl SessionManager {
     }
 
     /// The ancestor path (file order) ending at `from_id` (default: leaf).
+    #[must_use]
     pub fn get_branch(&self, from_id: Option<&str>) -> Vec<&FileEntry> {
-        let start = from_id
-            .map(str::to_string)
-            .or_else(|| self.get_leaf_id().map(str::to_string));
+        let start = from_id.or_else(|| self.get_leaf_id());
         let mut path = Vec::new();
         let mut current = start;
         while let Some(id) = current {
-            let Some(entry) = self.get_entry_by_id(&id) else {
+            let Some(entry) = self.get_entry_by_id(id) else {
                 break;
             };
             path.push(entry);
-            current = entry.parent_id().map(str::to_string);
+            current = entry.parent_id();
         }
         path.reverse();
         path
@@ -174,23 +156,24 @@ impl SessionManager {
     }
 }
 
-fn entry_type(entry: &FileEntry) -> &'static str {
+/// Whether `entry` can represent user intent (vs. daemon bookkeeping).
+fn is_content(entry: &FileEntry) -> bool {
     match entry {
-        FileEntry::Header { .. } => "session",
-        FileEntry::Message { .. } => "message",
-        FileEntry::ThinkingLevelChange { .. } => "thinking_level_change",
-        FileEntry::ServiceTierChange { .. } => "service_tier_change",
-        FileEntry::ModelChange { .. } => "model_change",
-        FileEntry::Compaction { .. } => "compaction",
-        FileEntry::BranchSummary { .. } => "branch_summary",
-        FileEntry::Custom { .. } => "custom",
-        FileEntry::ChildUsageAttributed { .. } => "child_usage_attributed",
-        FileEntry::CustomMessage { .. } => "custom_message",
-        FileEntry::Label { .. } => "label",
-        FileEntry::SessionInfo { .. } => "session_info",
-        FileEntry::SessionState { .. } => "session_state",
-        FileEntry::GitState { .. } => "git_state",
-        FileEntry::Unknown { .. } => "unknown",
+        FileEntry::Message { .. }
+        | FileEntry::CustomMessage { .. }
+        | FileEntry::Custom { .. }
+        | FileEntry::ModelChange { .. }
+        | FileEntry::ThinkingLevelChange { .. }
+        | FileEntry::ServiceTierChange { .. }
+        | FileEntry::SessionInfo { .. }
+        | FileEntry::Label { .. }
+        | FileEntry::Compaction { .. }
+        | FileEntry::BranchSummary { .. } => true,
+        FileEntry::Header { .. }
+        | FileEntry::ChildUsageAttributed { .. }
+        | FileEntry::SessionState { .. }
+        | FileEntry::GitState { .. }
+        | FileEntry::Unknown { .. } => false,
     }
 }
 

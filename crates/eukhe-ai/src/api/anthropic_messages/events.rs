@@ -2,6 +2,7 @@
 //! stream events into the assistant message (the `for await` loop of TS
 //! `stream` and `mapStopReason`).
 
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::sync::{Mutex, PoisonError};
 
@@ -15,6 +16,7 @@ use reqwest::header::HeaderMap;
 use super::client::{RequestFailure, RequestOptions, SdkClient};
 use super::params::from_claude_code_name;
 use super::sse::{AnthropicEvents, EventStreamError};
+use super::tags::{BlockType, DeltaType, EventType};
 use super::{model_compat, AnthropicOptions, StreamFailure};
 use crate::models::calculate_cost;
 use crate::utils::diagnostics::{append_assistant_message_diagnostic, ErrorObject, Thrown};
@@ -29,6 +31,7 @@ use crate::utils::stream_failure::{
     truncate_raw_payload, ConnectionErrorKind, ConnectionErrorProfile, ProviderConnectionError,
     ProviderError, StreamFailureError, StreamFailureInfo,
 };
+use crate::utils::wire_type::wire_type;
 
 fn header_map_to_hash(headers: &HeaderMap) -> HashMap<String, String> {
     headers
@@ -150,25 +153,32 @@ fn sse_error_diagnostic(data: &str, request_id: Option<&str>) -> ProviderError {
     ProviderError::StreamFailure(StreamFailureError { message, info })
 }
 
-fn event_failure(error: &EventStreamError, request_id: Option<&str>) -> StreamFailure {
-    let thrown = match error {
-        EventStreamError::Thrown(thrown) => thrown.clone(),
-        EventStreamError::SseError(_)
-        | EventStreamError::Parse(_)
-        | EventStreamError::EndedBeforeStop => ErrorObject::new(error.message()).thrown(),
-    };
-    let diagnostic = match error {
-        EventStreamError::SseError(data) => sse_error_diagnostic(data, request_id),
-        EventStreamError::EndedBeforeStop => ProviderError::StreamFailure(StreamFailureError {
-            message: error.message(),
-            info: StreamFailureInfo {
-                kind: StreamFailureKind::MalformedResponse,
-                request_id: request_id.map(str::to_owned),
-                ..StreamFailureInfo::unknown()
-            },
-        }),
-        EventStreamError::Parse(message) => ProviderError::Message(message.clone()),
-        EventStreamError::Thrown(thrown) => ProviderError::Message(thrown.to_string()),
+fn event_failure(error: EventStreamError, request_id: Option<&str>) -> StreamFailure {
+    let (thrown, diagnostic) = match error {
+        EventStreamError::SseError(data) => {
+            let diagnostic = sse_error_diagnostic(&data, request_id);
+            (ErrorObject::new(data).thrown(), diagnostic)
+        }
+        EventStreamError::EndedBeforeStop => {
+            let message = error.message();
+            let diagnostic = ProviderError::StreamFailure(StreamFailureError {
+                message: message.clone(),
+                info: StreamFailureInfo {
+                    kind: StreamFailureKind::MalformedResponse,
+                    request_id: request_id.map(str::to_owned),
+                    ..StreamFailureInfo::unknown()
+                },
+            });
+            (ErrorObject::new(message).thrown(), diagnostic)
+        }
+        EventStreamError::Parse(message) => (
+            ErrorObject::new(message.as_str()).thrown(),
+            ProviderError::Message(message),
+        ),
+        EventStreamError::Thrown(thrown) => {
+            let diagnostic = ProviderError::Message(thrown.to_string());
+            (thrown, diagnostic)
+        }
     };
     StreamFailure {
         thrown,
@@ -324,7 +334,7 @@ impl WireUsage {
 /// The model that bills the response: an allowed fallback model the
 /// server answered with bills at its own cost; anything else bills as the
 /// requested model.
-fn billed_model(model: &Model, response_model: Option<&str>) -> Model {
+fn billed_model<'a>(model: &'a Model, response_model: Option<&str>) -> Cow<'a, Model> {
     response_model
         .filter(|response_model| *response_model != model.id)
         .and_then(|response_model| {
@@ -335,13 +345,13 @@ fn billed_model(model: &Model, response_model: Option<&str>) -> Model {
                 .find(|fallback| {
                     fallback.provider == model.provider && fallback.model == response_model
                 })?;
-            Some(Model {
+            Some(Cow::Owned(Model {
                 id: response_model.to_owned(),
                 cost: fallback.cost.clone(),
                 ..model.clone()
-            })
+            }))
         })
-        .unwrap_or_else(|| model.clone())
+        .unwrap_or(Cow::Borrowed(model))
 }
 
 /// What a `content_block_start` opens.
@@ -369,7 +379,7 @@ struct EventFold<'a> {
     current_tools: &'a [Tool],
     output: &'a mut AssistantMessage,
     /// The model whose prices bill the usage ([`billed_model`]).
-    usage_model: Model,
+    usage_model: Cow<'a, Model>,
     input_transformations: Option<Vec<JsonValue>>,
     scratch: BlockScratch,
 }
@@ -377,13 +387,13 @@ struct EventFold<'a> {
 impl EventFold<'_> {
     /// Fold one wire event into the message; the partial event it emits.
     fn apply(&mut self, event: &JsonValue) -> Result<Option<Emission>, StreamFailure> {
-        match event.get("type").and_then(JsonValue::as_str) {
-            Some("message_start") => self.message_start(event).map(|()| None),
-            Some("content_block_start") => self.content_block_start(event),
-            Some("content_block_delta") => Ok(self.content_block_delta(event)),
-            Some("content_block_stop") => Ok(self.content_block_stop(event)),
-            Some("message_delta") => self.message_delta(event).map(|()| None),
-            _ => Ok(None),
+        match wire_type(event) {
+            Some(EventType::MessageStart) => self.message_start(event).map(|()| None),
+            Some(EventType::ContentBlockStart) => self.content_block_start(event),
+            Some(EventType::ContentBlockDelta) => Ok(self.content_block_delta(event)),
+            Some(EventType::ContentBlockStop) => Ok(self.content_block_stop(event)),
+            Some(EventType::MessageDelta) => self.message_delta(event).map(|()| None),
+            Some(EventType::MessageStop | EventType::Error) | None => Ok(None),
         }
     }
 
@@ -417,26 +427,26 @@ impl EventFold<'_> {
 
     fn block_start(&self, block: &JsonValue) -> BlockStart {
         let text = |key: &str| block.get(key).and_then(JsonValue::as_str);
-        match text("type") {
-            Some("fallback") => BlockStart::Fallback,
-            Some("text") => BlockStart::Block(AssistantContentBlock::Text(TextContent::new(
-                text("text").unwrap_or(""),
-            ))),
-            Some("thinking") => {
+        match wire_type(block) {
+            Some(BlockType::Fallback) => BlockStart::Fallback,
+            Some(BlockType::Text) => BlockStart::Block(AssistantContentBlock::Text(
+                TextContent::new(text("text").unwrap_or("")),
+            )),
+            Some(BlockType::Thinking) => {
                 BlockStart::Block(AssistantContentBlock::Thinking(ThinkingContent {
                     thinking: text("thinking").unwrap_or("").to_owned(),
                     thinking_signature: Some(text("signature").unwrap_or("").to_owned()),
                     redacted: None,
                 }))
             }
-            Some("redacted_thinking") => {
+            Some(BlockType::RedactedThinking) => {
                 BlockStart::Block(AssistantContentBlock::Thinking(ThinkingContent {
                     thinking: "[Reasoning redacted]".to_owned(),
                     thinking_signature: text("data").map(str::to_owned),
                     redacted: Some(true),
                 }))
             }
-            Some("tool_use") => {
+            Some(BlockType::ToolUse) => {
                 let name = text("name").unwrap_or("");
                 BlockStart::Block(AssistantContentBlock::ToolCall(ToolCall {
                     id: text("id").unwrap_or("").to_owned(),
@@ -452,7 +462,15 @@ impl EventFold<'_> {
                     ..ToolCall::default()
                 }))
             }
-            _ => BlockStart::Unknown,
+            Some(
+                BlockType::Image
+                | BlockType::ToolResult
+                | BlockType::ToolAddition
+                | BlockType::ToolRemoval
+                | BlockType::WebSearchToolResult
+                | BlockType::WebSearchResult,
+            )
+            | None => BlockStart::Unknown,
         }
     }
 
@@ -481,28 +499,26 @@ impl EventFold<'_> {
         let delta = event.get("delta");
         let position = self.scratch.find(event.get("index"))?;
         let field = |key: &str| js_concat(delta.and_then(|delta| delta.get(key)));
-        let delta_type = delta
-            .and_then(|delta| delta.get("type"))
-            .and_then(JsonValue::as_str);
+        let delta_type = delta.and_then(wire_type);
         match (delta_type, &mut self.output.content[position]) {
-            (Some("text_delta"), AssistantContentBlock::Text(block)) => {
+            (Some(DeltaType::Text), AssistantContentBlock::Text(block)) => {
                 let text = field("text");
                 block.text.push_str(&text);
                 Some(Emission::Delta(position, text))
             }
-            (Some("thinking_delta"), AssistantContentBlock::Thinking(block)) => {
+            (Some(DeltaType::Thinking), AssistantContentBlock::Thinking(block)) => {
                 let text = field("thinking");
                 block.thinking.push_str(&text);
                 Some(Emission::Delta(position, text))
             }
-            (Some("input_json_delta"), AssistantContentBlock::ToolCall(block)) => {
+            (Some(DeltaType::InputJson), AssistantContentBlock::ToolCall(block)) => {
                 let text = field("partial_json");
                 let partial_json = &mut self.scratch.partial_json[position];
                 partial_json.push_str(&text);
                 block.arguments = parse_streaming_json_object(Some(partial_json));
                 Some(Emission::Delta(position, text))
             }
-            (Some("signature_delta"), AssistantContentBlock::Thinking(block)) => {
+            (Some(DeltaType::Signature), AssistantContentBlock::Thinking(block)) => {
                 let signature = block.thinking_signature.get_or_insert_with(String::new);
                 signature.push_str(&field("signature"));
                 None
@@ -679,7 +695,7 @@ pub(crate) async fn consume(
         is_oauth,
         current_tools,
         output,
-        usage_model: model.clone(),
+        usage_model: Cow::Borrowed(model),
         input_transformations: None,
         scratch: BlockScratch::default(),
     };
@@ -687,7 +703,7 @@ pub(crate) async fn consume(
     while let Some(event) = events
         .next()
         .await
-        .map_err(|error| event_failure(&error, request_id.as_deref()))?
+        .map_err(|error| event_failure(error, request_id.as_deref()))?
     {
         if let Some(observer) = &options.stream.on_provider_stream_event {
             observer(&event, model)

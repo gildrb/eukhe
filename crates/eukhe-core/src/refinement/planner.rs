@@ -154,7 +154,7 @@ pub fn normalize_refinement_proposal(value: &serde_json::Value) -> RefinementPro
             edits
                 .iter()
                 .filter(|edit| edit.is_object())
-                .filter_map(|edit| serde_json::from_value::<RefinementEdit>(edit.clone()).ok())
+                .filter_map(|edit| RefinementEdit::deserialize(edit).ok())
                 .collect()
         })
         .unwrap_or_default();
@@ -603,11 +603,8 @@ mod tests {
         let mut state = empty_harness_state();
         if stored {
             let (kind, id) = (edit.kind.unwrap(), edit.id.clone().unwrap());
-            state
-                .entries
-                .get_mut(&kind)
-                .unwrap()
-                .insert(id.clone(), stored_entry(kind, &id));
+            let entry = stored_entry(kind, &id);
+            state.entries.get_mut(&kind).unwrap().insert(id, entry);
         }
         let result = apply_refinement_proposal(
             &mut state,

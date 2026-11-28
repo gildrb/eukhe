@@ -297,12 +297,12 @@ impl SessionStream for JsonlSessionStream {
             }
             match self.entries.next() {
                 Some(entry) => {
-                    let items = entry_to_items(&entry);
-                    if items.is_empty() {
+                    let mut items = entry_to_items(&entry).into_iter();
+                    let Some(first) = items.next() else {
                         continue;
-                    }
-                    self.pending = items[1..].to_vec();
-                    return Ok(SessionEvent::Item(items[0].clone()));
+                    };
+                    self.pending = items.collect();
+                    return Ok(SessionEvent::Item(first));
                 }
                 None => {
                     self.finished = true;

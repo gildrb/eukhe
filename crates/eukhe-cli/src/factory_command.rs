@@ -239,7 +239,7 @@ fn render_list(result: &Value, json: bool) -> i32 {
         };
     }
     let machines: Vec<MachineListing> = match result.get("machines") {
-        Some(value) => match serde_json::from_value(value.clone()) {
+        Some(value) => match <Vec<MachineListing> as serde::Deserialize>::deserialize(value) {
             Ok(machines) => machines,
             Err(error) => {
                 eprintln!("Error: the kernel's machine list does not parse: {error}");
@@ -362,7 +362,7 @@ fn run_import(path: &str, json: bool) -> i32 {
     }
     let payload = import_payload(&source);
     match resolve_kernel_python().and_then(|python| dispatch_via_kernel(&python, &payload)) {
-        Ok(result) => print_dispatch_result(&result, json, "imported"),
+        Ok(result) => print_dispatch_result(&result, json, Transfer::Imported),
         Err(error) => {
             eprintln!("Error: {error}");
             1
@@ -374,7 +374,7 @@ fn run_import(path: &str, json: bool) -> i32 {
 fn run_export(name: &str, out: &str, json: bool) -> i32 {
     let payload = export_payload(name, &crate::config::expand_tilde_path(out));
     match resolve_kernel_python().and_then(|python| dispatch_via_kernel(&python, &payload)) {
-        Ok(result) => print_dispatch_result(&result, json, "exported"),
+        Ok(result) => print_dispatch_result(&result, json, Transfer::Exported),
         Err(error) => {
             eprintln!("Error: {error}");
             1
@@ -405,10 +405,16 @@ fn print_dispatch_errors(result: &Value) -> Option<i32> {
     Some(1)
 }
 
+/// The subcommand a dispatch result answers.
+#[derive(Debug, Clone, Copy)]
+enum Transfer {
+    Imported,
+    Exported,
+}
+
 /// Print one dispatch result: errors verbatim (the validator's exact
-/// sentences), or the ok-payload as text or JSON. `verb` is the done-word
-/// of the subcommand that ran ("imported" or "exported").
-fn print_dispatch_result(result: &Value, json: bool, verb: &str) -> i32 {
+/// sentences), or the ok-payload as text or JSON.
+fn print_dispatch_result(result: &Value, json: bool, transfer: Transfer) -> i32 {
     if let Some(code) = print_dispatch_errors(result) {
         return code;
     }
@@ -430,13 +436,12 @@ fn print_dispatch_result(result: &Value, json: bool, verb: &str) -> i32 {
         .and_then(Value::as_str)
         .unwrap_or_default();
     let source = result.get("source").and_then(Value::as_str);
-    if verb == "exported" {
-        match source {
-            Some(source) => println!("Exported {name} to {path} (from {source})."),
-            None => println!("Exported {name} to {path}."),
+    match (transfer, source) {
+        (Transfer::Exported, Some(source)) => {
+            println!("Exported {name} to {path} (from {source}).");
         }
-    } else {
-        println!("Imported {name} into {path}.");
+        (Transfer::Exported, None) => println!("Exported {name} to {path}."),
+        (Transfer::Imported, _) => println!("Imported {name} into {path}."),
     }
     0
 }
@@ -517,7 +522,10 @@ mod tests {
         )
         .expect("fixture");
         // Errors go to stderr inside print_dispatch_result; the exit code is the pin.
-        assert_eq!(print_dispatch_result(&failure, false, "imported"), 1);
+        assert_eq!(
+            print_dispatch_result(&failure, false, Transfer::Imported),
+            1
+        );
         assert_eq!(render_list(&failure, false), 1);
         // The sentence prints verbatim: unwrapped from the JSON envelope,
         // never with JSON quoting.

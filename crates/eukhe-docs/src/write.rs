@@ -246,7 +246,7 @@ pub(crate) fn publish(
     witness: &dyn Witness,
     faults: &dyn Faults,
 ) -> Result<Placed, PublishError> {
-    let directory = target.parent().unwrap_or(Path::new("."));
+    let directory = target.parent().unwrap_or_else(|| Path::new("."));
     let digest = name_digest(target);
     let prefix = crate::commit::prefix(&digest);
     sweep_temps(directory, &digest, &prefix);

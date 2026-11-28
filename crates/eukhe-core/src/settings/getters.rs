@@ -31,7 +31,8 @@ pub struct SignalGateway {
 
 /// `budget.limits`: whether a run fills the dimensions the principal
 /// leaves unset.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum BudgetLimitsMode {
     /// Unset dimensions stay unlimited: runs go until finished.
     Off,
@@ -80,8 +81,16 @@ pub(super) fn default_text(decl: &Decl) -> &'static str {
     }
 }
 
+/// `sessionShape`.
+#[derive(Clone, Copy, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
+enum SessionShape {
+    Single,
+    MainWorker,
+}
+
 /// A [`CvarType::NatOrOff`](super::cvar::CvarType::NatOrOff) value.
-enum OffOrNumber {
+pub(super) enum OffOrNumber {
     Off,
     Number(u64),
     /// Unset (the reader takes the default); the load names a malformed
@@ -89,7 +98,7 @@ enum OffOrNumber {
     Malformed,
 }
 
-fn off_or_number(value: &Value) -> OffOrNumber {
+pub(super) fn off_or_number(value: &Value) -> OffOrNumber {
     match value {
         Value::String(text) if text == "off" || text == "none" => OffOrNumber::Off,
         Value::Number(number) => OffOrNumber::Number(number.as_u64().unwrap_or(0)),
@@ -116,7 +125,9 @@ impl SettingsManager {
     /// table's options and the enum's serde names disagree).
     pub(super) fn choice<T: DeserializeOwned>(&self, decl: &Decl) -> T {
         let text = self.cvars().text(decl);
-        match serde_json::from_value(Value::String(text.clone())) {
+        match T::deserialize(
+            serde::de::value::StrDeserializer::<serde::de::value::Error>::new(&text),
+        ) {
             Ok(value) => value,
             Err(error) => panic!("cvar `{}` option `{text}` does not parse: {error}", decl.id),
         }
@@ -227,10 +238,7 @@ impl SettingsManager {
     /// `budget.limits`.
     #[must_use]
     pub fn get_budget_limits(&self) -> BudgetLimitsMode {
-        match self.cvars().text(&table::BUDGET_LIMITS).as_str() {
-            "on" => BudgetLimitsMode::On,
-            _ => BudgetLimitsMode::Off,
-        }
+        self.choice(&table::BUDGET_LIMITS)
     }
 
     /// `undo.keepDays`: days a session's workspace snapshots are kept after
@@ -309,7 +317,7 @@ impl SettingsManager {
     /// work to a persistent worker child.
     #[must_use]
     pub fn is_main_worker_shape(&self) -> bool {
-        self.cvars().text(&table::SESSION_SHAPE) == "main-worker"
+        matches!(self.choice(&table::SESSION_SHAPE), SessionShape::MainWorker)
     }
 
     /// `memory.thinking`: the compactor's reasoning effort.
@@ -849,7 +857,7 @@ pub fn resolve_session_dir(
     } else if let Some(rest) = text.strip_prefix("~/") {
         home()?.join(rest)
     } else {
-        std::path::PathBuf::from(&text)
+        std::path::PathBuf::from(text)
     };
     Ok(SessionDir { path, source })
 }

@@ -656,7 +656,7 @@ fn factory_activity_requests_validate_like_the_kernel_frame() {
     assert_eq!(
         parse("graph", None, None, None).unwrap(),
         FactoryActivityRequest {
-            action: "graph",
+            action: super::FactoryActivityAction::Graph,
             run_id: None,
             spec_id: None,
             timeout_ms: None,

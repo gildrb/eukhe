@@ -259,8 +259,9 @@ impl PathMap {
         let Some(Value::Object(args)) = data.get_mut("args") else {
             return Ok(());
         };
+        let request = FsRequest::of(request_type);
         for (key, value) in args.iter_mut() {
-            match fs_argument(request_type, key) {
+            match fs_argument(request, key) {
                 FsArgument::Path => self.map_path_value(&sandbox_cwd, value)?,
                 FsArgument::Patch => {
                     if let Value::String(patch) = value {
@@ -354,11 +355,11 @@ impl PathMap {
             Value::Object(fields) => {
                 for (key, value) in fields.iter_mut() {
                     let host_path = matches!(key.as_str(), "absolute" | "destination")
-                        .then(|| value.as_str().map(PathBuf::from))
+                        .then(|| value.as_str().map(Path::new))
                         .flatten();
                     match host_path {
                         Some(host) => {
-                            if let Ok(sandbox) = self.to_sandbox(&host) {
+                            if let Ok(sandbox) = self.to_sandbox(host) {
                                 *value = Value::String(sandbox.to_string_lossy().into_owned());
                             }
                         }
@@ -383,17 +384,35 @@ enum FsArgument {
     Other,
 }
 
-fn fs_argument(request_type: &str, key: &str) -> FsArgument {
+/// The `fs.*` requests whose arguments map differently.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum FsRequest {
+    Grep,
+    Glob,
+    Edit,
+    Other,
+}
+
+impl FsRequest {
+    fn of(request_type: &str) -> Self {
+        match request_type {
+            "fs.grep" => Self::Grep,
+            "fs.glob" => Self::Glob,
+            "fs.edit" => Self::Edit,
+            _ => Self::Other,
+        }
+    }
+}
+
+fn fs_argument(request: FsRequest, key: &str) -> FsArgument {
     const PATH: [&str; 5] = ["path", "file_path", "filepath", "file", "filename"];
     const PATCH: [&str; 5] = ["input", "patch", "diff", "edits", "payload"];
-    let more_paths: &[&str] = if request_type == "fs.grep" {
-        &["paths", "dir", "directory"]
-    } else if request_type == "fs.glob" {
-        &["pattern", "patterns", "glob", "dir", "directory"]
-    } else {
-        &[]
+    let more_paths: &[&str] = match request {
+        FsRequest::Grep => &["paths", "dir", "directory"],
+        FsRequest::Glob => &["pattern", "patterns", "glob", "dir", "directory"],
+        FsRequest::Edit | FsRequest::Other => &[],
     };
-    if request_type == "fs.edit" && PATCH.contains(&key) {
+    if request == FsRequest::Edit && PATCH.contains(&key) {
         FsArgument::Patch
     } else if PATH.contains(&key) || more_paths.contains(&key) {
         FsArgument::Path
@@ -479,7 +498,7 @@ impl KernelTransport {
         let Some(value) = value.filter(|value| !value.is_null()) else {
             return Ok(Self::Local);
         };
-        let settings: KernelTransportSettings = serde_json::from_value(value.clone())?;
+        let settings: KernelTransportSettings = KernelTransportSettings::deserialize(value)?;
         if settings.argv_prefix.is_empty() {
             return Err(KernelTransportError::EmptyPrefix);
         }

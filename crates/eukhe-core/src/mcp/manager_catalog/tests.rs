@@ -429,7 +429,7 @@ async fn paste_flow_installs_a_bearer_token_service_end_to_end() {
         log: std::sync::Arc::clone(&log),
         tool_count: 3,
     }));
-    let probe_for_inputs = probe.clone();
+    let probe_for_inputs = probe;
     let manager = std::sync::Arc::new(std::sync::Mutex::new(McpManager::new(McpManagerOptions {
         auth_storage: crate::auth::AuthStorage::in_memory(
             &crate::auth::types::AuthStorageData::default(),

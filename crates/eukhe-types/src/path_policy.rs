@@ -175,16 +175,16 @@ enum Part {
 
 /// Push the parts of `path` on `stack`, so the first part pops first.
 fn push_parts(stack: &mut Vec<Part>, path: &Path) {
-    let parts: Vec<Part> = path
-        .components()
-        .filter_map(|component| match component {
-            Component::Prefix(_) | Component::RootDir => Some(Part::Root),
-            Component::CurDir => None,
-            Component::ParentDir => Some(Part::Up),
-            Component::Normal(name) => Some(Part::Name(name.to_os_string())),
-        })
-        .collect();
-    stack.extend(parts.into_iter().rev());
+    stack.extend(
+        path.components()
+            .rev()
+            .filter_map(|component| match component {
+                Component::Prefix(_) | Component::RootDir => Some(Part::Root),
+                Component::CurDir => None,
+                Component::ParentDir => Some(Part::Up),
+                Component::Normal(name) => Some(Part::Name(name.to_os_string())),
+            }),
+    );
 }
 
 /// A path with every symlink on its existing part followed ([`resolve`]),

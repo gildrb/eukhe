@@ -722,7 +722,9 @@ fn row(result: &RunResult) -> String {
                 handled.kind.label(),
                 handled.route,
                 handled.delivered,
-                handled.reply_ms.map_or("-".to_owned(), |ms| ms.to_string()),
+                handled
+                    .reply_ms
+                    .map_or_else(|| "-".to_owned(), |ms| ms.to_string()),
             )
         })
         .collect();

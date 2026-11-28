@@ -158,7 +158,7 @@ async fn revival_waits_for_in_flight_stop_before_booting() {
         dir.path(),
         IpythonKernelProvisionerOptions {
             python: Some(python),
-            snapshot_dir: Some(artifacts.clone()),
+            snapshot_dir: Some(artifacts),
             host_handlers: handlers,
             ..Default::default()
         },
@@ -288,7 +288,7 @@ async fn superseding_stop_after_kill_cannot_deadlock_the_revival_gate() {
         });
     let doomed = tokio::spawn({
         let provisioner = provisioner.clone();
-        let progress = progress.clone();
+
         async move { provisioner.ensure(Some(progress), None).await }
     });
     tokio::time::timeout(Duration::from_secs(30), stage_rx)

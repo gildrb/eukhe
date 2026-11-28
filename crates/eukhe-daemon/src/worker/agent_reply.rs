@@ -9,6 +9,7 @@
 //! `name -> you`, logs to chat memory as `[name] answer`, and never starts
 //! a turn.
 
+use crate::types::{message_role, MessageRole};
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError};
@@ -74,7 +75,7 @@ pub(crate) fn latest_owed_reply(messages: &[Value]) -> Option<(OwedReply, Option
             ))
         })?;
     let is_input = |message: &Value| {
-        crate::types::message_role(message) == Some("user")
+        message_role(message) == Some(MessageRole::User)
             || message.get("customType").and_then(Value::as_str) == Some(AGENT_MESSAGE_CUSTOM_TYPE)
     };
     let mut inputs = 0;
@@ -87,7 +88,7 @@ pub(crate) fn latest_owed_reply(messages: &[Value]) -> Option<(OwedReply, Option
             }
             continue;
         }
-        if crate::types::message_role(message) == Some("assistant")
+        if message_role(message) == Some(MessageRole::Assistant)
             && message.get("stopReason").and_then(Value::as_str) == Some("stop")
         {
             let text = crate::types::message_text(message);

@@ -496,7 +496,7 @@ impl AgentView {
             };
             self.push_entry(ChatEntry::Tool(Box::new(crate::chat::ToolCallCard {
                 id: tool_call_id.clone(),
-                name: tool_name.clone(),
+                name: crate::tool_card::ToolName::from(tool_name.as_str()),
                 args: serde_json::Value::Null,
                 started: true,
                 result: Some(view),
@@ -621,7 +621,7 @@ fn item_to_entry(item: TranscriptItem) -> ChatEntry {
             arguments,
         } => ChatEntry::Tool(Box::new(crate::chat::ToolCallCard {
             id,
-            name,
+            name: crate::tool_card::ToolName::from(name),
             args: serde_json::from_str(&arguments).unwrap_or(serde_json::Value::Null),
             started: false,
             ..Default::default()
@@ -640,7 +640,7 @@ fn item_to_entry(item: TranscriptItem) -> ChatEntry {
             let details = crate::tool_card::card_details(&tool_name, Some(&details));
             ChatEntry::Tool(Box::new(crate::chat::ToolCallCard {
                 id: tool_call_id,
-                name: tool_name,
+                name: crate::tool_card::ToolName::from(tool_name),
                 args: serde_json::Value::Null,
                 started: true,
                 result: Some(crate::chat::ToolResultView {

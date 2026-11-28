@@ -37,7 +37,7 @@ pub fn format_incident_duration(ms: i64) -> String {
 }
 
 /// The highest severity among the events (TS `maxSeverity`).
-fn max_severity(events: &[IncidentEvent]) -> IncidentSeverity {
+fn max_severity(events: &[&IncidentEvent]) -> IncidentSeverity {
     events
         .iter()
         .map(|event| event.severity)
@@ -50,7 +50,7 @@ fn max_severity(events: &[IncidentEvent]) -> IncidentSeverity {
 /// Shared by the stall and burst scans: only events close together form
 /// one incident, so isolated events far apart never merge, whatever the
 /// report window is.
-fn densest_window_run(items: &[IncidentEvent], window_ms: i64) -> (usize, usize) {
+fn densest_window_run(items: &[&IncidentEvent], window_ms: i64) -> (usize, usize) {
     let mut best_start = 0;
     let mut best_count = 0;
     let mut start = 0;
@@ -73,28 +73,19 @@ fn densest_window_run(items: &[IncidentEvent], window_ms: i64) -> (usize, usize)
 pub fn compute_incident_anomalies(events: &[IncidentEvent]) -> Vec<IncidentEvent> {
     // Grouped in insertion order, like the TS `Map` iteration the
     // anomalies are pushed under.
-    let mut by_subject: Vec<(String, Vec<IncidentEvent>)> = Vec::new();
-    for incident in events
-        .iter()
-        .filter(|incident| incident.category != IncidentCategory::Anomaly)
-    {
-        match by_subject
-            .iter_mut()
-            .find(|(subject, _)| subject == &incident.subject)
-        {
-            Some((_, group)) => group.push(incident.clone()),
-            None => by_subject.push((incident.subject.clone(), vec![incident.clone()])),
-        }
-    }
+    let by_subject = group_by_subject(
+        events
+            .iter()
+            .filter(|incident| incident.category != IncidentCategory::Anomaly),
+    );
 
     let mut anomalies: Vec<IncidentEvent> = Vec::new();
-    for (subject, group) in &by_subject {
-        let mut group = group.clone();
+    for (subject, mut group) in by_subject {
         group.sort_by_key(|incident| incident.time_ms);
-        let timeouts: Vec<IncidentEvent> = group
+        let timeouts: Vec<&IncidentEvent> = group
             .iter()
+            .copied()
             .filter(|incident| incident.event_class == "timeout")
-            .cloned()
             .collect();
         if timeouts.len() >= 2 {
             // Only timeouts within `TIMEOUT_STALL_WINDOW_MS` of each other
@@ -116,10 +107,10 @@ pub fn compute_incident_anomalies(events: &[IncidentEvent]) -> Vec<IncidentEvent
                 ));
             }
         }
-        let burst: Vec<IncidentEvent> = group
+        let burst: Vec<&IncidentEvent> = group
             .iter()
+            .copied()
             .filter(|incident| burst_classes().contains(incident.event_class.as_str()))
-            .cloned()
             .collect();
         if burst.len() >= ERROR_BURST_THRESHOLD {
             // Only events within `ERROR_BURST_WINDOW_MS` of each other
@@ -162,6 +153,24 @@ pub fn compute_incident_anomalies(events: &[IncidentEvent]) -> Vec<IncidentEvent
     anomalies
 }
 
+/// `events` grouped by subject, in first-seen order, like the TS `Map`
+/// iteration the callers run under.
+fn group_by_subject<'a>(
+    events: impl Iterator<Item = &'a IncidentEvent>,
+) -> Vec<(&'a str, Vec<&'a IncidentEvent>)> {
+    let mut groups: Vec<(&str, Vec<&IncidentEvent>)> = Vec::new();
+    for incident in events {
+        match groups
+            .iter_mut()
+            .find(|(subject, _)| *subject == incident.subject)
+        {
+            Some((_, group)) => group.push(incident),
+            None => groups.push((&incident.subject, vec![incident])),
+        }
+    }
+    groups
+}
+
 /// One synthesized anomaly line (TS `computeIncidentAnomalies`' local
 /// `push`).
 fn anomaly(
@@ -190,29 +199,20 @@ fn anomaly(
 #[must_use]
 pub fn latest_incident_stall_timeout_by_subject(events: &[IncidentEvent]) -> HashMap<String, i64> {
     // Grouped in insertion order, like the TS `Map` iteration below.
-    let mut timeouts_by_subject: Vec<(String, Vec<IncidentEvent>)> = Vec::new();
-    for incident in events
-        .iter()
-        .filter(|incident| incident.event_class == "timeout")
-    {
-        match timeouts_by_subject
-            .iter_mut()
-            .find(|(subject, _)| subject == &incident.subject)
-        {
-            Some((_, group)) => group.push(incident.clone()),
-            None => timeouts_by_subject.push((incident.subject.clone(), vec![incident.clone()])),
-        }
-    }
+    let timeouts_by_subject = group_by_subject(
+        events
+            .iter()
+            .filter(|incident| incident.event_class == "timeout"),
+    );
     let mut latest_by_subject = HashMap::new();
-    for (subject, timeouts) in &timeouts_by_subject {
+    for (subject, mut timeouts) in timeouts_by_subject {
         // Callers pass time-sorted events; sort defensively so the run
         // scan (which assumes ascending times) never sees them out of
         // order.
-        let mut timeouts = timeouts.clone();
         timeouts.sort_by_key(|incident| incident.time_ms);
         let (start, count) = densest_window_run(&timeouts, TIMEOUT_STALL_WINDOW_MS);
         if count >= 2 {
-            latest_by_subject.insert(subject.clone(), timeouts[start + count - 1].time_ms);
+            latest_by_subject.insert(subject.to_owned(), timeouts[start + count - 1].time_ms);
         }
     }
     latest_by_subject

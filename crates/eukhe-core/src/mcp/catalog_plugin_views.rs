@@ -81,7 +81,7 @@ pub struct BuildViewsInputs<'a> {
 }
 
 fn not_connected_catalog_view(service: &McpServiceDescriptor) -> McpPluginView {
-    let http = service.transport.endpoint().map(str::to_string);
+    let http = service.transport.endpoint();
     let setup_hint: Option<String> = match service.setup.status {
         SetupStatus::RequiresSetup => Some(service.setup.reason.clone().unwrap_or_else(|| {
             "This service requires manual setup before it can be connected.".to_string()
@@ -610,7 +610,7 @@ pub fn build_connection_views(
             transport: config.server_type().to_string(),
             login_pending: plugin.login_pending,
             source: ViewSource::User,
-            setup_hint: plugin.setup_hint.clone(),
+            setup_hint: plugin.setup_hint,
         });
     }
     for server in acp_servers {
@@ -635,49 +635,45 @@ pub fn build_connection_views(
 
 /// Filter the plugin cards by an exact connection status (TS
 /// `filterPluginViewsByStatus`).
-pub fn filter_plugin_views_by_status(views: &[McpPluginView], status: &str) -> Vec<McpPluginView> {
+pub fn filter_plugin_views_by_status(
+    mut views: Vec<McpPluginView>,
+    status: McpConnectionStatus,
+) -> Vec<McpPluginView> {
+    views.retain(|view| view.connection_status == status);
     views
-        .iter()
-        .filter(|view| view.connection_status.as_str() == status)
-        .cloned()
-        .collect()
 }
 
 /// Search the plugin cards by service ids, labels, aliases, account ids,
 /// descriptions, categories, publishers, and docs URLs (TS
 /// `searchPluginViews`); the page is bounded by `limit`.
-pub fn search_plugin_views(
-    views: &[McpPluginView],
+pub fn search_plugin_views<'a>(
+    views: &'a [McpPluginView],
     query: &str,
     limit: usize,
-) -> Vec<McpPluginView> {
+) -> Vec<&'a McpPluginView> {
     let needle = query.trim().to_lowercase();
-    if needle.is_empty() {
-        return views.iter().take(limit).cloned().collect();
-    }
-    let mut matches = Vec::new();
-    for view in views {
-        let mut fields: Vec<String> = vec![
-            view.service_id.clone(),
-            view.label.clone(),
-            view.category.clone().unwrap_or_default(),
-        ];
-        fields.push(view.description.clone().unwrap_or_default());
-        fields.push(view.publisher.clone().unwrap_or_default());
-        fields.push(view.docs_url.clone().unwrap_or_default());
-        fields.extend(view.aliases.iter().flatten().cloned());
-        fields.extend(view.connection_ids.iter().cloned());
-        if fields
-            .iter()
-            .any(|field| field.to_lowercase().contains(&needle))
-        {
-            matches.push(view.clone());
-            if matches.len() >= limit {
-                break;
-            }
-        }
-    }
-    matches
+    views
+        .iter()
+        .filter(|view| needle.is_empty() || plugin_view_matches(view, &needle))
+        .take(limit)
+        .collect()
+}
+
+/// Whether a searchable field of `view` contains the lowercase `needle`.
+fn plugin_view_matches(view: &McpPluginView, needle: &str) -> bool {
+    [
+        Some(view.service_id.as_str()),
+        Some(view.label.as_str()),
+        view.category.as_deref(),
+        view.description.as_deref(),
+        view.publisher.as_deref(),
+        view.docs_url.as_deref(),
+    ]
+    .into_iter()
+    .flatten()
+    .chain(view.aliases.iter().flatten().map(String::as_str))
+    .chain(view.connection_ids.iter().map(String::as_str))
+    .any(|field| field.to_lowercase().contains(needle))
 }
 
 /// A page cursor that is not a decimal index (`source`: the overflowing
@@ -718,12 +714,12 @@ pub fn page_plugin_views(
     views: &[McpPluginView],
     cursor: usize,
     limit: usize,
-) -> (Vec<McpPluginView>, Option<String>) {
-    if cursor >= views.len() {
-        return (Vec::new(), None);
-    }
-    let page: Vec<McpPluginView> = views.iter().skip(cursor).take(limit).cloned().collect();
-    let next_cursor = (cursor + limit < views.len()).then(|| (cursor + limit).to_string());
+) -> (&[McpPluginView], Option<String>) {
+    let Some(rest) = views.get(cursor..).filter(|rest| !rest.is_empty()) else {
+        return (&[], None);
+    };
+    let page = rest.get(..limit).unwrap_or(rest);
+    let next_cursor = (limit < rest.len()).then(|| (cursor + limit).to_string());
     (page, next_cursor)
 }
 

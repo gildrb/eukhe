@@ -210,7 +210,7 @@ impl SettingsManager {
     pub fn get_idle_eviction_minutes(&self) -> String {
         let decl = &table::IDLE_EVICTION_MINUTES;
         let value = self.cvars().value(decl);
-        if value.as_str() == Some("off") || value.as_str() == Some("none") {
+        if let super::getters::OffOrNumber::Off = super::getters::off_or_number(&value) {
             return "off".to_string();
         }
         match value.as_f64() {
@@ -391,6 +391,6 @@ impl SettingsManager {
     ///
     /// Returns an error when the global settings scope cannot be saved.
     pub fn set_enabled_models(&mut self, patterns: &[String]) -> Result<Persisted> {
-        self.set_global_cvar(&table::ENABLED_MODELS, &Value::from(patterns.to_vec()))
+        self.set_global_cvar(&table::ENABLED_MODELS, &Value::from(patterns))
     }
 }

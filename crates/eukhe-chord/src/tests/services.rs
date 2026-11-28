@@ -709,14 +709,13 @@ fn does_not_replay_a_queued_revision_already_covered_by_a_new_subscription_snaps
                     Ok(())
                 }),
             )?;
-            let members: Vec<JsonValue> = subscription.snapshot().instances[0]
+            let expected = json(j!({
+                "name": "state", "kind": "state", "sequence": 2, "ops": [["r", { "selected": null, "revision": 2 }]],
+            }));
+            assert!(subscription.snapshot().instances[0]
                 .members
                 .iter()
-                .map(ServiceMemberSnapshot::to_json)
-                .collect();
-            assert!(members.contains(&json(j!({
-                "name": "state", "kind": "state", "sequence": 2, "ops": [["r", { "selected": null, "revision": 2 }]],
-            }))));
+                .any(|member| member.to_json() == expected));
             subscription.activate()?;
             *slot.lock().unwrap_or_else(PoisonError::into_inner) = Some(subscription);
             Ok(())

@@ -302,20 +302,19 @@ pub(crate) fn parts(source: &str) -> Vec<Command> {
         };
         let mut redirect: Option<RedirectKind> = None;
         for raw in words {
-            let (kind, text) = match raw.trim_start_matches(|c: char| c.is_ascii_digit()) {
-                rest if rest.starts_with(">>") => {
-                    (Some(RedirectKind::Write(WriteMode::Append)), &rest[2..])
-                }
-                rest if rest.starts_with('>') => {
-                    (Some(RedirectKind::Write(WriteMode::Truncate)), &rest[1..])
-                }
-                rest if rest.starts_with('<') => {
-                    (Some(RedirectKind::Read), rest.trim_start_matches('<'))
-                }
-                _ => (None, raw),
+            let rest = raw.trim_start_matches(|c: char| c.is_ascii_digit());
+            let (kind, text) = if let Some(text) = rest.strip_prefix(">>") {
+                (Some(RedirectKind::Write(WriteMode::Append)), text)
+            } else if let Some(text) = rest.strip_prefix('>') {
+                (Some(RedirectKind::Write(WriteMode::Truncate)), text)
+            } else if rest.starts_with('<') {
+                (Some(RedirectKind::Read), rest.trim_start_matches('<'))
+            } else {
+                (None, raw)
             };
             let text: String = text.chars().filter(|&c| c != '\'' && c != '"').collect();
-            let kind = kind.or(redirect.take());
+            let pending = redirect.take();
+            let kind = kind.or(pending);
             if text.is_empty() {
                 redirect = kind;
                 continue;
@@ -710,7 +709,7 @@ fn lex(source: &str) -> Result<Vec<Token>, Unsupported> {
             '<' | '>' => {
                 let fd = take_fd(&mut word);
                 flush(&mut word, &mut tokens);
-                let fd = fd.unwrap_or(u32::from(c == '>'));
+                let fd = fd.unwrap_or_else(|| u32::from(c == '>'));
                 if fd > 2 {
                     return Err(Unsupported("a file descriptor above 2"));
                 }

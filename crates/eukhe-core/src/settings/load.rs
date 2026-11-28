@@ -16,6 +16,7 @@
 //! of its serialized default), not from a hand list.
 
 use eukhe_bend::rules::config::{leaves, Outcome};
+use serde::Deserialize as _;
 use serde_json::{Map, Value};
 
 use super::cvar::{registry, value_text, CvarError, CvarType, Registry};
@@ -71,7 +72,8 @@ pub(crate) fn load_document(document: &Map<String, Value>) -> Loaded {
         for path in &refused {
             remove(&mut round, path);
         }
-        settings = parse(round.as_object().unwrap_or(&Map::new()));
+        let empty = Map::new();
+        settings = parse(round.as_object().unwrap_or(&empty));
         round = serde_json::to_value(&settings).unwrap_or(Value::Null);
     }
     for (key, value) in &kept {
@@ -118,7 +120,8 @@ pub(crate) fn load_document(document: &Map<String, Value>) -> Loaded {
         for key in dropped {
             remove(&mut round, &[key]);
         }
-        settings = parse(round.as_object().unwrap_or(&Map::new()));
+        let empty = Map::new();
+        settings = parse(round.as_object().unwrap_or(&empty));
     }
     let rejected = reported
         .into_iter()
@@ -146,7 +149,7 @@ fn known_fields() -> Vec<String> {
 
 /// `Settings` from an object whose every field parses on its own.
 fn parse(object: &Map<String, Value>) -> Settings {
-    match serde_json::from_value::<Settings>(Value::Object(object.clone())) {
+    match Settings::deserialize(object) {
         Ok(settings) => settings,
         // Each field parsed alone (`typed_part`), so the whole parses; a
         // failure here is a serde invariant break, not user input.
@@ -212,8 +215,9 @@ fn keep_typed<'a>(
                 }
                 path.pop();
             }
-            (!kept.is_empty() && holds(path, &Value::Object(kept.clone())))
-                .then_some(Value::Object(kept))
+            let empty = kept.is_empty();
+            let kept = Value::Object(kept);
+            (!empty && holds(path, &kept)).then_some(kept)
         }
         Value::Object(_)
         | Value::Null
@@ -281,9 +285,9 @@ fn undeclared_leaves(
 /// `error` names `id` or a key above it.
 fn names(error: &CvarError, id: &str) -> bool {
     match error {
-        CvarError::Undeclared { id: named } | CvarError::BadValue { id: named, .. } => {
-            id == named || id.starts_with(&format!("{named}."))
-        }
+        CvarError::Undeclared { id: named } | CvarError::BadValue { id: named, .. } => id
+            .strip_prefix(named.as_str())
+            .is_some_and(|rest| rest.is_empty() || rest.starts_with('.')),
         CvarError::Parse(_)
         | CvarError::Expand(_)
         | CvarError::Global { .. }

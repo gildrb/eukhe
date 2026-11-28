@@ -353,9 +353,12 @@ fn at_prompt_start_offers_agents_ahead_of_files() {
 
 #[test]
 fn should_trigger_file_completion_skips_slash_names() {
-    let provider = provider("/tmp");
-    assert!(!provider.should_trigger_file_completion(&["/mo".to_string()], 0, 3));
-    assert!(provider.should_trigger_file_completion(&["path/to".to_string()], 0, 7));
+    assert!(!should_trigger_file_completion(&["/mo".to_string()], 0, 3));
+    assert!(should_trigger_file_completion(
+        &["path/to".to_string()],
+        0,
+        7
+    ));
 }
 
 fn theme() -> crate::theme::Theme {

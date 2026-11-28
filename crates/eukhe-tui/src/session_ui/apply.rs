@@ -421,7 +421,7 @@ impl SessionUi {
                     .as_mut()
                     .filter(|pane| pane.active_session_id == active_session_id)
                 {
-                    pane.apply(meta_sequence, event_to_update(&event));
+                    pane.apply(meta_sequence, event_to_update(*event));
                     self.dirty = true;
                     return;
                 }
@@ -447,7 +447,7 @@ impl SessionUi {
                     }
                     self.restore_notices.record(&self.session_id, [message]);
                 }
-                self.apply_update(event_to_update(&event), view);
+                self.apply_update(event_to_update(*event), view);
             }
             DaemonClientEvent::UndecodableSessionEvent {
                 active_session_id,
@@ -1476,7 +1476,7 @@ impl SessionUi {
                 if self.aborted_tools.contains(tool_call_id) || card.aborted {
                     return false;
                 }
-                card.result = Some(ToolResultView::new(&card.name, result, is_error));
+                card.result = Some(ToolResultView::new(card.name.as_str(), result, is_error));
                 card.result_partial = partial;
                 if !partial {
                     card.ended_at = Some(std::time::Instant::now());

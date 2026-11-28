@@ -25,7 +25,7 @@ fn view_with(entries: Vec<ChatEntry>) -> AgentView {
 fn settled_tool_card(id: &str) -> ChatEntry {
     ChatEntry::Tool(Box::new(ToolCallCard {
         id: id.to_string(),
-        name: "bash".to_string(),
+        name: crate::tool_card::ToolName::Bash,
         args: serde_json::json!({"script": "echo done"}),
         started: true,
         started_at: Some(std::time::Instant::now()),
@@ -504,7 +504,7 @@ fn settled_messages_render_once_streaming_keeps_block_cache() {
 fn running_card_is_not_cached_and_settled_card_is() {
     let running = ChatEntry::Tool(Box::new(ToolCallCard {
         id: "call_r".to_string(),
-        name: "bash".to_string(),
+        name: crate::tool_card::ToolName::Bash,
         args: serde_json::json!({"script": "sleep 1"}),
         started: true,
         started_at: Some(std::time::Instant::now()),
@@ -1244,7 +1244,7 @@ fn a_running_card_updates_between_frames() {
     });
     view.push_entry(ChatEntry::Tool(Box::new(ToolCallCard {
         id: "run_r".to_string(),
-        name: "bash".to_string(),
+        name: crate::tool_card::ToolName::Bash,
         args: serde_json::json!({"script": "sleep 1"}),
         started: true,
         started_at: Some(std::time::Instant::now()),
@@ -1279,7 +1279,7 @@ fn streamed_cards_render_their_own_rows_immediately() {
     let streamed = |id: &str| {
         ChatEntry::Tool(Box::new(ToolCallCard {
             id: id.to_string(),
-            name: "bash".to_string(),
+            name: crate::tool_card::ToolName::Bash,
             args: serde_json::json!({"script": "ls"}),
             started: true,
             started_at: Some(std::time::Instant::now()),
@@ -1323,7 +1323,7 @@ fn a_landing_result_with_receipts_settles_the_card() {
     });
     view.push_entry(ChatEntry::Tool(Box::new(ToolCallCard {
         id: "cell".to_string(),
-        name: "python".to_string(),
+        name: crate::tool_card::ToolName::Python,
         args: serde_json::json!({"code": "print(1)"}),
         started: true,
         started_at: Some(std::time::Instant::now()),
@@ -1453,7 +1453,7 @@ fn a_running_turn_names_the_jobs_it_runs_or_waits_on() {
     );
     view.push_entry(ChatEntry::Tool(Box::new(ToolCallCard {
         id: "call-1".to_string(),
-        name: "python".to_string(),
+        name: crate::tool_card::ToolName::Python,
         args: serde_json::json!({ "code": "jobs.wait()" }),
         started: true,
         result: Some(ToolResultView {

@@ -12,6 +12,7 @@ use super::{
 };
 use crate::api::constrained_sampling::create_grammar_tool_input_properties;
 use crate::api::openai_responses::get_compat;
+use crate::api::openai_responses_shared::tags::{AnnotationType, ItemType, PartType};
 use crate::api::openai_responses_shared::{
     convert_responses_messages, convert_responses_tools, ConvertResponsesMessagesOptions,
     ConvertResponsesToolsOptions,
@@ -19,6 +20,7 @@ use crate::api::openai_responses_shared::{
 use crate::types::{Model, ProviderRequestOptions};
 use crate::utils::diagnostics::Thrown;
 use crate::utils::transcript::{get_declared_tools, resolve_transcript_tools};
+use crate::utils::wire_type::wire_type;
 
 const LABEL: &str = "OpenAI";
 
@@ -314,10 +316,10 @@ pub(crate) async fn web_search(
     let mut sources: Vec<WebSource> = Vec::new();
     let texts = output
         .iter()
-        .filter(|item| item.get("type").and_then(JsonValue::as_str) == Some("message"))
+        .filter(|item| wire_type(item) == Some(ItemType::Message))
         .filter_map(|item| item.get("content").and_then(JsonValue::as_array))
         .flatten()
-        .filter(|part| part.get("type").and_then(JsonValue::as_str) == Some("output_text"));
+        .filter(|part| wire_type(part) == Some(PartType::OutputText));
     for part in texts {
         if let Some(text) = part.get("text").and_then(JsonValue::as_str) {
             answer.push_str(text);
@@ -327,7 +329,7 @@ pub(crate) async fn web_search(
             .and_then(JsonValue::as_array)
             .into_iter()
             .flatten()
-            .filter(|note| note.get("type").and_then(JsonValue::as_str) == Some("url_citation"));
+            .filter(|note| wire_type(note) == Some(AnnotationType::UrlCitation));
         for citation in citations {
             let Some(url) = citation.get("url").and_then(JsonValue::as_str) else {
                 continue;

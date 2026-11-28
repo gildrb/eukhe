@@ -38,6 +38,7 @@ use crate::utils::js::{js_trim, json_stringify, utf16_len, utf16_prefix};
 use crate::utils::json_parse::{json_parse, parse_streaming_json_object};
 use crate::utils::now_ms;
 use crate::utils::provider_env::get_provider_env_value;
+use crate::utils::utf8_stream::Utf8StreamDecoder;
 
 /// The process-wide client behind the default `fetch` (TS `globalThis.fetch`).
 static CLIENT: LazyLock<reqwest::Client> = LazyLock::new(reqwest::Client::new);
@@ -552,55 +553,11 @@ fn parse_pi_messages_event(raw: &str) -> Result<Option<JsonValue>, Thrown> {
     }
 }
 
-/// Incremental UTF-8 decoding (TS `TextDecoder` with `{ stream: true }`):
-/// invalid sequences become U+FFFD, an incomplete trailing sequence waits
-/// for the next chunk.
-#[derive(Default)]
-struct Utf8Decoder {
-    pending: Vec<u8>,
-}
-
-impl Utf8Decoder {
-    fn decode(&mut self, bytes: &[u8], out: &mut String) {
-        self.pending.extend_from_slice(bytes);
-        let mut rest: &[u8] = &self.pending;
-        loop {
-            match std::str::from_utf8(rest) {
-                Ok(text) => {
-                    out.push_str(text);
-                    rest = &[];
-                    break;
-                }
-                Err(error) => {
-                    let (valid, after) = rest.split_at(error.valid_up_to());
-                    out.push_str(std::str::from_utf8(valid).unwrap_or_default());
-                    if let Some(length) = error.error_len() {
-                        out.push('\u{FFFD}');
-                        rest = &after[length..];
-                    } else {
-                        rest = after;
-                        break;
-                    }
-                }
-            }
-        }
-        self.pending = rest.to_vec();
-    }
-
-    /// `decoder.decode()`: flush an incomplete trailing sequence.
-    fn finish(&mut self, out: &mut String) {
-        if !self.pending.is_empty() {
-            out.push_str(&String::from_utf8_lossy(&self.pending));
-            self.pending.clear();
-        }
-    }
-}
-
 /// TS `readPiMessagesEvents`: the raw JSON events of the SSE body.
 struct PiMessagesEventReader {
     response: reqwest::Response,
     signal: Option<eukhe_chord::context::AbortSignal>,
-    decoder: Utf8Decoder,
+    decoder: Utf8StreamDecoder,
     buffer: String,
     body_done: bool,
 }
@@ -635,9 +592,9 @@ impl PiMessagesEventReader {
             }
             .map_err(|error| type_error(format!("terminated: {error}")))?;
             if let Some(bytes) = chunk {
-                self.decoder.decode(&bytes, &mut self.buffer);
+                self.decoder.decode_into(&bytes, &mut self.buffer);
             } else {
-                self.decoder.finish(&mut self.buffer);
+                self.decoder.finish_into(&mut self.buffer);
                 self.body_done = true;
             }
             self.buffer = self.buffer.replace("\r\n", "\n");
@@ -847,7 +804,7 @@ async fn run_stream(
     let mut reader = PiMessagesEventReader {
         response,
         signal,
-        decoder: Utf8Decoder::default(),
+        decoder: Utf8StreamDecoder::default(),
         buffer: String::new(),
         body_done: false,
     };

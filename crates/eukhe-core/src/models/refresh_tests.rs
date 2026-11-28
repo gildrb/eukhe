@@ -274,7 +274,7 @@ fn the_report_reads_as_lines() {
             report_lines(
                 &ModelsRefreshReport {
                     providers: Vec::new(),
-                    ..report.clone()
+                    ..report
                 },
                 "11:00"
             )

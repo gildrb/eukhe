@@ -619,7 +619,10 @@ async fn describe_session_open_failure(
     .await
     .ok()
     .and_then(Result::ok)
-    .map(|data| crate::session_open_error::roster_rows(&data).to_vec())
+    .and_then(|mut data| match data.get_mut("sessions").map(Value::take) {
+        Some(Value::Array(rows)) => Some(rows),
+        Some(_) | None => None,
+    })
     .unwrap_or_default();
     // The path-keyed lookup first; the refusal's own holder id is the
     // fallback (a relative resume path can miss the canonical row).

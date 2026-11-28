@@ -97,7 +97,7 @@ pub fn load(dir: &Path, document: &Map<String, Value>) -> (Vec<String>, Settings
     std::fs::create_dir_all(&cwd).expect("project dir");
     std::fs::write(
         agent.join("settings.json"),
-        serde_json::to_string_pretty(&Value::Object(document.clone())).expect("serialize"),
+        serde_json::to_string_pretty(document).expect("serialize"),
     )
     .expect("write settings");
     let manager = SettingsManager::create(&cwd, &agent);

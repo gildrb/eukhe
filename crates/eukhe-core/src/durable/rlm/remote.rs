@@ -50,7 +50,7 @@ pub(super) fn register(runtime: &Arc<RlmRuntime>) {
     runtime.deps.host_requests.register(
         "remote.register",
         Arc::new(move |call: HostCall| {
-            let weak = weak.clone();
+            let weak = Weak::clone(&weak);
             async move {
                 let deps = weak.upgrade().ok_or_else(|| {
                     anyhow::anyhow!("the session ended before the request could be served")
@@ -92,7 +92,7 @@ fn remote_tool(deps: Weak<HostDeps>, announcement: Announcement) -> ToolRegistra
         description,
         ToolSchema::from(parameters),
         move |args: Value, api, cx| {
-            let deps = deps.clone();
+            let deps = Weak::clone(&deps);
             let module = module.clone();
             let function = function.clone();
             let called = called.clone();

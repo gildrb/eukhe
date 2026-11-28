@@ -93,7 +93,7 @@ pub(crate) fn load_skill_from_file(
     let skill_dir = file_path.parent().unwrap_or_else(|| Path::new("."));
     let parent_dir_name = skill_dir
         .file_name()
-        .map(|name| name.to_string_lossy().to_string())
+        .map(|name| name.to_string_lossy().into_owned())
         .unwrap_or_default();
     let text = |key: &str| frontmatter.get(key).and_then(|value| value.as_str());
     let warning = |message: String| ResourceDiagnostic::Warning {
@@ -301,7 +301,7 @@ fn load_skills_from_dir_internal(
                 let path = entry.path();
                 let metadata = std::fs::metadata(&path);
                 children.push((
-                    entry.file_name().to_string_lossy().to_string(),
+                    entry.file_name().to_string_lossy().into_owned(),
                     path,
                     metadata,
                 ));

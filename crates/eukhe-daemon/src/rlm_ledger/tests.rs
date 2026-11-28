@@ -394,7 +394,7 @@ fn display_entries_round_trip_and_tombstones_stick() {
     let child_dir = dir.join("sub-1");
     fs::create_dir_all(&child_dir).unwrap();
     let entry = RlmSubagentDisplayEntry {
-        type_tag: "rlm_subagent".into(),
+        type_tag: crate::rlm_ledger::DisplayTag::RlmSubagent,
         child_id: "sub-1".into(),
         session_name: "w".into(),
         session_dir: child_dir.to_string_lossy().into(),
@@ -403,7 +403,7 @@ fn display_entries_round_trip_and_tombstones_stick() {
         prompt: Some("do work".into()),
         spawn_code: None,
         model: Some(json!({"provider": "p", "modelId": "m"})),
-        status: "running".into(),
+        status: crate::rlm_ledger::DisplayStatus::Running,
         created_at: 1,
     };
     assert!(write_rlm_subagent_display(&entry).unwrap());
@@ -411,7 +411,7 @@ fn display_entries_round_trip_and_tombstones_stick() {
     assert_eq!(read.child_id, "sub-1");
     assert_eq!(read.prompt.as_deref(), Some("do work"));
     let mut tombstone = entry.clone();
-    tombstone.status = "deleted".into();
+    tombstone.status = DisplayStatus::Deleted;
     assert!(write_rlm_subagent_display(&tombstone).unwrap());
     // A resurrection write is refused over a tombstone.
     assert!(!write_rlm_subagent_display(&entry).unwrap());
@@ -425,7 +425,7 @@ fn display_entry_file_is_owner_only() {
     let child_dir = dir.join("sub-1");
     fs::create_dir_all(&child_dir).unwrap();
     let entry = RlmSubagentDisplayEntry {
-        type_tag: "rlm_subagent".into(),
+        type_tag: crate::rlm_ledger::DisplayTag::RlmSubagent,
         child_id: "sub-1".into(),
         session_name: "w".into(),
         session_dir: child_dir.to_string_lossy().into(),
@@ -434,7 +434,7 @@ fn display_entry_file_is_owner_only() {
         prompt: None,
         spawn_code: None,
         model: None,
-        status: "running".into(),
+        status: crate::rlm_ledger::DisplayStatus::Running,
         created_at: 1,
     };
     assert!(write_rlm_subagent_display(&entry).unwrap());

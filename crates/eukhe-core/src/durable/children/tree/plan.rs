@@ -36,20 +36,20 @@ pub(crate) fn unit_path(path: &str) -> String {
 /// owned exactly where the unit enclosing it is (a path no unit encloses
 /// is owned nowhere).
 #[must_use]
-pub(crate) fn refine(crown: &Crown, units: &[String], path: &str) -> (Crown, Vec<String>) {
+pub(crate) fn refine(crown: Crown, mut units: Vec<String>, path: &str) -> (Crown, Vec<String>) {
     if units.iter().any(|unit| unit == path) {
-        return (crown.clone(), units.to_vec());
+        return (crown, units);
     }
-    let enclosing = unit_of(units, Path::new(path));
-    let mut refined = units.to_vec();
-    refined.push(path.to_owned());
+    let enclosing = unit_of(&units, Path::new(path));
     let column = |scope: &Scope| enclosing.is_some_and(|unit| scope[unit]);
+    let tree = refine_node(&crown.tree, units.len(), &column);
+    units.push(path.to_owned());
     (
         Crown {
-            tree: refine_node(&crown.tree, units.len(), &column),
-            helps: crown.helps.clone(),
+            tree,
+            helps: crown.helps,
         },
-        refined,
+        units,
     )
 }
 
@@ -86,15 +86,11 @@ fn refine_node(node: &Node, before: usize, column: &impl Fn(&Scope) -> bool) -> 
 
 /// `crown` and `units` refined by every path of `paths`, in order.
 #[must_use]
-pub(crate) fn refine_all(
-    crown: &Crown,
-    units: &[String],
-    paths: &[String],
-) -> (Crown, Vec<String>) {
+pub(crate) fn refine_all(crown: Crown, units: &[String], paths: &[String]) -> (Crown, Vec<String>) {
     paths
         .iter()
-        .fold((crown.clone(), units.to_vec()), |(crown, units), path| {
-            refine(&crown, &units, path)
+        .fold((crown, units.to_vec()), |(crown, units), path| {
+            refine(crown, units, path)
         })
 }
 

@@ -200,8 +200,7 @@ async fn serve_callback(mut stream: tokio::net::TcpStream, shared: &CallbackShar
         .unwrap_or_default()
         .split_whitespace()
         .nth(1)
-        .unwrap_or_default()
-        .to_string();
+        .unwrap_or_default();
     let path = target.split('?').next().unwrap_or_default();
     if path != CALLBACK_PATH {
         let _ = write_response(

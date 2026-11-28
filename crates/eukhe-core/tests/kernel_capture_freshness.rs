@@ -582,7 +582,7 @@ async fn concurrent_settles_keep_the_boundary_invariant() {
     // concurrent capture already committed that exact namespace, so the
     // assertion is on the restored value, not on a re-dump happening.
     let writer = {
-        let manager = manager.clone();
+        let manager = std::sync::Arc::clone(&manager);
         tokio::spawn(async move {
             for i in 1..40 {
                 let cell = execute(&manager, &format!("v = {i}")).await;
@@ -591,7 +591,7 @@ async fn concurrent_settles_keep_the_boundary_invariant() {
         })
     };
     let reader = {
-        let manager = manager.clone();
+        let manager = std::sync::Arc::clone(&manager);
         tokio::spawn(async move {
             for _ in 0..20 {
                 let _ = manager.snapshot_state().await;

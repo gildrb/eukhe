@@ -358,7 +358,7 @@ pub fn create_agent_session_message_row(payload: &AgentSessionMessageRowPayload<
 fn receipt_target_value(receipt: &AgentMessageReceipt) -> Value {
     let mut target = json!({
         "activeSessionId": receipt.target,
-        "sessionId": receipt.target_session_id.clone().unwrap_or_default(),
+        "sessionId": receipt.target_session_id.as_deref().unwrap_or_default(),
     });
     if let Some(name) = receipt
         .target_session_name
@@ -472,7 +472,7 @@ pub fn resolve_receiver(
             "No child of this agent matches \"{selector}\"; agents message only their parent and their own children"
         ),
         AgentMessageReceiver::Child { selector } => {
-            let candidates: Vec<String> = matches.iter().map(|member| member.id.clone()).collect();
+            let candidates: Vec<&str> = matches.iter().map(|member| member.id.as_str()).collect();
             anyhow::anyhow!(
                 "Child selector \"{selector}\" is ambiguous; address one by id: {}",
                 candidates.join(", ")
@@ -504,7 +504,7 @@ pub fn register_agent_message_host_handlers<C: AgentMessageController + 'static>
     handlers.register(
         "agent_message.send",
         host_handler(move |payload| {
-            let controller = controller.clone();
+            let controller = std::sync::Arc::clone(&controller);
             Box::pin(async move {
                 let data = payload.data;
                 let Some(message) = data.get("message").and_then(Value::as_str) else {
@@ -560,8 +560,8 @@ pub fn register_agent_message_host_handlers<C: AgentMessageController + 'static>
                 let member = resolve_receiver(family, &receiver)?;
                 let receipt = controller
                     .send_agent_message(AgentMessageSendInput {
-                        target: member.id.clone(),
-                        message: message.clone(),
+                        target: member.id,
+                        message,
                         receiver_role: Some(member.relationship),
                     })
                     .await?;

@@ -456,7 +456,7 @@ impl MutableReplicatedState {
             }
             self.inner.publisher.enqueue(
                 prepared.value().clone(),
-                Arc::from(prepared.ops()),
+                prepared.shared_ops(),
                 context.clone(),
             )
         };
@@ -491,7 +491,7 @@ impl MutableReplicatedState {
             }
             self.inner.publisher.enqueue(
                 prepared.value().clone(),
-                Arc::from(prepared.ops()),
+                prepared.shared_ops(),
                 context.clone(),
             )
         };

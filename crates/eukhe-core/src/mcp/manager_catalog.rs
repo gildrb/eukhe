@@ -7,6 +7,7 @@
 //! `packages/coding-agent/src/core/mcp/mcp-manager.ts` `resolveIntegrations`
 //! plus the TS `verifyMcpConnection`/static-token install flow.
 
+use serde::Deserialize as _;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -86,7 +87,7 @@ impl McpManager {
         let credentials = all
             .iter()
             .filter_map(|(key, value)| {
-                serde_json::from_value::<AuthCredential>(value.clone())
+                AuthCredential::deserialize(value)
                     .ok()
                     .map(|credential| (key.clone(), credential))
             })
@@ -96,13 +97,7 @@ impl McpManager {
 
     /// Records keyed by connectionId (view + status computations).
     pub(crate) fn records_by_id(&self) -> HashMap<String, McpConnectionRecord> {
-        self.connection_store
-            .lock()
-            .unwrap()
-            .records()
-            .into_iter()
-            .map(|record| (record.connection_id.clone(), record))
-            .collect()
+        self.connection_store.lock().unwrap().by_id().clone()
     }
 
     /// The plugin views for the `/mcp` service-catalog surface: the resolved
@@ -560,7 +555,7 @@ pub async fn install_static_token(
     drop(store);
     if !committed {
         return Ok(StaticTokenInstall {
-            endpoint: inputs.endpoint.clone(),
+            endpoint: inputs.endpoint,
             verified: false,
             tool_count: None,
             error: Some("credential-changed".to_string()),
@@ -570,7 +565,7 @@ pub async fn install_static_token(
         .as_ref()
         .is_some_and(|record| record.status == RecordStatus::Connected);
     Ok(StaticTokenInstall {
-        endpoint: inputs.endpoint.clone(),
+        endpoint: inputs.endpoint,
         verified,
         tool_count: committed_record
             .as_ref()

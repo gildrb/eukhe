@@ -105,7 +105,7 @@ pub(super) fn refine_harness_dir(runtime: &RlmRuntime) -> Option<std::path::Path
 type Handle = fn(Arc<RlmRuntime>, HostCall) -> BoxFuture<'static, anyhow::Result<Value>>;
 
 fn handler(weak: &Weak<RlmRuntime>, handle: Handle) -> HostCallHandler {
-    let weak = weak.clone();
+    let weak = Weak::clone(weak);
     Arc::new(move |call: HostCall| match weak.upgrade() {
         Some(runtime) => handle(runtime, call),
         None => futures::future::ready(Err(anyhow::anyhow!(SESSION_ENDED))).boxed(),

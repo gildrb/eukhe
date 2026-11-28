@@ -28,7 +28,7 @@ impl Inner {
         let slot = {
             let mut memo = lock(&self.shutdown_memo);
             let slot = MemoSlot::new();
-            *memo = Some(slot.clone());
+            *memo = Some(Arc::clone(&slot));
             slot
         };
         lock(&self.guarded).teardown_in_flight += 1;

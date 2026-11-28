@@ -992,14 +992,7 @@ async fn a_prompt_and_wait_route_outlives_the_old_ten_minute_cap() {
         let supervisor = Arc::clone(&supervisor);
         tokio::spawn(async move {
             supervisor
-                .route_client_command(
-                    &command,
-                    "c",
-                    &attached,
-                    "p-1".to_string(),
-                    "prompt_and_wait".to_string(),
-                    None,
-                )
+                .route_client_command(&command, "c", &attached, "p-1", "prompt_and_wait", None)
                 .await
         })
     };
@@ -1877,7 +1870,7 @@ proptest! {
             let attached = subscribers::ClientSubscriptions::new("conn".to_string(), queue_tx);
             let type_name = command_type_name(&command).to_string();
             let (lines, stop) = supervisor
-                .route_client_command(&command, "client", &attached, "c1".into(), type_name, None)
+                .route_client_command(&command, "client", &attached, "c1", &type_name, None)
                 .await;
             prop_assert!(!stop);
             prop_assert_eq!(&lines[0]["success"], &json!(false));

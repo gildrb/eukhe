@@ -196,7 +196,7 @@ impl SessionUi {
     /// unreadable state, or a field an older daemon never emits, answers
     /// `false` -- the warning shows rather than being suppressed by a
     /// failed read.
-    async fn anthropic_warning_already_shown(&mut self) -> bool {
+    async fn anthropic_warning_already_shown(&self) -> bool {
         self.bounded_request(
             Duration::from_millis(UI_REQUEST_TIMEOUT_MS),
             DaemonCommand::GetState {

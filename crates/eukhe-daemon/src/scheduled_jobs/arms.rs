@@ -169,7 +169,7 @@ impl Worker {
                 session_id: core.session_id.clone(),
                 session_file,
                 cwd: core.cwd.clone(),
-                runtime_kind: Some(core.runtime_kind.clone()),
+                runtime_kind: Some(core.runtime_kind.as_str().to_owned()),
                 prompt: payload
                     .get("prompt")
                     .and_then(Value::as_str)
@@ -301,7 +301,7 @@ impl Worker {
             // A replacement keeps the previous delivery mode unless the
             // command carries one (TS `createHeartbeatForState`).
             let delivery_mode =
-                delivery_mode.or(previous.as_ref().and_then(|job| job.delivery_mode));
+                delivery_mode.or_else(|| previous.as_ref().and_then(|job| job.delivery_mode));
             (
                 previous,
                 CreateAgentCronJobInput {
@@ -309,7 +309,7 @@ impl Worker {
                     session_id: core.session_id.clone(),
                     session_file,
                     cwd: core.cwd.clone(),
-                    runtime_kind: Some(core.runtime_kind.clone()),
+                    runtime_kind: Some(core.runtime_kind.as_str().to_owned()),
                     delivery_mode,
                     schedule_text: normalize_heartbeat_schedule(Some(
                         payload

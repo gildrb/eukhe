@@ -13,6 +13,7 @@ use super::{
 use crate::lease::is_process_alive;
 use crate::registry::WorkerRelay;
 use crate::timeouts::{self, RESTART_BASE_BACKOFF_MS, RESTART_GIVE_UP_AFTER};
+use crate::worker::OutboundType;
 use eukhe_bend::rules::restart_turn::GaveUp;
 use std::borrow::Cow;
 
@@ -31,10 +32,21 @@ struct SessionEventRouting<'a> {
 /// The event fields the abort supervision reads.
 #[derive(serde::Deserialize)]
 struct SessionEventHead<'a> {
-    #[serde(rename = "type", borrow, default)]
-    kind: Option<Cow<'a, str>>,
+    #[serde(rename = "type", default)]
+    kind: Option<SessionEventKind>,
     #[serde(borrow, default)]
     reason: Option<&'a serde_json::value::RawValue>,
+}
+
+/// The session event types the abort supervision acts on.
+#[derive(serde::Deserialize, Clone, Copy)]
+#[serde(rename_all = "snake_case")]
+enum SessionEventKind {
+    CompactionStart,
+    CompactionEnd,
+    AgentStart,
+    #[serde(other)]
+    Other,
 }
 
 /// The session address of a worker `side_question_event`,
@@ -887,19 +899,18 @@ impl Supervisor {
                             frame.header.get("outboundType")
                         );
                     }
-                    let outbound_type = frame
+                    let outbound = frame
                         .header
                         .get("outboundType")
                         .and_then(Value::as_str)
-                        .unwrap_or_default()
-                        .to_string();
+                        .and_then(OutboundType::parse);
                     let request_id = frame
                         .header
                         .get("requestId")
                         .and_then(Value::as_str)
                         .unwrap_or_default()
                         .to_string();
-                    if outbound_type == "response" {
+                    if outbound == Some(OutboundType::Response) {
                         // The response rides as bytes: the supervisor's
                         // client-facing route splices the client's command
                         // id in front of the worker's own line instead of
@@ -925,188 +936,206 @@ impl Supervisor {
                         }
                         continue;
                     }
-                    if outbound_type == "session_event" {
-                        let Ok(SessionEventRouting {
-                            active_session_id,
-                            event,
-                        }) = serde_json::from_slice(&frame.payload)
-                        else {
-                            continue;
-                        };
-                        let active_session_id = active_session_id.map(Cow::into_owned);
-                        // The abort supervision rides the forwarded events:
-                        // `compaction_start` arms the supervisor-visible
-                        // token, a settled `compaction_end` clears it (and
-                        // any pending terminal record — the worker landed
-                        // the outcome itself, so a replacement must never
-                        // replay it).
-                        // Only the live connection's frames may drive the
-                        // token: a superseded connection still draining
-                        // must not arm over — or settle — the replacement
-                        // connection's run. The journal lock spans the
-                        // token settle and the record clear, pairing with
-                        // `declare_compaction_terminal`'s take-then-write
-                        // under the same lock.
-                        if let Some(event) = event
-                            .filter(|_| reader_resident.connection_is_current(connection_epoch))
-                        {
-                            match event.kind.as_deref() {
-                                Some("compaction_start") => match event.reason.map(|reason| {
-                                    serde_json::from_str::<eukhe_types::daemon::CompactionReason>(
-                                        reason.get(),
-                                    )
-                                }) {
-                                    Some(Ok(reason)) => {
-                                        let carried_abort = reader_resident.compaction.arm(
-                                            active_session_id.as_deref().unwrap_or_default(),
-                                            reason,
-                                        );
-                                        // A pending fallback abort rode this
-                                        // start frame onto the run it
-                                        // reveals (the fallback armed before
-                                        // the delayed frame landed): the
-                                        // carried epoch needs its own watcher,
-                                        // the fallback's old epoch never
-                                        // matches again.
-                                        if let Some(epoch) = carried_abort {
-                                            let supervisor = Arc::clone(&reader_supervisor);
-                                            let resident = Arc::clone(&reader_resident);
-                                            tokio::spawn(async move {
-                                                supervisor
-                                                    .watch_unresolved_compaction_abort(
-                                                        resident, epoch,
-                                                    )
-                                                    .await;
-                                            });
+                    match outbound {
+                        Some(OutboundType::Response) | None => {}
+                        Some(OutboundType::SessionEvent) => {
+                            let Ok(SessionEventRouting {
+                                active_session_id,
+                                event,
+                            }) = serde_json::from_slice(&frame.payload)
+                            else {
+                                continue;
+                            };
+                            let active_session_id = active_session_id.map(Cow::into_owned);
+                            // The abort supervision rides the forwarded events:
+                            // `compaction_start` arms the supervisor-visible
+                            // token, a settled `compaction_end` clears it (and
+                            // any pending terminal record — the worker landed
+                            // the outcome itself, so a replacement must never
+                            // replay it).
+                            // Only the live connection's frames may drive the
+                            // token: a superseded connection still draining
+                            // must not arm over — or settle — the replacement
+                            // connection's run. The journal lock spans the
+                            // token settle and the record clear, pairing with
+                            // `declare_compaction_terminal`'s take-then-write
+                            // under the same lock.
+                            if let Some(event) = event
+                                .filter(|_| reader_resident.connection_is_current(connection_epoch))
+                            {
+                                match event.kind {
+                                    Some(SessionEventKind::CompactionStart) => match event
+                                        .reason
+                                        .map(|reason| {
+                                            serde_json::from_str::<
+                                                eukhe_types::daemon::CompactionReason,
+                                            >(
+                                                reason.get()
+                                            )
+                                        }) {
+                                        Some(Ok(reason)) => {
+                                            let carried_abort = reader_resident.compaction.arm(
+                                                active_session_id.as_deref().unwrap_or_default(),
+                                                reason,
+                                            );
+                                            // A pending fallback abort rode this
+                                            // start frame onto the run it
+                                            // reveals (the fallback armed before
+                                            // the delayed frame landed): the
+                                            // carried epoch needs its own watcher,
+                                            // the fallback's old epoch never
+                                            // matches again.
+                                            if let Some(epoch) = carried_abort {
+                                                let supervisor = Arc::clone(&reader_supervisor);
+                                                let resident = Arc::clone(&reader_resident);
+                                                tokio::spawn(async move {
+                                                    supervisor
+                                                        .watch_unresolved_compaction_abort(
+                                                            resident, epoch,
+                                                        )
+                                                        .await;
+                                                });
+                                            }
                                         }
-                                    }
-                                    Some(Err(error)) => reader_supervisor.log_line(&format!(
-                                        "a compaction_start carries no known reason: {error}"
-                                    )),
-                                    None => reader_supervisor
-                                        .log_line("a compaction_start carries no reason"),
-                                },
-                                Some("compaction_end") => {
-                                    let clear_error = {
-                                        let mut journal = reader_supervisor
-                                            .compaction_journal
-                                            .lock()
-                                            .expect("compaction journal lock");
-                                        reader_resident.compaction.observe_end();
-                                        active_session_id.as_deref().and_then(|active_session_id| {
-                                            // A failed clear keeps the record
-                                            // pending (write-before-forget, so
-                                            // memory and disk agree) — surfaced
-                                            // here so the settled run's stale
-                                            // record is visible, and retried by
-                                            // the next forwarded end.
-                                            journal.clear(active_session_id).err()
-                                        })
-                                    };
-                                    if let Some(error) = clear_error {
-                                        reader_supervisor.log_line(&format!(
+                                        Some(Err(error)) => reader_supervisor.log_line(&format!(
+                                            "a compaction_start carries no known reason: {error}"
+                                        )),
+                                        None => reader_supervisor
+                                            .log_line("a compaction_start carries no reason"),
+                                    },
+                                    Some(SessionEventKind::CompactionEnd) => {
+                                        let clear_error = {
+                                            let mut journal = reader_supervisor
+                                                .compaction_journal
+                                                .lock()
+                                                .expect("compaction journal lock");
+                                            reader_resident.compaction.observe_end();
+                                            active_session_id.as_deref().and_then(
+                                                |active_session_id| {
+                                                    // A failed clear keeps the record
+                                                    // pending (write-before-forget, so
+                                                    // memory and disk agree) — surfaced
+                                                    // here so the settled run's stale
+                                                    // record is visible, and retried by
+                                                    // the next forwarded end.
+                                                    journal.clear(active_session_id).err()
+                                                },
+                                            )
+                                        };
+                                        if let Some(error) = clear_error {
+                                            reader_supervisor.log_line(&format!(
                                             "terminal compaction journal clear failed for {active_session_id:?}: {error:#}"
                                         ));
+                                        }
                                     }
+                                    // A new run in this worker: a turn its
+                                    // reopen ended at the cap no longer holds
+                                    // back the next give-up.
+                                    Some(SessionEventKind::AgentStart) => reader_supervisor
+                                        .interrupted_runs
+                                        .run_started(&reader_resident.worker_id),
+                                    Some(SessionEventKind::Other) | None => {}
                                 }
-                                // A new run in this worker: a turn its
-                                // reopen ended at the cap no longer holds
-                                // back the next give-up.
-                                Some("agent_start") => reader_supervisor
-                                    .interrupted_runs
-                                    .run_started(&reader_resident.worker_id),
-                                _ => {}
+                            }
+                            // The send-time delivery pass (TS handleWorkerFrame
+                            // parity): the session's attached connections get
+                            // the worker's own bytes through the subscriber
+                            // registry, other connections never wake. A session
+                            // event without an active session id is dropped -
+                            // TS's `!activeSessionId` guard in the same handler,
+                            // not broadcast to every client.
+                            if let Some(active_session_id) = active_session_id {
+                                reader_supervisor.publish_session_line(
+                                    &active_session_id,
+                                    &super::subscribers::event_line(frame.payload),
+                                );
                             }
                         }
-                        // The send-time delivery pass (TS handleWorkerFrame
-                        // parity): the session's attached connections get
-                        // the worker's own bytes through the subscriber
-                        // registry, other connections never wake. A session
-                        // event without an active session id is dropped -
-                        // TS's `!activeSessionId` guard in the same handler,
-                        // not broadcast to every client.
-                        if let Some(active_session_id) = active_session_id {
-                            reader_supervisor.publish_session_line(
-                                &active_session_id,
-                                &super::subscribers::event_line(frame.payload),
-                            );
+                        Some(OutboundType::SideQuestionEvent) => {
+                            let Ok(SessionAddress { active_session_id }) =
+                                serde_json::from_slice(&frame.payload)
+                            else {
+                                continue;
+                            };
+                            if let Some(active_session_id) = active_session_id.map(Cow::into_owned)
+                            {
+                                reader_supervisor.publish_session_line(
+                                    &active_session_id,
+                                    &super::subscribers::event_line(frame.payload),
+                                );
+                            }
                         }
-                    } else if outbound_type == "side_question_event" {
-                        let Ok(SessionAddress { active_session_id }) =
-                            serde_json::from_slice(&frame.payload)
-                        else {
-                            continue;
-                        };
-                        if let Some(active_session_id) = active_session_id.map(Cow::into_owned) {
-                            reader_supervisor.publish_session_line(
-                                &active_session_id,
-                                &super::subscribers::event_line(frame.payload),
-                            );
+                        Some(OutboundType::EditorPermission) => {
+                            // Only the session's editors (the connections that
+                            // attached with the `editor_permission` capability)
+                            // get the question.
+                            let Ok(SessionAddress { active_session_id }) =
+                                serde_json::from_slice(&frame.payload)
+                            else {
+                                continue;
+                            };
+                            if let Some(active_session_id) = active_session_id.map(Cow::into_owned)
+                            {
+                                reader_supervisor.editor_subscribers.publish(
+                                    &active_session_id,
+                                    &super::subscribers::event_line(frame.payload),
+                                );
+                            }
                         }
-                    } else if outbound_type == crate::editor_permission::EDITOR_PERMISSION_FRAME {
-                        // Only the session's editors (the connections that
-                        // attached with the `editor_permission` capability)
-                        // get the question.
-                        let Ok(SessionAddress { active_session_id }) =
-                            serde_json::from_slice(&frame.payload)
-                        else {
-                            continue;
-                        };
-                        if let Some(active_session_id) = active_session_id.map(Cow::into_owned) {
-                            reader_supervisor.editor_subscribers.publish(
-                                &active_session_id,
-                                &super::subscribers::event_line(frame.payload),
-                            );
-                        }
-                    } else if outbound_type == crate::peer::STATE_TREE_UPDATE_FRAME {
-                        // Only the connections that subscribed to the
-                        // session's state tree get the worker's bytes.
-                        let Ok(SessionAddress { active_session_id }) =
-                            serde_json::from_slice(&frame.payload)
-                        else {
-                            continue;
-                        };
-                        if let Some(active_session_id) = active_session_id.map(Cow::into_owned) {
-                            let outcome = reader_supervisor.state_tree_subscribers.publish(
-                                &active_session_id,
-                                &super::subscribers::event_line(frame.payload),
-                            );
-                            if !outcome.lagged.is_empty() {
-                                reader_supervisor.log_line(&format!(
+                        Some(OutboundType::StateTreeUpdate) => {
+                            // Only the connections that subscribed to the
+                            // session's state tree get the worker's bytes.
+                            let Ok(SessionAddress { active_session_id }) =
+                                serde_json::from_slice(&frame.payload)
+                            else {
+                                continue;
+                            };
+                            if let Some(active_session_id) = active_session_id.map(Cow::into_owned)
+                            {
+                                let outcome = reader_supervisor.state_tree_subscribers.publish(
+                                    &active_session_id,
+                                    &super::subscribers::event_line(frame.payload),
+                                );
+                                if !outcome.lagged.is_empty() {
+                                    reader_supervisor.log_line(&format!(
                                     "clients {} lagged on the state tree queue: frames dropped (session {active_session_id})",
                                     outcome.lagged.join(", ")
                                 ));
+                                }
                             }
                         }
-                    } else if outbound_type == "heartbeats_changed" {
-                        let Ok(payload) = serde_json::from_slice::<Value>(&frame.payload) else {
-                            continue;
-                        };
-                        // The worker's own catalog changed: its last-good
-                        // snapshot can no longer be trusted as fresh (TS
-                        // `heartbeatSnapshotStale = true` + a queued re-read
-                        // for an in-flight pass; Rust bumps the generation,
-                        // so an in-flight read keeps an older generation
-                        // and can never publish itself as fresh over this
-                        // invalidation), and every client re-reads the
-                        // catalog (TS `broadcastHeartbeatsChanged`
-                        // re-broadcast: the TS site writes the frame to
-                        // each client in its set, so a session-scoped
-                        // catalog view refreshes on the same push).
-                        reader_resident
-                            .heartbeat_snapshot_generation
-                            .fetch_add(1, Ordering::Relaxed);
-                        let _ =
-                            events.send((ClientRouting::Broadcast, std::sync::Arc::new(payload)));
-                    } else if outbound_type == crate::worker::CRON_CHANGED_FRAME {
-                        // A job write on the worker: its cached `cron_list`
-                        // slice is stale (the frame precedes the mutating
-                        // command's response on the ordered stream, so the
-                        // next list after that response consults the
-                        // worker again).
-                        reader_resident
-                            .cron_snapshot_generation
-                            .fetch_add(1, Ordering::Relaxed);
+                        Some(OutboundType::HeartbeatsChanged) => {
+                            let Ok(payload) = serde_json::from_slice::<Value>(&frame.payload)
+                            else {
+                                continue;
+                            };
+                            // The worker's own catalog changed: its last-good
+                            // snapshot can no longer be trusted as fresh (TS
+                            // `heartbeatSnapshotStale = true` + a queued re-read
+                            // for an in-flight pass; Rust bumps the generation,
+                            // so an in-flight read keeps an older generation
+                            // and can never publish itself as fresh over this
+                            // invalidation), and every client re-reads the
+                            // catalog (TS `broadcastHeartbeatsChanged`
+                            // re-broadcast: the TS site writes the frame to
+                            // each client in its set, so a session-scoped
+                            // catalog view refreshes on the same push).
+                            reader_resident
+                                .heartbeat_snapshot_generation
+                                .fetch_add(1, Ordering::Relaxed);
+                            let _ = events
+                                .send((ClientRouting::Broadcast, std::sync::Arc::new(payload)));
+                        }
+                        Some(OutboundType::CronChanged) => {
+                            // A job write on the worker: its cached `cron_list`
+                            // slice is stale (the frame precedes the mutating
+                            // command's response on the ordered stream, so the
+                            // next list after that response consults the
+                            // worker again).
+                            reader_resident
+                                .cron_snapshot_generation
+                                .fetch_add(1, Ordering::Relaxed);
+                        }
                     }
                 }
                 // The connection is gone: no reply can arrive on it any

@@ -25,9 +25,6 @@ use tokio::sync::oneshot;
 use crate::protocol::{response_failure, response_success, DaemonOutbound, DaemonResponse};
 use crate::worker::{EventPump, OutboundFrame, SessionCore};
 
-/// The private-frame `outboundType` of one question to the editors.
-pub(crate) const EDITOR_PERMISSION_FRAME: &str = "editor_permission";
-
 /// The client capability that receives the questions.
 pub(crate) const EDITOR_PERMISSION_CAPABILITY: &str = "editor_permission";
 
@@ -297,7 +294,10 @@ mod tests {
             .await
             .expect("frame in time")
             .expect("frame");
-        assert_eq!(frame.outbound_type, EDITOR_PERMISSION_FRAME);
+        assert_eq!(
+            frame.outbound_type,
+            crate::worker::OutboundType::EditorPermission
+        );
         serde_json::from_slice(&frame.payload).unwrap()
     }
 

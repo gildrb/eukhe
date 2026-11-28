@@ -180,7 +180,7 @@ pub(crate) fn register_host_requests(deps: &Arc<HostDeps>) {
     let weak = Arc::downgrade(deps);
     deps.host_requests.register(
         MCP_RAN_REQUEST,
-        Arc::new(move |call: HostCall| mcp_call_ran(weak.clone(), call).boxed()),
+        Arc::new(move |call: HostCall| mcp_call_ran(Weak::clone(&weak), call).boxed()),
     );
 }
 

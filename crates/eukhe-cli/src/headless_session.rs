@@ -6,6 +6,7 @@
 //! text; verification harness only, never set by the product) swaps the
 //! model collection for the scripted faux provider.
 
+use std::borrow::Cow;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -195,12 +196,11 @@ pub(crate) enum HeadlessTarget {
 
 /// The sessions directory (the `--session-dir` flag, else the agent dir's
 /// `sessions`).
-pub(crate) fn sessions_dir(options: &RunOptions) -> PathBuf {
-    options
-        .session
-        .session_dir
-        .clone()
-        .unwrap_or_else(|| options.config.agent_dir.join("sessions"))
+pub(crate) fn sessions_dir(options: &RunOptions) -> Cow<'_, Path> {
+    options.session.session_dir.as_deref().map_or_else(
+        || Cow::Owned(options.config.agent_dir.join("sessions")),
+        Cow::Borrowed,
+    )
 }
 
 /// The selection a target resolves to before anything opens.

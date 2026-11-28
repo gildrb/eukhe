@@ -753,7 +753,7 @@ async fn answered<T>(
     let exits = Exits {
         deadline: deadline.map(|deadline| {
             now.checked_add(deadline)
-                .unwrap_or(now + Duration::from_secs(u64::from(u32::MAX)))
+                .unwrap_or_else(|| now + Duration::from_secs(u64::from(u32::MAX)))
         }),
         signal: None,
     };

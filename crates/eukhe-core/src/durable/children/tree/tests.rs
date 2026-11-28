@@ -38,7 +38,7 @@ fn a_new_unit_copies_the_enclosing_units_column() {
         },
         helps: Vec::new(),
     };
-    let (refined, refined_units) = refine(&crown, &units(&["", "src"]), "src/a");
+    let (refined, refined_units) = refine(crown, units(&["", "src"]), "src/a");
     assert_eq!(
         (refined, refined_units),
         (
@@ -68,11 +68,11 @@ fn a_unit_already_there_and_a_path_outside_every_unit() {
     let crown = Crown::root(vec![true], Lim::Unlimited, Lim::Unlimited);
     assert_eq!(
         [
-            refine(&crown, &units(&["src"]), "src"),
-            refine(&crown, &units(&["src"]), "docs"),
+            refine(crown.clone(), units(&["src"]), "src"),
+            refine(crown.clone(), units(&["src"]), "docs"),
         ],
         [
-            (crown.clone(), units(&["src"])),
+            (crown, units(&["src"])),
             (
                 Crown::root(vec![true, false], Lim::Unlimited, Lim::Unlimited),
                 units(&["src", "docs"]),

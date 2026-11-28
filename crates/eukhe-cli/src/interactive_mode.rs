@@ -115,9 +115,8 @@ pub fn run_interactive_mode(options: &RunOptions) -> Result<i32> {
                         // A startup attach that fell back to the view has no
                         // session identity to anchor on; its notice seeds the
                         // view's status line instead.
-                        let anchor =
-                            (!outcome.session_id.is_empty()).then(|| outcome.session_id.clone());
                         let return_chat = return_chat_of(&outcome);
+                        let anchor = (!outcome.session_id.is_empty()).then_some(outcome.session_id);
                         return run_agents_view_flow(
                             tui_options,
                             anchor,
@@ -233,12 +232,14 @@ async fn run_agents_view_flow(
             theme: resolved_theme.theme,
             version: base.version.clone(),
             anchor_session_id: anchor.clone(),
-            return_active_session_id: return_chat.clone(),
+            // Each of these is set again from the view's outcome (or the
+            // session run after it) before the next view run reads it.
+            return_active_session_id: return_chat.take(),
             scope: frames.last().map(|(scope, _)| scope.clone()),
-            query: query.clone(),
-            expanded_ancestors: expanded_ancestors.clone(),
-            selected_row_identity: selected_row_identity.clone(),
-            selected_key: selected_key.clone(),
+            query: query.take(),
+            expanded_ancestors: std::mem::take(&mut expanded_ancestors),
+            selected_row_identity: selected_row_identity.take(),
+            selected_key: selected_key.take(),
             status_message: status_message.take(),
             // The view dispatches every action through the same effective
             // bindings as the session it opened from (TS
@@ -280,10 +281,10 @@ async fn run_agents_view_flow(
         let Some(selection) = view.selection else {
             return Ok(None);
         };
-        expanded_ancestors = view.expanded_ancestors.clone();
-        selected_row_identity = view.selected_row_identity.clone();
-        selected_key = view.selected_key.clone();
-        status_message = view.status_message.clone();
+        expanded_ancestors = view.expanded_ancestors;
+        selected_row_identity = view.selected_row_identity;
+        selected_key = view.selected_key;
+        status_message = view.status_message;
         incident_notice_state = Some(view.incident_notice_state);
         query = if scope_frame_popped { None } else { view.query };
         // The opened row's depth metadata rides the session run (TS
@@ -313,8 +314,8 @@ async fn run_agents_view_flow(
                 anchor = Some(outcome.session_id.clone());
             }
             return_chat = return_chat_of(&outcome);
-            if let Some(notice) = &outcome.agents_view_notice {
-                status_message = Some(notice.clone());
+            if let Some(notice) = outcome.agents_view_notice.take() {
+                status_message = Some(notice);
             }
             match after_session(&mut outcome) {
                 AfterSession::Open(selection) => {
@@ -345,7 +346,7 @@ async fn run_agents_view_flow(
             frames.retain(|(frame, _)| frame.session_id != scope.session_id);
             frames.push((
                 scope,
-                Some(SessionSelection::Attach(outcome.active_session_id.clone())),
+                Some(SessionSelection::Attach(outcome.active_session_id)),
             ));
             query = None;
         }
@@ -382,9 +383,9 @@ fn after_session(outcome: &mut eukhe_tui::interactive::InteractiveOutcome) -> Af
         // The durable id reopens the session whether or not the daemon
         // that served it still runs.
         let session = if outcome.session_id.is_empty() {
-            outcome.active_session_id.clone()
+            std::mem::take(&mut outcome.active_session_id)
         } else {
-            outcome.session_id.clone()
+            std::mem::take(&mut outcome.session_id)
         };
         AfterSession::Restart(Relaunch {
             exe: target.exe,

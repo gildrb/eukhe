@@ -47,10 +47,9 @@ pub struct LegacyRlmSubagentEntry {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RlmSubagentDisplayEntry {
-    /// Always `rlm_subagent`; a file of any other type is not a display
-    /// entry and reads as absent.
-    #[serde(default, rename = "type")]
-    pub type_tag: String,
+    /// A file of any other type is not a display entry and reads as absent.
+    #[serde(rename = "type")]
+    pub type_tag: DisplayTag,
     #[serde(default)]
     pub child_id: String,
     #[serde(default)]
@@ -67,10 +66,26 @@ pub struct RlmSubagentDisplayEntry {
     pub spawn_code: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<Value>,
-    #[serde(default)]
-    pub status: String,
+    /// Any other status reads the file as absent.
+    pub status: DisplayStatus,
     #[serde(default)]
     pub created_at: u64,
+}
+
+/// The display file's `type`: only `rlm_subagent` files are display entries.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DisplayTag {
+    #[serde(rename = "rlm_subagent")]
+    RlmSubagent,
+}
+
+/// A displayed child's lifecycle; `Deleted` is the tombstone.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum DisplayStatus {
+    Running,
+    Completed,
+    Deleted,
 }
 
 /// Read one child's display entry; `None` when absent, unreadable, or not
@@ -78,13 +93,7 @@ pub struct RlmSubagentDisplayEntry {
 #[must_use]
 pub fn read_rlm_subagent_display(child_session_dir: &Path) -> Option<RlmSubagentDisplayEntry> {
     let content = fs::read_to_string(child_session_dir.join("rlm-subagent.json")).ok()?;
-    let entry: RlmSubagentDisplayEntry = serde_json::from_str(&content).ok()?;
-    if entry.type_tag != "rlm_subagent"
-        || !matches!(entry.status.as_str(), "running" | "completed" | "deleted")
-    {
-        return None;
-    }
-    Some(entry)
+    serde_json::from_str(&content).ok()
 }
 
 /// Atomically write one child's display entry. A non-delete write over a
@@ -98,9 +107,9 @@ pub fn read_rlm_subagent_display(child_session_dir: &Path) -> Option<RlmSubagent
 /// the display file fails; a refused write over a tombstone answers
 /// `Ok(false)`.
 pub fn write_rlm_subagent_display(entry: &RlmSubagentDisplayEntry) -> Result<bool> {
-    if entry.status != "deleted"
+    if entry.status != DisplayStatus::Deleted
         && read_rlm_subagent_display(Path::new(&entry.session_dir))
-            .is_some_and(|current| current.status == "deleted")
+            .is_some_and(|current| current.status == DisplayStatus::Deleted)
     {
         return Ok(false);
     }

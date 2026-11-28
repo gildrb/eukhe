@@ -33,6 +33,7 @@ use crate::utils::diagnostics::{
 use crate::utils::js::js_to_string;
 use crate::utils::json_parse::json_parse;
 use crate::utils::provider_env::get_provider_env_value;
+use crate::utils::wire_type::parse_tag;
 
 /// The SDK version the request headers announce.
 const SDK_VERSION: &str = "3.1126.0";
@@ -632,6 +633,15 @@ fn parse_body(body: &[u8]) -> Result<JsonValue, SdkError> {
         .map_err(|error| SdkError::plain("SyntaxError", error.message))
 }
 
+/// An event-stream message's `:message-type`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum MessageType {
+    Error,
+    Exception,
+    Event,
+}
+
 /// `getMessageUnmarshaller` + `deserializeEventStream` for one message:
 /// `Ok(None)` for an unknown event (skipped).
 fn unmarshal_message(message: &EventMessage) -> Result<Option<StreamItem>, BedrockFailure> {
@@ -641,8 +651,19 @@ fn unmarshal_message(message: &EventMessage) -> Result<Option<StreamItem>, Bedro
             "Cannot destructure property 'value' of 'message.headers[\":message-type\"]' as it is undefined.",
         )));
     };
+    let message_type = match message_type {
+        HeaderValue::String(kind) => parse_tag(kind),
+        HeaderValue::Bool(_)
+        | HeaderValue::Byte(_)
+        | HeaderValue::Short(_)
+        | HeaderValue::Integer(_)
+        | HeaderValue::Long(_)
+        | HeaderValue::Binary(_)
+        | HeaderValue::Timestamp(_)
+        | HeaderValue::Uuid(_) => None,
+    };
     match message_type {
-        HeaderValue::String(kind) if kind == "error" => {
+        Some(MessageType::Error) => {
             let error_message = header_string(required_header(message, ":error-message")?);
             let code = header_string(required_header(message, ":error-code")?);
             let error_message = if error_message.is_empty() {
@@ -652,7 +673,7 @@ fn unmarshal_message(message: &EventMessage) -> Result<Option<StreamItem>, Bedro
             };
             Err(BedrockFailure::Sdk(SdkError::plain(code, error_message)))
         }
-        HeaderValue::String(kind) if kind == "exception" => {
+        Some(MessageType::Exception) => {
             let code = header_string(required_header(message, ":exception-type")?);
             match STREAM_OUTPUT.member(&code) {
                 Some(Shape::Struct(shape)) => {
@@ -662,14 +683,13 @@ fn unmarshal_message(message: &EventMessage) -> Result<Option<StreamItem>, Bedro
                             .map_err(|error| SdkError::plain(error.name, error.message))?,
                         _ => JsonObject::new(),
                     };
-                    match exception_fault(shape.name) {
-                        Some(fault) => Err(BedrockFailure::Sdk(stream_exception(
-                            shape.name, fault, &data,
-                        ))),
+                    if is_exception_shape(shape.name) {
+                        Err(BedrockFailure::Sdk(stream_exception(shape.name, &data)))
+                    } else {
                         // A non-error member thrown as a bare object.
-                        None => Err(BedrockFailure::Thrown(
+                        Err(BedrockFailure::Thrown(
                             ThrownValue(JsonValue::Object(data)).thrown(),
-                        )),
+                        ))
                     }
                 }
                 _ => Err(BedrockFailure::Sdk(SdkError::plain(
@@ -678,19 +698,19 @@ fn unmarshal_message(message: &EventMessage) -> Result<Option<StreamItem>, Bedro
                 ))),
             }
         }
-        HeaderValue::String(kind) if kind == "event" => {
+        Some(MessageType::Event) => {
             let event_type = header_string(required_header(message, ":event-type")?);
             let Some(Shape::Struct(shape)) = STREAM_OUTPUT.member(&event_type) else {
                 return Ok(None);
             };
             let data = parse_body(&message.body)?;
-            if let Some(fault) = exception_fault(shape.name) {
+            if is_exception_shape(shape.name) {
                 let data = match &data {
                     JsonValue::Object(object) => deserialize_struct(shape, false, object)
                         .map_err(|error| SdkError::plain(error.name, error.message))?,
                     _ => JsonObject::new(),
                 };
-                let error = stream_exception(shape.name, fault, &data);
+                let error = stream_exception(shape.name, &data);
                 return Ok(Some(StreamItem {
                     member: event_type,
                     value: StreamValue::Exception(error, data),
@@ -708,7 +728,7 @@ fn unmarshal_message(message: &EventMessage) -> Result<Option<StreamItem>, Bedro
                 value: StreamValue::Data(value),
             }))
         }
-        _ => {
+        None => {
             let event_type = message
                 .headers
                 .get(":event-type")
@@ -721,20 +741,22 @@ fn unmarshal_message(message: &EventMessage) -> Result<Option<StreamItem>, Bedro
     }
 }
 
-/// The `$fault` of a modeled event-stream exception structure.
-fn exception_fault(shape_name: &str) -> Option<&'static str> {
-    match shape_name {
-        "InternalServerException" | "ServiceUnavailableException" => Some("server"),
-        "ModelStreamErrorException" | "ValidationException" | "ThrottlingException" => {
-            Some("client")
-        }
-        _ => None,
-    }
+/// Whether a stream member structure is a modeled event-stream exception
+/// (it carries a `$fault`).
+fn is_exception_shape(shape_name: &str) -> bool {
+    matches!(
+        shape_name,
+        "InternalServerException"
+            | "ServiceUnavailableException"
+            | "ModelStreamErrorException"
+            | "ValidationException"
+            | "ThrottlingException"
+    )
 }
 
 /// `readEventMember` for an error structure: the modeled exception, whose
 /// message is `message ?? Message ?? "Unknown"`.
-fn stream_exception(name: &str, _fault: &str, data: &JsonObject) -> SdkError {
+fn stream_exception(name: &str, data: &JsonObject) -> SdkError {
     let message = data
         .get("message")
         .or_else(|| data.get("Message"))

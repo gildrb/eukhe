@@ -5,7 +5,26 @@
 //! (compaction + agent-session). Token counts of text come from the
 //! model's real tokenizer (`eukhe-tokens`).
 
+use serde::Deserialize;
 use serde_json::Value;
+
+use crate::ai::StopReason;
+
+/// The `role` of a raw message, as far as usage reading cares.
+#[derive(Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum Role {
+    Assistant,
+    #[serde(other)]
+    Other,
+}
+
+/// `message[key]` as `T`; absent or another shape is `None`.
+fn field<'a, T: Deserialize<'a>>(message: &'a Value, key: &str) -> Option<T> {
+    message
+        .get(key)
+        .and_then(|value| T::deserialize(value).ok())
+}
 
 /// `totalTokens` when present, else the four-field sum (TS
 /// `calculateContextTokens` over the raw usage object).
@@ -36,11 +55,12 @@ pub fn calculate_context_tokens(usage: &Value) -> u64 {
 
 /// Assistant usage that is safe to read (TS `getAssistantUsage` skips
 /// aborted and error stops).
+#[must_use]
 pub fn valid_assistant_usage(message: &Value) -> Option<Value> {
-    if message.get("role").and_then(Value::as_str) != Some("assistant") {
+    if field(message, "role") != Some(Role::Assistant) {
         return None;
     }
-    if let Some("aborted" | "error") = message.get("stopReason").and_then(Value::as_str) {
+    if let Some(StopReason::Aborted | StopReason::Error) = field(message, "stopReason") {
         return None;
     }
     message

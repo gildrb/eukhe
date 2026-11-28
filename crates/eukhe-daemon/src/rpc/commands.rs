@@ -70,9 +70,12 @@ pub(crate) fn settings_for(session: &EukheSession) -> SettingsManager {
 /// Dispatch one command to its handler; the unknown-type error answers
 /// with no id (TS `handleCommand`'s default arm).
 pub async fn handle_command(state: &Arc<RpcState>, command: protocol::RpcCommand) -> Value {
-    let id = command.id.clone();
-    let payload = command.payload.clone();
-    let name = command.command.as_str();
+    let protocol::RpcCommand {
+        id,
+        command: name,
+        payload,
+    } = command;
+    let name = name.as_str();
     let outcome: Result<ResponseData, RpcCommandError> = match name {
         "prompt" => prompt_commands::prompt(state, &payload).await,
         "steer" | "follow_up" => prompt_commands::steer_or_follow_up(state, &payload, name).await,

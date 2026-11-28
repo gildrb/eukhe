@@ -186,8 +186,8 @@ impl Inner {
         if prune_oversized && memo.live_over_cap {
             return None;
         }
-        let cfg = self.options.snapshot.clone()?;
-        let current = stats_after_commit(&self.freshness_stat_probe, &cfg).await;
+        let cfg = self.options.snapshot.as_ref()?;
+        let current = stats_after_commit(&self.freshness_stat_probe, cfg).await;
         // None never matches: a stalled or unavailable filesystem read (or
         // a memo armed without both stats) must not vouch for the payload.
         let (Some(current_payload), Some(current_manifest)) = current else {
@@ -424,11 +424,16 @@ impl Inner {
         if lock(&self.guarded).completed_executions != skip.completed_executions {
             return false;
         }
-        let Some(cfg) = self.options.snapshot.clone() else {
+        let Some(manifest_path) = self
+            .options
+            .snapshot
+            .as_ref()
+            .map(|cfg| cfg.manifest_path.clone())
+        else {
             return false;
         };
         // Off the executor, like the arming stat in perform_restore.
-        let stat = tokio::task::spawn_blocking(move || manifest_stat_of(&cfg.manifest_path))
+        let stat = tokio::task::spawn_blocking(move || manifest_stat_of(&manifest_path))
             .await
             .ok()
             .flatten();

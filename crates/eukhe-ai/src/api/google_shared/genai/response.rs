@@ -12,10 +12,12 @@ use eukhe_types::pi_ai::{JsonObject, JsonValue};
 use reqwest::header::{HeaderMap, CONTENT_TYPE};
 use serde_json::json;
 
+use super::transform::as_object;
 use crate::utils::diagnostics::{ErrorObject, Thrown};
 use crate::utils::headers::headers_to_record;
 use crate::utils::js::{js_trim, json_stringify};
 use crate::utils::json_parse::json_parse;
+use crate::utils::utf8_stream::Utf8StreamDecoder;
 
 /// The `AbortError` a `fetch` rejects with when the SDK's per-attempt
 /// controller aborts (it is aborted without a reason).
@@ -83,7 +85,7 @@ pub(super) async fn stream_api_call(
             headers: response.headers().clone(),
             response,
             signal: signal.cloned(),
-            pending_bytes: Vec::new(),
+            decoder: Utf8StreamDecoder::default(),
             buffer: String::new(),
             events: VecDeque::new(),
             done: false,
@@ -132,9 +134,8 @@ struct HttpSource {
     response: reqwest::Response,
     headers: HeaderMap,
     signal: Option<AbortSignal>,
-    /// Undecoded trailing bytes of an incomplete UTF-8 sequence (the
-    /// streaming `TextDecoder` state).
-    pending_bytes: Vec<u8>,
+    /// The SDK's streaming `TextDecoder`.
+    decoder: Utf8StreamDecoder,
     buffer: String,
     /// Complete `data:` payloads not yet yielded.
     events: VecDeque<String>,
@@ -238,7 +239,7 @@ impl HttpSource {
                 }
                 return None;
             };
-            let chunk_string = self.decode(&bytes);
+            let chunk_string = self.decoder.decode(&bytes);
             // Parse and throw an error if the chunk contains an error.
             if let Ok(JsonValue::Object(chunk_json)) = json_parse(&chunk_string) {
                 if let Some(error) = chunk_json.get("error") {
@@ -286,35 +287,6 @@ impl HttpSource {
             }
         }
     }
-
-    /// `TextDecoder.decode(value, { stream: true })`: invalid sequences
-    /// become U+FFFD; an incomplete trailing sequence waits for more bytes.
-    fn decode(&mut self, bytes: &[u8]) -> String {
-        self.pending_bytes.extend_from_slice(bytes);
-        let mut output = String::new();
-        let mut rest: &[u8] = &self.pending_bytes;
-        loop {
-            match std::str::from_utf8(rest) {
-                Ok(valid) => {
-                    output.push_str(valid);
-                    rest = &[];
-                    break;
-                }
-                Err(error) => {
-                    let (valid, after) = rest.split_at(error.valid_up_to());
-                    output.push_str(std::str::from_utf8(valid).unwrap_or_default());
-                    let Some(length) = error.error_len() else {
-                        rest = after;
-                        break;
-                    };
-                    output.push(char::REPLACEMENT_CHARACTER);
-                    rest = &after[length..];
-                }
-            }
-        }
-        self.pending_bytes = rest.to_vec();
-        output
-    }
 }
 
 /// `getValueByPath(from, [key]) != null` copied into `to`.
@@ -326,7 +298,7 @@ fn copy(from: &JsonObject, to: &mut JsonObject, key: &str) {
 
 /// `candidateFromMldev`.
 fn candidate_from_mldev(candidate: &JsonValue) -> JsonValue {
-    let from = candidate.as_object().cloned().unwrap_or_default();
+    let from = as_object(candidate);
     let mut to = JsonObject::new();
     copy(&from, &mut to, "content");
     if let Some(citation) = from
@@ -359,7 +331,7 @@ fn candidate_from_mldev(candidate: &JsonValue) -> JsonValue {
 
 /// `generateContentResponseFromMldev`.
 fn generate_content_response_from_mldev(response: &JsonValue) -> JsonObject {
-    let from = response.as_object().cloned().unwrap_or_default();
+    let from = as_object(response);
     let mut to = JsonObject::new();
     copy(&from, &mut to, "sdkHttpResponse");
     if let Some(candidates) = from.get("candidates").filter(|value| !value.is_null()) {
@@ -385,7 +357,7 @@ fn generate_content_response_from_mldev(response: &JsonValue) -> JsonObject {
 
 /// `generateContentResponseFromVertex`.
 fn generate_content_response_from_vertex(response: &JsonValue) -> JsonObject {
-    let from = response.as_object().cloned().unwrap_or_default();
+    let from = as_object(response);
     let mut to = JsonObject::new();
     for key in [
         "sdkHttpResponse",

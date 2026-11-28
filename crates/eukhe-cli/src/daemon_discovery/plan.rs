@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use super::{DaemonInfo, DaemonStatus};
 
 /// One planned action for a discovered daemon (TS `ReapAction`).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ReapActionKind {
     RemoveFile,
     Kill,
@@ -16,9 +16,9 @@ pub(crate) enum ReapActionKind {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct ReapAction {
+pub(crate) struct ReapAction<'a> {
     pub kind: ReapActionKind,
-    pub daemon: DaemonInfo,
+    pub daemon: &'a DaemonInfo,
     pub reason: Option<String>,
 }
 
@@ -26,7 +26,7 @@ pub(crate) struct ReapAction {
 /// `planReap`). Only clearly-safe targets are touched: orphaned socket
 /// files, and reachable idle daemons on non-default sockets. The default
 /// daemon, and any daemon with live sessions, are never touched.
-pub(crate) fn plan_reap(daemons: &[DaemonInfo], force: bool) -> Vec<ReapAction> {
+pub(crate) fn plan_reap(daemons: &[DaemonInfo], force: bool) -> Vec<ReapAction<'_>> {
     let mut pid_counts: HashMap<u32, usize> = HashMap::new();
     for daemon in daemons {
         if let Some(pid) = daemon.pid {
@@ -42,14 +42,14 @@ pub(crate) fn plan_reap(daemons: &[DaemonInfo], force: bool) -> Vec<ReapAction> 
             if daemon.status == DaemonStatus::OrphanFile {
                 return ReapAction {
                     kind: ReapActionKind::RemoveFile,
-                    daemon: daemon.clone(),
+                    daemon,
                     reason: None,
                 };
             }
             if daemon.is_default {
                 return ReapAction {
                     kind: ReapActionKind::Skip,
-                    daemon: daemon.clone(),
+                    daemon,
                     reason: Some("default background service".to_string()),
                 };
             }
@@ -57,7 +57,7 @@ pub(crate) fn plan_reap(daemons: &[DaemonInfo], force: bool) -> Vec<ReapAction> 
                 if !force || daemon.pid.is_none() {
                     return ReapAction {
                         kind: ReapActionKind::Skip,
-                        daemon: daemon.clone(),
+                        daemon,
                         reason: Some(
                             r#"unreachable; use "eukhe shutdown --force" to stop it"#.to_string(),
                         ),
@@ -67,7 +67,7 @@ pub(crate) fn plan_reap(daemons: &[DaemonInfo], force: bool) -> Vec<ReapAction> 
                 if pid_counts.get(&pid).copied().unwrap_or(0) > 1 {
                     return ReapAction {
                         kind: ReapActionKind::Skip,
-                        daemon: daemon.clone(),
+                        daemon,
                         reason: Some(format!(
                             "unreachable; pid {pid} also backs another daemon, not killing"
                         )),
@@ -75,7 +75,7 @@ pub(crate) fn plan_reap(daemons: &[DaemonInfo], force: bool) -> Vec<ReapAction> 
                 }
                 return ReapAction {
                     kind: ReapActionKind::Kill,
-                    daemon: daemon.clone(),
+                    daemon,
                     reason: None,
                 };
             }
@@ -86,13 +86,13 @@ pub(crate) fn plan_reap(daemons: &[DaemonInfo], force: bool) -> Vec<ReapAction> 
                 };
                 return ReapAction {
                     kind: ReapActionKind::Skip,
-                    daemon: daemon.clone(),
+                    daemon,
                     reason: Some(format!("has {count} session(s)")),
                 };
             }
             ReapAction {
                 kind: ReapActionKind::Shutdown,
-                daemon: daemon.clone(),
+                daemon,
                 reason: None,
             }
         })
@@ -102,14 +102,14 @@ pub(crate) fn plan_reap(daemons: &[DaemonInfo], force: bool) -> Vec<ReapAction> 
 /// What `shutdown` does with each discovered daemon (pure; TS
 /// `planShutdownAll`): orphan files go, unreachable ones only with `force`,
 /// everything reachable is asked to stop.
-pub(crate) fn plan_shutdown_all(daemons: &[DaemonInfo], force: bool) -> Vec<ReapAction> {
+pub(crate) fn plan_shutdown_all(daemons: &[DaemonInfo], force: bool) -> Vec<ReapAction<'_>> {
     daemons
         .iter()
         .map(|daemon| {
             if daemon.status == DaemonStatus::OrphanFile {
                 return ReapAction {
                     kind: ReapActionKind::RemoveFile,
-                    daemon: daemon.clone(),
+                    daemon,
                     reason: None,
                 };
             }
@@ -118,13 +118,13 @@ pub(crate) fn plan_shutdown_all(daemons: &[DaemonInfo], force: bool) -> Vec<Reap
                     return if force || !daemon.has_tracked_workers.unwrap_or(false) {
                         ReapAction {
                             kind: ReapActionKind::RemoveFile,
-                            daemon: daemon.clone(),
+                            daemon,
                             reason: None,
                         }
                     } else {
                         ReapAction {
                             kind: ReapActionKind::Skip,
-                            daemon: daemon.clone(),
+                            daemon,
                             reason: Some(
                                 "has unreachable workers; use --force to kill".to_string(),
                             ),
@@ -134,20 +134,20 @@ pub(crate) fn plan_shutdown_all(daemons: &[DaemonInfo], force: bool) -> Vec<Reap
                 return if force {
                     ReapAction {
                         kind: ReapActionKind::Kill,
-                        daemon: daemon.clone(),
+                        daemon,
                         reason: None,
                     }
                 } else {
                     ReapAction {
                         kind: ReapActionKind::Skip,
-                        daemon: daemon.clone(),
+                        daemon,
                         reason: Some("unreachable; use --force to kill".to_string()),
                     }
                 };
             }
             ReapAction {
                 kind: ReapActionKind::Shutdown,
-                daemon: daemon.clone(),
+                daemon,
                 reason: None,
             }
         })
@@ -183,8 +183,8 @@ mod tests {
         }
     }
 
-    fn kinds(actions: &[ReapAction]) -> Vec<ReapActionKind> {
-        actions.iter().map(|action| action.kind.clone()).collect()
+    fn kinds(actions: &[ReapAction<'_>]) -> Vec<ReapActionKind> {
+        actions.iter().map(|action| action.kind).collect()
     }
 
     #[test]
@@ -281,7 +281,8 @@ mod tests {
     fn shutdown_all_keeps_unreachable_worker_hosts_without_force() {
         let mut info = daemon("/d/hung", DaemonStatus::Unreachable, false, None, None);
         info.has_tracked_workers = Some(true);
-        let actions = plan_shutdown_all(&[info], false);
+        let infos = [info];
+        let actions = plan_shutdown_all(&infos, false);
         assert_eq!(kinds(&actions), vec![ReapActionKind::Skip]);
         assert_eq!(
             actions[0].reason.as_deref(),

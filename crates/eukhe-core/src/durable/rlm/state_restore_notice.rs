@@ -60,7 +60,7 @@ mod tests {
 
     fn restore(restored: Vec<&str>, failed: Vec<&str>) -> RestoreResult {
         RestoreResult {
-            restored: restored.into_iter().map(str::to_string).collect(),
+            restored: restored.into_iter().map(str::to_owned).collect(),
             failed: failed
                 .into_iter()
                 .map(|name| SnapshotSkip {

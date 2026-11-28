@@ -15,12 +15,37 @@ pub struct SideQuestionTurn {
     pub id: String,
     pub question: String,
     pub answer: String,
-    /// `running` | `complete` | `cancelled` | `error`.
-    pub status: String,
+    pub status: TurnStatus,
     pub error_message: Option<String>,
     /// A client-local notice (slash-command or image rejection): rendered
     /// like a turn, but never seeds a follow-up's transcript.
     pub local: bool,
+}
+
+/// A pane turn's state (the event's `status`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TurnStatus {
+    Running,
+    Complete,
+    Cancelled,
+    Error,
+    /// A word this build does not know: renders like a turn in flight
+    /// but holds no follow-up guard.
+    Unrecognized,
+}
+
+impl TurnStatus {
+    /// Parse the wire word.
+    #[must_use]
+    pub fn parse(status: &str) -> Self {
+        match status {
+            "running" => Self::Running,
+            "complete" => Self::Complete,
+            "cancelled" => Self::Cancelled,
+            "error" => Self::Error,
+            _ => Self::Unrecognized,
+        }
+    }
 }
 
 /// Whether the turn can seed a follow-up side question (TS `sideQuestionTurns`
@@ -131,7 +156,9 @@ impl SideQuestionPane {
     /// condition; a completed notice can sit below a running turn).
     #[must_use]
     pub fn running(&self) -> bool {
-        self.turns.iter().any(|turn| turn.status == "running")
+        self.turns
+            .iter()
+            .any(|turn| turn.status == TurnStatus::Running)
             || self.bash.as_ref().is_some_and(|bash| bash.running)
     }
 
@@ -154,7 +181,7 @@ impl SideQuestionPane {
         self.turns
             .iter()
             .rev()
-            .find(|turn| turn.status == "running" && !turn.local)
+            .find(|turn| turn.status == TurnStatus::Running && !turn.local)
     }
 
     /// Render the pane (TS `render`): blank surfaced row, the turns, and
@@ -232,10 +259,12 @@ impl SideQuestionPane {
                 // The placeholder rows (`Cancelled`/`No response`/
                 // `Thinking...`) are single-paddingX `Text` rows too (TS
                 // renders each with `new Text(..., this.paddingX, 0)`).
-                let text = match turn.status.as_str() {
-                    "cancelled" => "Cancelled".to_string(),
-                    "complete" => "No response".to_string(),
-                    _ => "Thinking...".to_string(),
+                let text = match turn.status {
+                    TurnStatus::Cancelled => "Cancelled",
+                    TurnStatus::Complete => "No response",
+                    TurnStatus::Running | TurnStatus::Error | TurnStatus::Unrecognized => {
+                        "Thinking..."
+                    }
                 };
                 rendered.push(vec![crate::Span::styled(text, user_text)]);
             }
@@ -355,7 +384,7 @@ mod tests {
             id: id.to_string(),
             question: format!("question {id}"),
             answer: answer.to_string(),
-            status: status.to_string(),
+            status: TurnStatus::parse(status),
             error_message: None,
             local: false,
         }
@@ -369,7 +398,7 @@ mod tests {
             id: "side-notice-1".to_string(),
             question: "/tree".to_string(),
             answer: "Slash commands are not available...".to_string(),
-            status: "complete".to_string(),
+            status: TurnStatus::Complete,
             error_message: None,
             local: true,
         });
@@ -485,7 +514,7 @@ mod tests {
             .any(|row| row.contains("esc to cancel and return to session")));
         // The cancelled placeholder shows when no answer streamed.
         pane.upsert(SideQuestionTurn {
-            status: "cancelled".to_string(),
+            status: TurnStatus::Cancelled,
             answer: String::new(),
             ..turn("b", "cancelled", "")
         });

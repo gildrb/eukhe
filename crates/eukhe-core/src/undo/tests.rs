@@ -153,11 +153,7 @@ async fn undo_restores_a_plain_directory() {
     work(&f.workspace);
     let diff = f.snapshots.diff(DiffScope::Turn).await.unwrap();
     assert_eq!(
-        (
-            diff.paths.clone(),
-            diff.skipped.clone(),
-            diff.diff.contains("-one\n+two\n")
-        ),
+        (diff.paths, diff.skipped, diff.diff.contains("-one\n+two\n")),
         (names(&CHANGED), Vec::new(), true)
     );
     let reply = f.snapshots.undo(&ledger()).await.unwrap();

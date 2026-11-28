@@ -286,7 +286,7 @@ fn assistant_text(reply: &AssistantMessage) -> String {
         .content
         .iter()
         .filter_map(|block| match block {
-            eukhe_types::ai::AssistantContentBlock::Text(text) => Some(text.text.clone()),
+            eukhe_types::ai::AssistantContentBlock::Text(text) => Some(text.text.as_str()),
             _ => None,
         })
         .collect::<Vec<_>>()

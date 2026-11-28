@@ -263,7 +263,7 @@ fn the_pane_runs_to_the_bottom() {
             command: format!("command {n}"),
             pid: Some(n + 1),
             started_at: None,
-            status: "finished".to_string(),
+            status: BashStatus::parse("finished".to_string()),
             exit_code: Some(0),
             duration_ms: Some(u64::from(n) * 1_000),
         })

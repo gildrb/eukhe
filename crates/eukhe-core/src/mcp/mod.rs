@@ -357,8 +357,7 @@ impl McpManager {
     /// becomes visible to the next view read, like the settings re-read
     /// above.
     pub fn reload_auth_storage(&mut self) {
-        let storage = self.auth_storage.clone();
-        let mut handle = storage.blocking_lock();
+        let mut handle = self.auth_storage.blocking_lock();
         handle.reload();
     }
 
@@ -472,7 +471,7 @@ impl McpManager {
         let credential = all
             .get(&provider_id(&integration.server))
             .and_then(|value| {
-                serde_json::from_value::<crate::auth::types::AuthCredential>(value.clone()).ok()
+                <crate::auth::types::AuthCredential as serde::Deserialize>::deserialize(value).ok()
             });
         if !integration.user_declared && !integration.uses_oauth {
             // Catalog entry without OAuth: credential-free dispatch ONLY
@@ -509,8 +508,7 @@ impl McpManager {
 
     fn auth_storage_blocking_snapshot(&self) -> serde_json::Map<String, Value> {
         // The auth storage data map, read without refresh side effects.
-        let storage = self.auth_storage.clone();
-        let handle = storage.blocking_lock();
+        let handle = self.auth_storage.blocking_lock();
         let all = handle.get_all();
         match serde_json::to_value(&all) {
             Ok(Value::Object(map)) => map,
@@ -608,28 +606,27 @@ impl McpManager {
         let (auth, acp_servers, acp_servers_for_config, integrations) = {
             let manager = manager.lock().unwrap();
             (
-                manager.auth_storage.clone(),
-                manager.acp_servers.clone(),
-                manager.acp_servers.clone(),
+                Arc::clone(&manager.auth_storage),
+                Arc::clone(&manager.acp_servers),
+                Arc::clone(&manager.acp_servers),
                 manager.integrations.clone(),
             )
         };
         handlers.register(
             "mcp.refresh",
             host_handler(move |payload| {
-                let auth = auth.clone();
-                let acp_servers = acp_servers.clone();
+                let auth = Arc::clone(&auth);
+                let acp_servers = Arc::clone(&acp_servers);
                 Box::pin(async move {
                     let server = payload
                         .data
                         .get("server")
                         .and_then(Value::as_str)
-                        .unwrap_or_default()
-                        .to_string();
+                        .unwrap_or_default();
                     if server.is_empty() {
                         return Err(anyhow::anyhow!("mcp.refresh requires a server"));
                     }
-                    if acp_servers.lock().unwrap().contains_key(&server) {
+                    if acp_servers.lock().unwrap().contains_key(server) {
                         return Err(anyhow::anyhow!(
                             "ACP MCP server {server} does not use host OAuth"
                         ));
@@ -641,7 +638,7 @@ impl McpManager {
                     // worker's store must not serve the stale snapshot.
                     let mut store = auth.lock().await;
                     store.reload();
-                    let key = store.get_api_key(&provider_id(&server));
+                    let key = store.get_api_key(&provider_id(server));
                     drop(store);
                     if key.is_none() {
                         return Err(anyhow::anyhow!(
@@ -656,26 +653,28 @@ impl McpManager {
             "mcp.config",
             host_handler(move |payload| {
                 let integrations = integrations.clone();
-                let acp_servers = acp_servers_for_config.clone();
+                let acp_servers = Arc::clone(&acp_servers_for_config);
                 Box::pin(async move {
                     let server = payload
                         .data
                         .get("server")
                         .and_then(Value::as_str)
-                        .unwrap_or_default()
-                        .to_string();
+                        .unwrap_or_default();
                     if server.is_empty() {
                         return Err(anyhow::anyhow!("mcp.config requires a server"));
                     }
-                    let acp = acp_servers.lock().unwrap().get(&server).cloned();
-                    if let Some(acp) = acp {
-                        let mut config = serde_json::to_value(acp).unwrap_or(Value::Null);
+                    let acp = acp_servers
+                        .lock()
+                        .unwrap()
+                        .get(server)
+                        .map(|acp| serde_json::to_value(acp).unwrap_or(Value::Null));
+                    if let Some(mut config) = acp {
                         if let Value::Object(map) = &mut config {
                             map.insert("credentialSource".to_string(), json!("acp"));
                         }
                         return Ok(config);
                     }
-                    let Some(integration) = integrations.get(&server) else {
+                    let Some(integration) = integrations.get(server) else {
                         return Ok(json!({}));
                     };
                     if !integration.user_declared {
@@ -696,7 +695,7 @@ impl McpManager {
                         }
                         return Ok(config);
                     }
-                    if get_catalog_entry(&server).is_some() {
+                    if get_catalog_entry(server).is_some() {
                         return Ok(json!({}));
                     }
                     serde_json::to_value(&integration.config).map_err(anyhow::Error::new)
@@ -715,8 +714,7 @@ impl McpManager {
                         .data
                         .get("server")
                         .and_then(Value::as_str)
-                        .unwrap_or_default()
-                        .to_string();
+                        .unwrap_or_default();
                     if server.is_empty() {
                         return Err(anyhow::anyhow!("mcp.begin_login requires a server"));
                     }
@@ -739,28 +737,22 @@ impl McpManager {
                     let status = payload.data.get("connectionStatus");
                     let status = match status {
                         None => None,
-                        Some(Value::String(status)) => Some(status.clone()),
+                        Some(Value::String(status)) => Some(
+                            <crate::mcp::catalog_status_views::McpConnectionStatus as serde::Deserialize>::deserialize(
+                                serde::de::value::StrDeserializer::<serde::de::value::Error>::new(status),
+                            )
+                            .map_err(|_| {
+                                anyhow::anyhow!(
+                                    "mcp.list_plugins received an unknown connectionStatus: {status}"
+                                )
+                            })?,
+                        ),
                         Some(_) => {
                             return Err(anyhow::anyhow!(
                                 "mcp.list_plugins connectionStatus must be a string"
                             ));
                         }
                     };
-                    if let Some(status) = status.as_deref() {
-                        if !matches!(
-                            status,
-                            "connected"
-                                | "pending"
-                                | "not_connected"
-                                | "setup_required"
-                                | "disabled"
-                                | "error"
-                        ) {
-                            return Err(anyhow::anyhow!(
-                                "mcp.list_plugins received an unknown connectionStatus: {status}"
-                            ));
-                        }
-                    }
                     let limit = bounded_limit(payload.data.get("limit"), 50, 200)?;
                     let cursor = match payload.data.get("cursor") {
                         None => 0,
@@ -784,10 +776,10 @@ impl McpManager {
                     })
                     .await
                     .map_err(|error| anyhow::anyhow!("MCP inventory read failed: {error}"))?;
-                    let views = match status.as_deref() {
+                    let views = match status {
                         Some(status) => {
                             crate::mcp::catalog_plugin_views::filter_plugin_views_by_status(
-                                &views, status,
+                                views, status,
                             )
                         }
                         None => views,

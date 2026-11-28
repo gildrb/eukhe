@@ -243,10 +243,7 @@ pub fn system_prompt_breakdown(options: &BuildSystemPromptOptions) -> SystemProm
     // install), then project context -> environment (stable for a
     // project). Nothing in the prompt changes per session, so a second
     // session of a project reads the whole prompt from the provider's cache.
-    let tools: Vec<&str> = options
-        .selected_tools
-        .clone()
-        .unwrap_or_else(|| vec!["python"]);
+    let tools: &[&str] = options.selected_tools.as_deref().unwrap_or(&["python"]);
     let has_python = tools.contains(&"python");
     let has_file_access = has_python || tools.contains(&"bash");
 
@@ -258,12 +255,11 @@ pub fn system_prompt_breakdown(options: &BuildSystemPromptOptions) -> SystemProm
         ));
     }
 
-    let visible_skills: Vec<&Skill> = options
+    let any_visible_skill = options
         .skills
         .iter()
-        .filter(|skill| !skill.disable_model_invocation)
-        .collect();
-    if has_file_access && !visible_skills.is_empty() {
+        .any(|skill| !skill.disable_model_invocation);
+    if has_file_access && any_visible_skill {
         let inventory = format_skills_for_prompt(&options.skills).trim().to_string();
         segments.push(PromptSegment::dynamic_segment(
             "skills-inventory",
@@ -528,7 +524,7 @@ fn format_prompt_guidelines(guidelines: &[String]) -> String {
     let mut list = Vec::new();
     for guideline in guidelines {
         let normalized = guideline.trim();
-        if !normalized.is_empty() && seen.insert(normalized.to_string()) {
+        if !normalized.is_empty() && seen.insert(normalized) {
             list.push(format!("- {normalized}"));
         }
     }

@@ -14,6 +14,7 @@ use std::sync::Arc;
 
 use eukhe_types::daemon::DaemonCommand;
 use eukhe_types::effects::{EditorPermissionRequest, EditorVerdict, EffectClass};
+use serde::Deserialize as _;
 use serde_json::{json, Map, Value};
 use tokio::sync::{oneshot, Mutex};
 
@@ -28,6 +29,18 @@ pub(crate) const FRAME: &str = "editor_permission";
 /// The ACP client method (a client baseline method in ACP v1).
 const METHOD: &str = "session/request_permission";
 const ALLOW_OPTION: &str = "allow";
+
+/// The editor's `outcome` in a permission answer.
+#[derive(serde::Deserialize)]
+#[serde(tag = "outcome", rename_all = "lowercase")]
+enum PermissionOutcome<'a> {
+    Selected {
+        #[serde(rename = "optionId", borrow)]
+        option_id: &'a str,
+    },
+    #[serde(other)]
+    Other,
+}
 const REJECT_OPTION: &str = "reject";
 
 /// One `editor_permission` frame off the daemon link.
@@ -108,14 +121,14 @@ impl EditorRequests {
 /// refuse; method-not-found means the editor cannot be asked.
 fn verdict(reply: &Reply) -> EditorVerdict {
     match reply {
-        Ok(result) => {
-            let outcome = &result["outcome"];
-            if outcome["outcome"] == "selected" && outcome["optionId"] == ALLOW_OPTION {
+        Ok(result) => match PermissionOutcome::deserialize(&result["outcome"]) {
+            Ok(PermissionOutcome::Selected { option_id }) if option_id == ALLOW_OPTION => {
                 EditorVerdict::Allow
-            } else {
+            }
+            Ok(PermissionOutcome::Selected { .. } | PermissionOutcome::Other) | Err(_) => {
                 EditorVerdict::Reject
             }
-        }
+        },
         Err(error) if error["code"].as_i64() == Some(jsonrpc::METHOD_NOT_FOUND) => {
             EditorVerdict::Unsupported
         }

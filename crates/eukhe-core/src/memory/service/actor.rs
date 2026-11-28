@@ -768,7 +768,7 @@ impl Actor {
         let now = Instant::now();
         let deadline = now
             .checked_add(within)
-            .unwrap_or(now + Duration::from_secs(u64::from(u32::MAX)));
+            .unwrap_or_else(|| now + Duration::from_secs(u64::from(u32::MAX)));
         self.view_waiters
             .insert((deadline, self.next_waiter), Waiter { end, reply });
         self.next_waiter += 1;
@@ -813,7 +813,7 @@ impl Actor {
         let now = Instant::now();
         let deadline = now
             .checked_add(within)
-            .unwrap_or(now + Duration::from_secs(u64::from(u32::MAX)));
+            .unwrap_or_else(|| now + Duration::from_secs(u64::from(u32::MAX)));
         self.closers.push((deadline, reply));
         self.answer_closers();
     }

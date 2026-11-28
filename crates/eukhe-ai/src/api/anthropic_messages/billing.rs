@@ -17,6 +17,9 @@
 use eukhe_types::pi_ai::JsonValue;
 use sha2::{Digest, Sha256};
 
+use super::tags::{BlockType, Role};
+use crate::utils::wire_type::{wire_tag, wire_type};
+
 /// The billing block's text prefix.
 pub(crate) const BILLING_HEADER_PREFIX: &str = "x-anthropic-billing-header:";
 
@@ -67,14 +70,14 @@ pub(crate) fn billing_header(first_user_text: &str, version: &str) -> String {
 /// yields "".
 pub(crate) fn first_user_text(wire_messages: &[JsonValue]) -> &str {
     for message in wire_messages {
-        if message.get("role").and_then(JsonValue::as_str) != Some("user") {
+        if wire_tag(message, "role") != Some(Role::User) {
             continue;
         }
         match message.get("content") {
             Some(JsonValue::String(text)) if !text.trim().is_empty() => return text,
             Some(JsonValue::Array(blocks)) => {
                 let text = blocks.iter().find_map(|block| {
-                    (block.get("type").and_then(JsonValue::as_str) == Some("text"))
+                    (wire_type(block) == Some(BlockType::Text))
                         .then(|| block.get("text").and_then(JsonValue::as_str))
                         .flatten()
                         .filter(|text| !text.trim().is_empty())
@@ -84,7 +87,7 @@ pub(crate) fn first_user_text(wire_messages: &[JsonValue]) -> &str {
                 }
                 if blocks
                     .iter()
-                    .any(|block| block.get("type").and_then(JsonValue::as_str) == Some("image"))
+                    .any(|block| wire_type(block) == Some(BlockType::Image))
                 {
                     return "";
                 }

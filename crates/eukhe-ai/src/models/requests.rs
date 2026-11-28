@@ -177,7 +177,7 @@ impl Models {
             options: mut provider_options,
             transform_headers,
         } = options;
-        let request = provider_options.request();
+        let request = provider_options.request_mut();
         let resolution = self
             .get_auth_for_model(
                 model,
@@ -197,16 +197,15 @@ impl Models {
             })?;
         let auth = resolution.auth;
 
-        let api_key = request.api_key.clone().or(auth.api_key);
+        let api_key = request.api_key.take().or(auth.api_key);
         let mut headers = merge_headers(auth.headers.as_ref(), request.headers.as_ref());
         if let Some(transform) = transform_headers {
             headers = Some(transform(headers.unwrap_or_default()).await?);
         }
-        let env: Option<ProviderEnv> = if resolution.env.is_some() || request.env.is_some() {
+        let request_env = request.env.take();
+        let env: Option<ProviderEnv> = if resolution.env.is_some() || request_env.is_some() {
             let mut env = resolution.env.unwrap_or_default();
-            for (name, value) in request.env.iter().flatten() {
-                env.insert(name.clone(), value.clone());
-            }
+            env.extend(request_env.into_iter().flatten());
             Some(env)
         } else {
             None
@@ -215,7 +214,6 @@ impl Models {
         if let Some(base_url) = auth.base_url.filter(|base_url| !base_url.is_empty()) {
             request_model.set_base_url(base_url);
         }
-        let request = provider_options.request_mut();
         request.api_key = api_key;
         request.headers = headers;
         request.env = env;

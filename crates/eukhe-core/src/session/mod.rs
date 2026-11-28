@@ -27,20 +27,6 @@ pub const CURRENT_SESSION_VERSION: u32 = 3;
 /// `{ "shown": true }`.
 pub const ANTHROPIC_WARNING_SHOWN_CUSTOM_TYPE: &str = "anthropic_subscription_warning_shown";
 
-/// Entry types that can represent user intent (vs. daemon bookkeeping).
-pub const CONTENT_ENTRY_TYPES: [&str; 10] = [
-    "message",
-    "custom_message",
-    "custom",
-    "model_change",
-    "thinking_level_change",
-    "service_tier_change",
-    "session_info",
-    "label",
-    "compaction",
-    "branch_summary",
-];
-
 /// ISO-8601 timestamp -> unix milliseconds (best effort, UTC assumed).
 #[must_use]
 pub fn timestamp_to_millis(timestamp: &str) -> u64 {
@@ -368,9 +354,7 @@ pub fn build_session_context(entries: &[FileEntry], leaf_id: Option<&str>) -> Se
         let mut retained: Vec<AgentMessage> = Vec::new();
         let mut found_first_kept = false;
         for &index in &path[..path.partition_point(|&i| i < compaction_index)] {
-            if Some(entries[index].id().unwrap_or_default().to_string())
-                == Some(first_kept_id.clone())
-            {
+            if entries[index].id().unwrap_or_default() == first_kept_id {
                 found_first_kept = true;
             }
             if found_first_kept {

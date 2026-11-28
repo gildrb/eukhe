@@ -63,7 +63,7 @@ struct FactoryReport {
 pub(super) fn register(runtime: &Arc<RlmRuntime>) {
     let weak: Weak<RlmRuntime> = Arc::downgrade(runtime);
     let handler: HostCallHandler = Arc::new(move |call: HostCall| {
-        let weak = weak.clone();
+        let weak = Weak::clone(&weak);
         async move {
             let runtime = weak.upgrade().ok_or_else(|| {
                 anyhow::anyhow!("the session ended before the report could be delivered")

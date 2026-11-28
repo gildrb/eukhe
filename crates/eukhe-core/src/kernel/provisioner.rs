@@ -346,11 +346,11 @@ impl IpythonKernelProvisioner {
                 let (done_tx, done_rx) = tokio::sync::watch::channel(None);
                 let inner = Arc::clone(&self.inner);
                 let pending_stop = state.pending_stop.clone();
-                let startup_progress = on_progress.clone();
+                let startup_progress = on_progress;
                 let startup_memo = done_rx.clone();
                 tokio::spawn(async move {
                     let boot = tokio::spawn(run_startup(
-                        inner.clone(),
+                        Arc::clone(&inner),
                         startup_progress,
                         pending_stop,
                         startup_memo.clone(),
@@ -1022,7 +1022,7 @@ async fn start_kernel(
     }
     // Wait for a previous provisioner (e.g. on /reload) to finish disposing —
     // and flushing its final snapshot — before reading that snapshot back.
-    if let Some(gate) = options.ready_gate.clone() {
+    if let Some(gate) = &options.ready_gate {
         gate().await;
     }
     let snapshot_dir = options.snapshot_dir.clone();

@@ -77,7 +77,7 @@ fn display_name(provider_id: &str) -> String {
 /// built-in model provider set does not know (custom models.json entries).
 fn is_api_key_login_provider(
     provider_id: &str,
-    built_in_provider_ids: &std::collections::HashSet<String>,
+    built_in_provider_ids: &std::collections::HashSet<&str>,
 ) -> bool {
     if BUILT_IN_PROVIDER_DISPLAY_NAMES
         .iter()
@@ -394,26 +394,25 @@ impl ProviderAuth {
                 provider.auth_storage(),
                 provider.agent_dir.join("models.json"),
             );
-            let built_in_provider_ids: std::collections::HashSet<String> =
+            let built_in_provider_ids: std::collections::HashSet<&str> =
                 eukhe_models::transports::compiled_provider_ids()
                     .into_iter()
-                    .map(str::to_string)
                     .collect();
-            let mut providers: Vec<String> = registry
+            let mut providers: Vec<&str> = registry
                 .get_all()
-                .map(|model| model.provider.clone())
+                .map(|model| model.provider.as_str())
                 .collect();
-            providers.sort();
+            providers.sort_unstable();
             providers.dedup();
             for provider_id in providers {
-                if !is_api_key_login_provider(&provider_id, &built_in_provider_ids) {
+                if !is_api_key_login_provider(provider_id, &built_in_provider_ids) {
                     continue;
                 }
-                let (credential, status) = provider.credential_status(&provider_id);
+                let (credential, status) = provider.credential_status(provider_id);
                 rows.push(ProviderRow {
                     status: status_indicator(credential.as_ref(), &status, AuthType::ApiKey),
-                    id: provider_id.clone(),
-                    name: display_name(&provider_id),
+                    id: provider_id.to_owned(),
+                    name: display_name(provider_id),
                     auth_type: AuthType::ApiKey,
                     flow: AuthFlow::ApiKeyPrompt,
                     configured: status.configured,

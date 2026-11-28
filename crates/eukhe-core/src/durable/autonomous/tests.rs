@@ -468,11 +468,11 @@ async fn an_autonomous_run_without_checks_goes_on_until_its_budget_stops_it() {
     );
     assert_eq!(setup.faux.get_pending_response_count(), 1);
     // The `/auto` row.
-    let rows: Vec<_> = entries
+    let rows = entries
         .iter()
         .filter(|entry| entry.kind == CUSTOM_ENTRY.kind())
-        .collect();
-    assert_eq!(rows.len(), 1);
+        .count();
+    assert_eq!(rows, 1);
     harness.close(cx()).await.expect("close");
 }
 

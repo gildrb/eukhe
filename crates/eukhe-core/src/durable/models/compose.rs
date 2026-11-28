@@ -148,7 +148,7 @@ fn rewrite(config: &ProviderConfig, model: &Model) -> Result<Model, ModelBuildEr
 fn composed_models(
     base: Option<Arc<Provider>>,
     config: Arc<ProviderConfig>,
-    custom: Arc<Vec<Model>>,
+    custom: Arc<[Model]>,
 ) -> GetModelsFn {
     Arc::new(move || {
         let base_models = match &base {
@@ -188,7 +188,7 @@ fn compose_provider(
     let defaults = chat_models(&base_models)
         .next()
         .map(|model| (model.api.as_str(), model.base_url.as_str()));
-    let custom = Arc::new(config.custom_models(id, defaults)?);
+    let custom: Arc<[Model]> = Arc::from(config.custom_models(id, defaults)?);
     // Fail at load, not per request, on overrides that break a model.
     for model in chat_models(&base_models) {
         rewrite(&config, model)?;

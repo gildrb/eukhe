@@ -13,6 +13,16 @@ use super::classifier_shared::{
 use crate::types::ClassifierOptions;
 use crate::utils::diagnostics::Thrown;
 use crate::utils::js::js_object_entries;
+use crate::utils::wire_type::parse_tag;
+
+/// An answer object's `type` (`noul`: the bool answer).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum AnswerType {
+    Choice,
+    Score,
+    Noul,
+}
 
 /// Differences between services that serve System One models.
 pub(crate) struct SystemOneTransport {
@@ -66,11 +76,14 @@ fn parse_answers(
         let Some(answer) = value.get(id).and_then(as_record) else {
             return Err(error(format!("{label} did not return an answer for {id}")));
         };
-        let answer_type = answer.get("type").and_then(JsonValue::as_str);
+        let answer_type: Option<AnswerType> = answer
+            .get("type")
+            .and_then(JsonValue::as_str)
+            .and_then(parse_tag);
         let parsed = match question {
             ClassifierQuestion::Choice { .. } => {
                 let choice = answer.get("choice").and_then(JsonValue::as_str);
-                let (Some("choice"), Some(choice)) = (answer_type, choice) else {
+                let (Some(AnswerType::Choice), Some(choice)) = (answer_type, choice) else {
                     return Err(error(format!(
                         "{label} did not return a choice answer for {id}"
                     )));
@@ -86,7 +99,7 @@ fn parse_answers(
                 }
             }
             ClassifierQuestion::Score { .. } => {
-                if answer_type != Some("score") {
+                if answer_type != Some(AnswerType::Score) {
                     return Err(error(format!(
                         "{label} did not return a score answer for {id}"
                     )));
@@ -101,7 +114,7 @@ fn parse_answers(
                 }
             }
             ClassifierQuestion::Bool { .. } => {
-                if answer_type != Some("noul") {
+                if answer_type != Some(AnswerType::Noul) {
                     return Err(error(format!(
                         "{label} did not return a bool answer for {id}"
                     )));

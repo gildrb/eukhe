@@ -7,6 +7,7 @@ use super::compat::{is_custom_qwen_template_model, model_compat, ResolvedCompat}
 use super::convert::{
     convert_messages, convert_tools, request_strict_plan, ConvertCompletionsMessagesOptions,
 };
+use super::tags::PartType;
 use super::OpenAICompletionsOptions;
 use crate::api::cache_breakpoints::placed_marks;
 use crate::api::openai_prompt_cache::clamp_openai_prompt_cache_key;
@@ -24,6 +25,7 @@ use crate::types::{
 use crate::utils::diagnostics::Thrown;
 use crate::utils::provider_env::get_provider_env_value;
 use crate::utils::transcript::resolve_transcript_tools;
+use crate::utils::wire_type::wire_type;
 
 /// TS `resolveCacheRetention`.
 pub(crate) fn resolve_cache_retention(
@@ -723,7 +725,7 @@ fn add_cache_control_to_text_content(message: &mut JsonValue, cache_control: &Js
         }
         Some(JsonValue::Array(parts)) => {
             for part in parts.iter_mut().rev() {
-                if part.get("type").and_then(JsonValue::as_str) == Some("text") {
+                if wire_type(part) == Some(PartType::Text) {
                     if let Some(part) = part.as_object_mut() {
                         part.insert("cache_control".into(), cache_control.clone());
                     }

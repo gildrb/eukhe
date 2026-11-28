@@ -2,21 +2,9 @@
 //! the window/settings reads, the compacted message fold and its scalars,
 //! and the wire-shape message helpers.
 
-use super::{json, MessageWindowScalars, SessionEntry, SessionFile, Value};
+use crate::types::{message_role, MessageRole};
 
-/// Entry types that represent user intent (vs daemon bookkeeping).
-const CONTENT_ENTRY_TYPES: &[&str] = &[
-    "message",
-    "custom_message",
-    "custom",
-    "model_change",
-    "thinking_level_change",
-    "service_tier_change",
-    "session_info",
-    "label",
-    "compaction",
-    "branch_summary",
-];
+use super::{json, EntryType, MessageWindowScalars, SessionEntry, SessionFile, Value};
 
 /// Whether `entry` is the session's Anthropic subscription warning shown
 /// marker: a `custom` row carrying
@@ -24,7 +12,7 @@ const CONTENT_ENTRY_TYPES: &[&str] = &[
 /// `data.shown == true` (the once-per-session-lifecycle gate's persisted
 /// state).
 pub(crate) fn is_warning_shown_row(entry: &SessionEntry) -> bool {
-    entry.type_ == "custom"
+    entry.type_ == EntryType::Custom
         && entry.fields.get("customType").and_then(Value::as_str)
             == Some(eukhe_core::session::ANTHROPIC_WARNING_SHOWN_CUSTOM_TYPE)
         && entry
@@ -170,7 +158,7 @@ impl SessionFile {
         self.entries()
             .iter()
             .rev()
-            .find(|entry| entry.type_ == "session_info")
+            .find(|entry| entry.type_ == EntryType::SessionInfo)
             .and_then(|entry| entry.fields.get("name"))
             .and_then(Value::as_str)
             .map(str::trim)
@@ -182,7 +170,7 @@ impl SessionFile {
         self.entries()
             .iter()
             .rev()
-            .find(|entry| entry.type_ == "session_state")
+            .find(|entry| entry.type_ == EntryType::SessionState)
             .and_then(|entry| entry.fields.get("state"))
             .and_then(|state| state.get("status"))
             .and_then(Value::as_str)
@@ -232,9 +220,9 @@ impl SessionFile {
     /// so the two can never disagree on the sequence.
     fn walk_message_values<'a>(&'a self, mut visit: impl FnMut(std::borrow::Cow<'a, Value>)) {
         let entry_message = |entry: &'a SessionEntry| -> Option<std::borrow::Cow<'a, Value>> {
-            match entry.type_.as_str() {
-                "message" => entry.fields.get("message").map(std::borrow::Cow::Borrowed),
-                "custom_message" => {
+            match &entry.type_ {
+                EntryType::Message => entry.fields.get("message").map(std::borrow::Cow::Borrowed),
+                EntryType::CustomMessage => {
                     let mut message = entry.fields.clone();
                     if let Some(object) = message.as_object_mut() {
                         object.insert("role".to_string(), Value::String("custom".to_string()));
@@ -245,12 +233,24 @@ impl SessionFile {
                     }
                     Some(std::borrow::Cow::Owned(message))
                 }
-                _ => None,
+                EntryType::Session
+                | EntryType::Custom
+                | EntryType::ModelChange
+                | EntryType::ThinkingLevelChange
+                | EntryType::ServiceTierChange
+                | EntryType::SessionInfo
+                | EntryType::SessionState
+                | EntryType::Label
+                | EntryType::Compaction
+                | EntryType::BranchSummary
+                | EntryType::ChildUsageAttributed
+                | EntryType::Other(_) => None,
             }
         };
         let branch = self.branch();
-        let Some(compaction_position) =
-            branch.iter().rposition(|entry| entry.type_ == "compaction")
+        let Some(compaction_position) = branch
+            .iter()
+            .rposition(|entry| entry.type_ == EntryType::Compaction)
         else {
             for entry in &branch {
                 if let Some(message) = entry_message(entry) {
@@ -313,13 +313,13 @@ impl SessionFile {
                 window.message_count
                     + self.entries[window.loaded_entries..]
                         .iter()
-                        .filter(|entry| entry.type_ == "message")
+                        .filter(|entry| entry.type_ == EntryType::Message)
                         .count()
             }
             None => self
                 .entries
                 .iter()
-                .filter(|entry| entry.type_ == "message")
+                .filter(|entry| entry.type_ == EntryType::Message)
                 .count(),
         }
     }
@@ -330,9 +330,9 @@ impl SessionFile {
         }
         self.entries
             .iter()
-            .filter(|e| e.type_ == "message")
+            .filter(|e| e.type_ == EntryType::Message)
             .filter_map(|e| e.fields.get("message"))
-            .find(|m| message_role(m) == Some("user"))
+            .find(|m| message_role(m) == Some(MessageRole::User))
             .map(message_text)
             .filter(|t| !t.is_empty())
     }
@@ -342,27 +342,21 @@ impl SessionFile {
     /// prefix is skipped.
     #[must_use]
     pub fn has_user_content(&self) -> bool {
-        let content: Vec<&SessionEntry> = self
+        let mut content = self
             .entries
             .iter()
-            .filter(|entry| CONTENT_ENTRY_TYPES.contains(&entry.type_.as_str()))
-            .collect();
-        let mut start = 0usize;
-        if content.get(start).map(|e| e.type_.as_str()) == Some("model_change") {
-            start += 1;
+            .map(|entry| &entry.type_)
+            .filter(|type_| type_.is_content())
+            .peekable();
+        for prefix in [
+            EntryType::ModelChange,
+            EntryType::ThinkingLevelChange,
+            EntryType::ServiceTierChange,
+        ] {
+            content.next_if(|type_| **type_ == prefix);
         }
-        if content.get(start).map(|e| e.type_.as_str()) == Some("thinking_level_change") {
-            start += 1;
-        }
-        if content.get(start).map(|e| e.type_.as_str()) == Some("service_tier_change") {
-            start += 1;
-        }
-        content.len() > start
+        content.next().is_some()
     }
-}
-
-pub(super) fn message_role(message: &Value) -> Option<&str> {
-    message.get("role").and_then(Value::as_str)
 }
 
 /// The `compactionSummary` message a compaction fold starts with (TS
@@ -372,13 +366,23 @@ pub(super) fn message_role(message: &Value) -> Option<&str> {
 /// their wire form. The borrowing twin of the `entry_message` Some-ness, so
 /// counting and keeping walks never materialize what they only classify.
 fn entry_bears_message(entry: &SessionEntry) -> bool {
-    match entry.type_.as_str() {
-        "message" => entry.fields.get("message").is_some(),
-        "custom_message" => true,
-        _ => false,
+    match &entry.type_ {
+        EntryType::Message => entry.fields.get("message").is_some(),
+        EntryType::CustomMessage => true,
+        EntryType::Session
+        | EntryType::Custom
+        | EntryType::ModelChange
+        | EntryType::ThinkingLevelChange
+        | EntryType::ServiceTierChange
+        | EntryType::SessionInfo
+        | EntryType::SessionState
+        | EntryType::Label
+        | EntryType::Compaction
+        | EntryType::BranchSummary
+        | EntryType::ChildUsageAttributed
+        | EntryType::Other(_) => false,
     }
 }
-
 fn compaction_summary_message(entry: &SessionEntry, retained_count: usize) -> Value {
     let timestamp = crate::util::iso_to_unix_ms(&entry.timestamp).unwrap_or(0);
     // TS `createCompactionSummaryMessage` key order: role, summary,
@@ -388,7 +392,7 @@ fn compaction_summary_message(entry: &SessionEntry, retained_count: usize) -> Va
     let mut message = json!({
         "role": "compactionSummary",
         "summary": entry.fields.get("summary").cloned().unwrap_or_default(),
-        "tokensBefore": entry.fields.get("tokensBefore").cloned().unwrap_or(json!(0)),
+        "tokensBefore": entry.fields.get("tokensBefore").cloned().unwrap_or_else(|| json!(0)),
         "retainedMessageCount": retained_count as u64,
     });
     if let Some(custom_instructions) = entry.fields.get("customInstructions") {

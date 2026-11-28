@@ -45,14 +45,14 @@ impl CheckContext {
         self.stack.last().cloned()
     }
 
-    pub(crate) fn add_index(&mut self, index: usize) -> bool {
+    pub(crate) fn add_index(&self, index: usize) -> bool {
         if let Some(top) = self.stack.last() {
             top.borrow_mut().indices.insert(index);
         }
         true
     }
 
-    pub(crate) fn add_key(&mut self, key: &str) -> bool {
+    pub(crate) fn add_key(&self, key: &str) -> bool {
         if let Some(top) = self.stack.last() {
             top.borrow_mut().keys.insert(key.to_owned());
         }
@@ -60,7 +60,7 @@ impl CheckContext {
     }
 
     /// `Merge(results)`: each context's top frame into this top frame.
-    pub(crate) fn merge<'c>(&mut self, results: impl IntoIterator<Item = &'c Self>) -> bool {
+    pub(crate) fn merge<'c>(&self, results: impl IntoIterator<Item = &'c Self>) -> bool {
         let Some(top) = self.stack.last().cloned() else {
             return true;
         };

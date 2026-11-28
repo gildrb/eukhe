@@ -1,6 +1,7 @@
 //! Tree-entry display text: one flat row's content (TS
 //! `TreeList.getEntryDisplayText` and the search text over the same data).
 
+use std::borrow::Cow;
 use std::collections::HashMap;
 
 use crate::theme::{Theme, ThemeColor};
@@ -20,7 +21,9 @@ pub struct ToolCallInfo {
 
 /// Collect tool calls from assistant message entries.
 #[must_use]
-pub fn collect_tool_calls(entries: &[TreeNodeData]) -> HashMap<String, ToolCallInfo> {
+pub fn collect_tool_calls<'a>(
+    entries: impl IntoIterator<Item = &'a TreeNodeData>,
+) -> HashMap<String, ToolCallInfo> {
     let mut calls = HashMap::new();
     for node in entries {
         if let FileEntry::Message {
@@ -316,72 +319,77 @@ fn tier_name(tier: eukhe_types::ai::ServiceTier) -> &'static str {
 /// The searchable text of one node (TS `getSearchableText`).
 #[must_use]
 pub fn searchable_text(node: &TreeNodeData) -> String {
-    let mut parts: Vec<String> = Vec::new();
+    let mut parts: Vec<Cow<'_, str>> = Vec::new();
     if let Some(label) = &node.label {
-        parts.push(label.clone());
+        parts.push(Cow::Borrowed(label));
     }
     match &node.entry {
         FileEntry::Message { message, .. } => {
             let role = match message {
-                AgentMessage::User(_) => "user".to_string(),
-                AgentMessage::Assistant(_) => "assistant".to_string(),
-                AgentMessage::ToolResult(result) => result.tool_name.clone(),
-                AgentMessage::BashExecution(_) => "bashExecution".to_string(),
-                AgentMessage::Custom(custom) => custom.custom_type.clone(),
-                AgentMessage::BranchSummary(_) => "branchSummary".to_string(),
-                AgentMessage::CompactionSummary(_) => "compactionSummary".to_string(),
+                AgentMessage::User(_) => Cow::Borrowed("user"),
+                AgentMessage::Assistant(_) => Cow::Borrowed("assistant"),
+                AgentMessage::ToolResult(result) => Cow::Borrowed(result.tool_name.as_str()),
+                AgentMessage::BashExecution(_) => Cow::Borrowed("bashExecution"),
+                AgentMessage::Custom(custom) => Cow::Borrowed(custom.custom_type.as_str()),
+                AgentMessage::BranchSummary(_) => Cow::Borrowed("branchSummary"),
+                AgentMessage::CompactionSummary(_) => Cow::Borrowed("compactionSummary"),
             };
             parts.push(role);
             match message {
-                AgentMessage::User(user) => parts.push(extract_content(&user.content)),
-                AgentMessage::Assistant(assistant) => parts.push(assistant_text(assistant)),
-                AgentMessage::Custom(custom) => parts.push(extract_content(&custom.content)),
-                AgentMessage::BashExecution(execution) => parts.push(execution.command.clone()),
+                AgentMessage::User(user) => parts.push(Cow::Owned(extract_content(&user.content))),
+                AgentMessage::Assistant(assistant) => {
+                    parts.push(Cow::Owned(assistant_text(assistant)));
+                }
+                AgentMessage::Custom(custom) => {
+                    parts.push(Cow::Owned(extract_content(&custom.content)));
+                }
+                AgentMessage::BashExecution(execution) => {
+                    parts.push(Cow::Borrowed(&execution.command));
+                }
                 _ => {}
             }
         }
         FileEntry::CustomMessage { payload, .. } => {
-            parts.push(payload.custom_type.clone());
-            parts.push(extract_content(&payload.content));
+            parts.push(Cow::Borrowed(&payload.custom_type));
+            parts.push(Cow::Owned(extract_content(&payload.content)));
         }
-        FileEntry::Compaction { .. } => parts.push("compaction".to_string()),
+        FileEntry::Compaction { .. } => parts.push(Cow::Borrowed("compaction")),
         FileEntry::BranchSummary { payload, .. } => {
-            parts.push("branch summary".to_string());
-            parts.push(payload.summary.clone());
+            parts.push(Cow::Borrowed("branch summary"));
+            parts.push(Cow::Borrowed(&payload.summary));
         }
         FileEntry::SessionInfo { payload, .. } => {
-            parts.push("title".to_string());
-            parts.extend(payload.name.clone());
+            parts.push(Cow::Borrowed("title"));
+            parts.extend(payload.name.as_deref().map(Cow::Borrowed));
         }
         FileEntry::ModelChange { payload, .. } => {
-            parts.push("model".to_string());
-            parts.push(payload.model_id.clone());
+            parts.push(Cow::Borrowed("model"));
+            parts.push(Cow::Borrowed(&payload.model_id));
         }
         FileEntry::ThinkingLevelChange { payload, .. } => {
-            parts.push("thinking".to_string());
-            parts.push(payload.thinking_level.clone());
+            parts.push(Cow::Borrowed("thinking"));
+            parts.push(Cow::Borrowed(&payload.thinking_level));
         }
         FileEntry::ServiceTierChange { payload, .. } => {
-            parts.push("service tier".to_string());
-            parts.push(
+            parts.push(Cow::Borrowed("service tier"));
+            parts.push(Cow::Borrowed(
                 payload
                     .service_tier
                     .as_ref()
-                    .map_or("default", |tier| tier_name(*tier))
-                    .to_string(),
-            );
+                    .map_or("default", |tier| tier_name(*tier)),
+            ));
         }
         FileEntry::Custom { payload, .. } => {
-            parts.push("custom".to_string());
-            parts.push(payload.custom_type.clone());
+            parts.push(Cow::Borrowed("custom"));
+            parts.push(Cow::Borrowed(&payload.custom_type));
         }
         FileEntry::ChildUsageAttributed { payload, .. } => {
-            parts.push("child usage".to_string());
-            parts.push(payload.target_id.clone());
+            parts.push(Cow::Borrowed("child usage"));
+            parts.push(Cow::Borrowed(&payload.target_id));
         }
         FileEntry::Label { payload, .. } => {
-            parts.push("label".to_string());
-            parts.push(payload.label.clone().unwrap_or_default());
+            parts.push(Cow::Borrowed("label"));
+            parts.push(Cow::Borrowed(payload.label.as_deref().unwrap_or_default()));
         }
         _ => {}
     }

@@ -182,15 +182,13 @@ pub fn render_bash_execution(
     } else {
         context.split('\n').collect()
     };
-    let shown: Vec<&str> = if expanded {
-        logical.clone()
-    } else if logical.len() > PREVIEW_LINES {
-        logical[logical.len() - PREVIEW_LINES..].to_vec()
+    let shown: &[&str] = if expanded || logical.len() <= PREVIEW_LINES {
+        &logical
     } else {
-        logical.clone()
+        &logical[logical.len() - PREVIEW_LINES..]
     };
     let mut visual: Vec<Line> = Vec::new();
-    for line in &shown {
+    for line in shown {
         if line.is_empty() {
             visual.push(Vec::new());
             continue;

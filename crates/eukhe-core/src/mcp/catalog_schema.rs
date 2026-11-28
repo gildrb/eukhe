@@ -460,11 +460,11 @@ pub(crate) fn server_id_valid(server: &str) -> bool {
         _ => return false,
     };
     let _ = first;
-    let rest: Vec<char> = chars.collect();
-    rest.len() <= 63
+    let rest = chars.as_str();
+    rest.chars().count() <= 63
         && rest
-            .iter()
-            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || *c == '-')
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
 }
 
 /// The compiled built-in services: the integrations whose ids stay reserved

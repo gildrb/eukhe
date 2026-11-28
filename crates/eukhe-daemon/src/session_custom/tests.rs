@@ -387,7 +387,7 @@ async fn refine_surfaces_the_refinement_failure() {
     assert_eq!(response.error.as_deref(), Some(expected));
     let mut failures = Vec::new();
     while let Ok(frame) = subscription.try_recv() {
-        if frame.outbound_type == "session_event" {
+        if frame.outbound_type == crate::worker::OutboundType::SessionEvent {
             let event: Value = serde_json::from_slice(&frame.payload).unwrap();
             if event["event"]["type"] == "refine_failed" {
                 failures.push(event["event"].clone());

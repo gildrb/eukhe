@@ -302,13 +302,12 @@ fn create_over_a_live_worker_answers_the_live_binding() {
         .as_array()
         .cloned()
         .unwrap_or_default();
-    let for_file: Vec<&Value> = sessions
+    let for_file = sessions
         .iter()
         .filter(|row| row.get("sessionFile").and_then(Value::as_str) == Some(session_file.as_str()))
-        .collect();
+        .count();
     assert_eq!(
-        for_file.len(),
-        1,
+        for_file, 1,
         "the reuse must not mint a second worker for the file: {sessions:?}"
     );
 }
@@ -548,16 +547,15 @@ fn concurrent_creates_for_one_file_share_a_single_launch() {
         .cloned()
         .unwrap_or_default();
     let storage_dir = session_path.with_extension("");
-    let for_file: Vec<&Value> = sessions
+    let for_file = sessions
         .iter()
         .filter(|row| {
             row.get("sessionFile").and_then(Value::as_str)
                 == Some(storage_dir.to_string_lossy().as_ref())
         })
-        .collect();
+        .count();
     assert_eq!(
-        for_file.len(),
-        1,
+        for_file, 1,
         "one launch must serve the concurrent opens: {sessions:?}"
     );
 }

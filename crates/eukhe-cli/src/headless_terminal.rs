@@ -38,8 +38,16 @@ pub(crate) enum HeadlessPrimary {
     SlashCommandResult {
         content: String,
         success: bool,
-        severity: Option<String>,
+        severity: SlashSeverity,
     },
+}
+
+/// A slash-command result row's `severity` detail.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SlashSeverity {
+    Error,
+    /// Any other word, or none.
+    Other,
 }
 
 impl HeadlessPrimary {
@@ -79,7 +87,7 @@ impl HeadlessPrimary {
             },
             Self::SlashCommandResult {
                 success, severity, ..
-            } => (!success || severity.as_deref() == Some("error")).then_some(RunFailure::Silent),
+            } => (!success || *severity == SlashSeverity::Error).then_some(RunFailure::Silent),
         }
     }
 
@@ -98,7 +106,7 @@ impl HeadlessPrimary {
             Self::SlashCommandResult {
                 success, severity, ..
             } => {
-                if *success && severity.as_deref() != Some("error") {
+                if *success && *severity != SlashSeverity::Error {
                     Primary::SlashOk
                 } else {
                     Primary::SlashFailed
@@ -132,7 +140,15 @@ fn stop_reason_name(reason: StopReason) -> &'static str {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct CompactionOutcome {
     pub content: String,
-    pub outcome: String,
+    pub outcome: CompactionResult,
+}
+
+/// How a compaction ended, as its outcome row's `outcome` detail says.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CompactionResult {
+    Failed,
+    /// Any other outcome word, or none.
+    Other,
 }
 
 /// The selected terminal result.
@@ -223,14 +239,47 @@ impl Walk {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+enum CustomKind {
+    CompactionOutcome,
+    OutputLimitNotice,
+    RefinementOutcome,
+    RefinementNotice,
+    HarnessDigest,
+    BudgetStatus,
+    BudgetNotice,
+    ProviderRetryOutcome,
+    SessionSlashCommandResult,
+    Other,
+}
+
+impl From<&str> for CustomKind {
+    fn from(custom_type: &str) -> Self {
+        match custom_type {
+            COMPACTION_OUTCOME_CUSTOM_TYPE => Self::CompactionOutcome,
+            OUTPUT_LIMIT_NOTICE_CUSTOM_TYPE => Self::OutputLimitNotice,
+            REFINEMENT_OUTCOME_CUSTOM_TYPE => Self::RefinementOutcome,
+            REFINEMENT_NOTICE_CUSTOM_TYPE => Self::RefinementNotice,
+            HARNESS_DIGEST_CUSTOM_TYPE => Self::HarnessDigest,
+            BUDGET_STATUS_CUSTOM_TYPE => Self::BudgetStatus,
+            BUDGET_NOTICE_CUSTOM_TYPE => Self::BudgetNotice,
+            PROVIDER_RETRY_OUTCOME_CUSTOM_TYPE => Self::ProviderRetryOutcome,
+            SESSION_SLASH_COMMAND_RESULT_CUSTOM_TYPE => Self::SessionSlashCommandResult,
+            _ => Self::Other,
+        }
+    }
+}
+
 fn step(entry: EntryRecord) -> Step {
     if ASSISTANT_ENTRY.is(Some(&entry)) {
-        return Step::Stop(match entry.model.as_deref() {
-            Some([Message::Assistant(message), ..]) => {
-                Some(HeadlessPrimary::Assistant(Box::new(message.clone())))
-            }
-            _ => None,
-        });
+        return Step::Stop(
+            match entry.model.and_then(|messages| messages.into_iter().next()) {
+                Some(Message::Assistant(message)) => {
+                    Some(HeadlessPrimary::Assistant(Box::new(message)))
+                }
+                Some(Message::System(_) | Message::User(_) | Message::ToolResult(_)) | None => None,
+            },
+        );
     }
     if CUSTOM_ENTRY.is(Some(&entry)) {
         let Ok(Some(custom)) = CUSTOM_ENTRY.narrow(entry) else {
@@ -242,49 +291,44 @@ fn step(entry: EntryRecord) -> Step {
         let content = custom_entry_content(custom.entry().model.as_deref(), data)
             .map(user_content_text)
             .unwrap_or_default();
-        let detail = |key: &str| {
-            data.details
-                .as_ref()
-                .and_then(|details| details.get(key))
-                .cloned()
-        };
-        return match data.custom_type.as_str() {
-            COMPACTION_OUTCOME_CUSTOM_TYPE => Step::Outcome(CompactionOutcome {
+        let detail = |key: &str| data.details.as_ref().and_then(|details| details.get(key));
+        let succeeded = || detail("success").and_then(serde_json::Value::as_bool) == Some(true);
+        return match CustomKind::from(data.custom_type.as_str()) {
+            CustomKind::CompactionOutcome => Step::Outcome(CompactionOutcome {
                 content,
-                outcome: detail("outcome")
-                    .and_then(|outcome| outcome.as_str().map(str::to_owned))
-                    .unwrap_or_default(),
+                outcome: match detail("outcome").and_then(serde_json::Value::as_str) {
+                    Some("failed") => CompactionResult::Failed,
+                    Some(_) | None => CompactionResult::Other,
+                },
             }),
             // The row after an answer that hit the output limit and was
             // kept as it is: the answer is the primary.
-            OUTPUT_LIMIT_NOTICE_CUSTOM_TYPE => Step::Warning(content),
+            CustomKind::OutputLimitNotice => Step::Warning(content),
             // A budget notice is never the answer: the budget and a low
             // budget are written before the request that reads them (last
             // only when that request never answered), the wrap-up's
             // display row after the final answer whose request carried it.
-            REFINEMENT_OUTCOME_CUSTOM_TYPE
-            | REFINEMENT_NOTICE_CUSTOM_TYPE
-            | HARNESS_DIGEST_CUSTOM_TYPE
-            | BUDGET_STATUS_CUSTOM_TYPE
-            | BUDGET_NOTICE_CUSTOM_TYPE => Step::Skip,
+            CustomKind::RefinementOutcome
+            | CustomKind::RefinementNotice
+            | CustomKind::HarnessDigest
+            | CustomKind::BudgetStatus
+            | CustomKind::BudgetNotice => Step::Skip,
             // A recovered retry episode's disclosure row trails the answer
             // that settled it: the answer is the primary (TS print mode
             // prints the last assistant message). A failed episode's row
             // still ends the walk on the run's failure.
-            PROVIDER_RETRY_OUTCOME_CUSTOM_TYPE
-                if detail("success") == Some(serde_json::Value::Bool(true)) =>
-            {
-                Step::Skip
-            }
-            SESSION_SLASH_COMMAND_RESULT_CUSTOM_TYPE => {
+            CustomKind::ProviderRetryOutcome if succeeded() => Step::Skip,
+            CustomKind::SessionSlashCommandResult => {
                 Step::Stop(Some(HeadlessPrimary::SlashCommandResult {
                     content,
-                    success: detail("success") == Some(serde_json::Value::Bool(true)),
-                    severity: detail("severity")
-                        .and_then(|severity| severity.as_str().map(str::to_owned)),
+                    success: succeeded(),
+                    severity: match detail("severity").and_then(serde_json::Value::as_str) {
+                        Some("error") => SlashSeverity::Error,
+                        Some(_) | None => SlashSeverity::Other,
+                    },
                 }))
             }
-            _ => Step::Stop(None),
+            CustomKind::ProviderRetryOutcome | CustomKind::Other => Step::Stop(None),
         };
     }
     // Model messages without a terminal meaning (the user prompt, tool

@@ -10,6 +10,7 @@ use super::{
     UI_REQUEST_TIMEOUT_MS,
 };
 use crate::glyphs::SEP;
+use crate::side_question::TurnStatus;
 /// How a submitted prompt travels to the session (TS `streamingBehavior`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SubmitBehavior {
@@ -243,7 +244,7 @@ impl SessionUi {
     /// TS `teardownSessionUi` -> `releasePromptStashSession`: the run's
     /// binding ends. An empty state drops from the store; a session
     /// holding a draft keeps it for the next view that binds the session.
-    pub(crate) fn release_prompt_stash_session(&mut self) {
+    pub(crate) fn release_prompt_stash_session(&self) {
         if self.stash_session_id.is_empty() {
             return;
         }
@@ -292,7 +293,7 @@ impl SessionUi {
     /// existing unrestored stash queues behind it and keeps its own
     /// restore semantics. The editor dies with this view, so the draft
     /// lives on only in the store.
-    pub(crate) fn stash_draft_for_agents_view(&mut self, view: &AgentView) {
+    pub(crate) fn stash_draft_for_agents_view(&self, view: &AgentView) {
         let Some(draft) = self.snapshot_prompt_stash(view, true) else {
             return;
         };
@@ -552,7 +553,7 @@ impl SessionUi {
             id,
             question: question.to_string(),
             answer: answer.to_string(),
-            status: "complete".to_string(),
+            status: TurnStatus::Complete,
             error_message: None,
             local: true,
         };
@@ -603,7 +604,7 @@ impl SessionUi {
             id: id.clone(),
             question: question.to_string(),
             answer: String::new(),
-            status: "running".to_string(),
+            status: TurnStatus::Running,
             error_message: None,
             local: false,
         };
@@ -637,7 +638,7 @@ impl SessionUi {
                     id,
                     question: question.to_string(),
                     answer: String::new(),
-                    status: "error".to_string(),
+                    status: TurnStatus::Error,
                     error_message: Some(format!("{error:#}")),
                     local: false,
                 });
@@ -699,9 +700,10 @@ impl SessionUi {
         let status = event
             .get("status")
             .and_then(Value::as_str)
-            .unwrap_or_default()
-            .to_string();
-        if self.active_side_question_id.as_deref() == Some(id.as_str()) && status != "running" {
+            .map_or(TurnStatus::Unrecognized, TurnStatus::parse);
+        if self.active_side_question_id.as_deref() == Some(id.as_str())
+            && status != TurnStatus::Running
+        {
             self.active_side_question_id = None;
         }
         let Some(pane) = view.side_pane.as_mut() else {
@@ -1169,11 +1171,11 @@ impl SessionUi {
                         // The replay travels again: its send shows.
                         self.enter_phase(view, crate::activity::TurnPhase::Sending);
                         self.order_prompt_request(
-                            note.text.clone(),
+                            note.text,
                             note.behavior,
-                            note.images.clone(),
-                            note.stashed_images.clone(),
-                            note.stash_to_restore.clone(),
+                            note.images,
+                            note.stashed_images,
+                            note.stash_to_restore,
                             false,
                             note.generation,
                             view,
@@ -1211,7 +1213,7 @@ impl SessionUi {
                     );
                     if let Some(row) = view.chat.last() {
                         self.carried_rows.push(row.clone());
-                        self.maybe_sent = Some((note.text.clone(), row.clone()));
+                        self.maybe_sent = Some((note.text, row.clone()));
                     }
                     return Ok(());
                 }
@@ -1229,9 +1231,9 @@ impl SessionUi {
                     // driver owns the connection's recovery).
                     let in_editor = self.retain_rejected_draft(
                         &note.text,
-                        &self.stash_session_id.clone(),
+                        &self.stash_session_id,
                         note.generation,
-                        note.stashed_images.clone(),
+                        note.stashed_images,
                         view,
                     );
                     self.error_row(&refused_row_text(&rendered, in_editor), view);
@@ -1249,7 +1251,7 @@ impl SessionUi {
     /// it comes down unless other work holds it up (a turn, a run that
     /// owes its answer, a compaction, a retry, another submit still
     /// traveling).
-    fn settle_send_loader(&mut self, view: &mut AgentView) {
+    fn settle_send_loader(&self, view: &mut AgentView) {
         if !self.turn_active
             && !self.run_awaits_turn
             && !super::apply::compaction_runs(view)
@@ -1268,7 +1270,7 @@ impl SessionUi {
     /// session -- keeps the fresh text by retaining the rejected prompt as
     /// the session's restore-on-open head instead of clobbering it.
     fn retain_rejected_draft(
-        &mut self,
+        &self,
         text: &str,
         stash_session_id: &str,
         generation: u64,

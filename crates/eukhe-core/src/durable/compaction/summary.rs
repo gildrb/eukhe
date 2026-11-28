@@ -62,8 +62,12 @@ pub(super) fn before_compact_hook(runtime: &Arc<CompactionRuntime>) -> BeforeCom
     let runtime = Arc::clone(runtime);
     Arc::new(
         move |request: &CompactionRequest, api: &HookApi, cx: &Context| {
-            let (runtime, request, api, cx) =
-                (runtime.clone(), request.clone(), api.clone(), cx.clone());
+            let (runtime, request, api, cx) = (
+                Arc::clone(&runtime),
+                request.clone(),
+                api.clone(),
+                cx.clone(),
+            );
             async move { decide(&runtime, &request, &api, &cx).await }.boxed()
         },
     )

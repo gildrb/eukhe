@@ -1,57 +1,78 @@
 //! Text extraction from message content and system-message rendering.
 
+use std::borrow::Cow;
+
 use eukhe_types::pi_ai::{ContentBlockText, SystemContent, SystemMessage, UserContent};
 
 /// Content `contentText` accepts: a string or a list of content blocks.
 pub trait MessageContent {
     /// The text blocks joined with `separator` (a string is returned as is).
-    fn content_text(&self, separator: &str) -> String;
+    fn content_text(&self, separator: &str) -> Cow<'_, str>;
 }
 
 impl MessageContent for str {
-    fn content_text(&self, _separator: &str) -> String {
-        self.to_owned()
+    fn content_text(&self, _separator: &str) -> Cow<'_, str> {
+        Cow::Borrowed(self)
     }
 }
 
 impl MessageContent for String {
-    fn content_text(&self, _separator: &str) -> String {
-        self.clone()
+    fn content_text(&self, _separator: &str) -> Cow<'_, str> {
+        Cow::Borrowed(self)
     }
 }
 
 impl<B: ContentBlockText> MessageContent for [B] {
-    fn content_text(&self, separator: &str) -> String {
-        let texts: Vec<&str> = self
-            .iter()
-            .filter_map(ContentBlockText::text_block)
-            .collect();
-        texts.join(separator)
+    fn content_text(&self, separator: &str) -> Cow<'_, str> {
+        let mut texts = self.iter().filter_map(ContentBlockText::text_block);
+        match (texts.next(), texts.next()) {
+            (None, _) => Cow::Borrowed(""),
+            (Some(only), None) => Cow::Borrowed(only),
+            (Some(first), Some(second)) => Cow::Owned(join_with(
+                separator,
+                [first, second].into_iter().chain(texts),
+            )),
+        }
     }
 }
 
 impl<B: ContentBlockText> MessageContent for Vec<B> {
-    fn content_text(&self, separator: &str) -> String {
+    fn content_text(&self, separator: &str) -> Cow<'_, str> {
         self.as_slice().content_text(separator)
     }
 }
 
 impl MessageContent for UserContent {
-    fn content_text(&self, separator: &str) -> String {
+    fn content_text(&self, separator: &str) -> Cow<'_, str> {
         match self {
-            Self::Text(text) => text.clone(),
+            Self::Text(text) => Cow::Borrowed(text),
             Self::Blocks(blocks) => blocks.content_text(separator),
         }
     }
 }
 
 impl MessageContent for SystemContent {
-    fn content_text(&self, separator: &str) -> String {
+    fn content_text(&self, separator: &str) -> Cow<'_, str> {
         match self {
-            Self::Text(text) => text.clone(),
+            Self::Text(text) => Cow::Borrowed(text),
             Self::Blocks(blocks) => blocks.content_text(separator),
         }
     }
+}
+
+/// `parts.join(separator)`, written into one buffer.
+pub(crate) fn join_with<S: AsRef<str>>(
+    separator: &str,
+    parts: impl IntoIterator<Item = S>,
+) -> String {
+    let mut out = String::new();
+    for (index, part) in parts.into_iter().enumerate() {
+        if index > 0 {
+            out.push_str(separator);
+        }
+        out.push_str(part.as_ref());
+    }
+    out
 }
 
 /// The TS default `contentText` separator.
@@ -59,7 +80,10 @@ pub const DEFAULT_CONTENT_SEPARATOR: &str = "\n";
 
 /// Extract and join text from message content (TS `contentText(content, separator = "\n")`).
 #[must_use]
-pub fn content_text<C: MessageContent + ?Sized>(content: &C, separator: &str) -> String {
+pub fn content_text<'a, C: MessageContent + ?Sized>(
+    content: &'a C,
+    separator: &str,
+) -> Cow<'a, str> {
     content.content_text(separator)
 }
 
@@ -67,7 +91,7 @@ pub fn content_text<C: MessageContent + ?Sized>(content: &C, separator: &str) ->
 #[must_use]
 pub fn get_system_message_text(message: &SystemMessage) -> String {
     let content = message.content.content_text(DEFAULT_CONTENT_SEPARATOR);
-    join_prompt_parts(std::iter::once(content.as_str()).chain(section_texts(message, ..)))
+    join_prompt_parts(std::iter::once(content.as_ref()).chain(section_texts(message, ..)))
 }
 
 /// eukhe addition: [`get_system_message_text`] cut after the section named
@@ -83,7 +107,7 @@ pub fn split_system_message_text(
     let end = message.sections.as_ref()?.get_index_of(breakpoint)? + 1;
     let content = message.content.content_text(DEFAULT_CONTENT_SEPARATOR);
     Some((
-        join_prompt_parts(std::iter::once(content.as_str()).chain(section_texts(message, ..end))),
+        join_prompt_parts(std::iter::once(content.as_ref()).chain(section_texts(message, ..end))),
         join_prompt_parts(section_texts(message, end..)),
     ))
 }
@@ -136,20 +160,29 @@ fn join_prompt_parts<'a>(parts: impl IntoIterator<Item = &'a str>) -> String {
 /// relate them to the leading prompt. This framing is request-time only.
 #[must_use]
 pub fn render_system_message_update(message: &SystemMessage) -> String {
-    let mut parts = Vec::new();
-    let text = message.content.content_text(DEFAULT_CONTENT_SEPARATOR);
-    if !text.is_empty() {
-        parts.push(text);
-    }
-    if let Some(sections) = &message.sections {
-        for (name, value) in sections {
-            parts.push(match value {
-                None => format!("Removed system prompt section \"{name}\"."),
-                Some(value) => format!("Updated system prompt section \"{name}\":\n\n{value}"),
-            });
+    let mut out = message
+        .content
+        .content_text(DEFAULT_CONTENT_SEPARATOR)
+        .into_owned();
+    for (name, value) in message.sections.iter().flatten() {
+        if !out.is_empty() {
+            out.push_str("\n\n");
+        }
+        match value {
+            None => {
+                out.push_str("Removed system prompt section \"");
+                out.push_str(name);
+                out.push_str("\".");
+            }
+            Some(value) => {
+                out.push_str("Updated system prompt section \"");
+                out.push_str(name);
+                out.push_str("\":\n\n");
+                out.push_str(value);
+            }
         }
     }
-    parts.join("\n\n")
+    out
 }
 
 #[cfg(test)]

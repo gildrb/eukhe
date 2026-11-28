@@ -71,7 +71,7 @@ impl AcpChild {
         id
     }
 
-    fn wait_response(&mut self, id: u64, timeout: Duration) -> (Value, Vec<Value>) {
+    fn wait_response(&self, id: u64, timeout: Duration) -> (Value, Vec<Value>) {
         let deadline = Instant::now() + timeout;
         let mut notifications = Vec::new();
         loop {

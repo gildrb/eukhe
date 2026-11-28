@@ -327,7 +327,7 @@ pub fn summary_for_record(record: &UnifiedRecord) -> Value {
             // TS synthesizes the runtime kind from the saved depth (a saved
             // child with a parent path but no depth is depth 1).
             "runtimeKind": if saved.get("rlmDepth").and_then(Value::as_u64)
-                .unwrap_or(u64::from(saved.get("parentSessionPath").is_some()))
+                .unwrap_or_else(|| u64::from(saved.get("parentSessionPath").is_some()))
                 > 0 { "subagent" } else { "top-level" },
             "cwd": saved.get("cwd").cloned().unwrap_or(Value::Null),
             "sessionFile": saved.get("path").cloned().unwrap_or(Value::Null),

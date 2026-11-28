@@ -103,7 +103,7 @@ fn the_display_names_match_the_ts_map() {
 #[test]
 fn the_api_key_login_rule_matches_ts() {
     let mut built_in = std::collections::HashSet::new();
-    built_in.insert("anthropic".to_string());
+    built_in.insert("anthropic");
     // The display-name map marks api-key logins.
     assert!(is_api_key_login_provider("openai", &built_in));
     // A provider the built-in set does not know is a custom api-key
@@ -113,7 +113,7 @@ fn the_api_key_login_rule_matches_ts() {
     // login (its subscription flows apply).
     assert!(!is_api_key_login_provider("faux", &{
         let mut set = std::collections::HashSet::new();
-        set.insert("faux".to_string());
+        set.insert("faux");
         set
     }));
 }

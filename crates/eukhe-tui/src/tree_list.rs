@@ -178,8 +178,7 @@ impl TreeList {
     }
 
     fn collect_calls(&mut self) {
-        let entries: Vec<TreeNodeData> = self.flat.iter().map(|node| node.data.clone()).collect();
-        self.tool_calls = tree_display::collect_tool_calls(&entries);
+        self.tool_calls = tree_display::collect_tool_calls(self.flat.iter().map(|node| &node.data));
     }
 
     /// The ids on the root-to-current-leaf path (the `*` markers).
@@ -405,7 +404,7 @@ impl TreeList {
                 .filtered
                 .get(self.selected)
                 .and_then(|index| self.flat[*index].data.entry.id().map(str::to_string))
-                .or(self.last_selected_id.clone());
+                .or_else(|| self.last_selected_id.clone());
         }
         self.filtered = (0..self.flat.len())
             .filter(|index| self.passes_filter(*index))
@@ -442,7 +441,7 @@ impl TreeList {
                 .filtered
                 .get(self.selected)
                 .and_then(|index| self.flat[*index].data.entry.id().map(str::to_string))
-                .or(self.last_selected_id.clone());
+                .or_else(|| self.last_selected_id.clone());
         }
     }
 

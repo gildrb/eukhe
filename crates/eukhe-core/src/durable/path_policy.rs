@@ -328,7 +328,7 @@ impl AccessGate for DocumentsGate {
         };
         let asked = editor.asked.fetch_add(1, Ordering::Relaxed);
         let allowed = editor.runtime.block_on(editor_permission::allows(
-            Some(editor.sink.clone()),
+            Some(std::sync::Arc::clone(&editor.sink)),
             format!("{}:fs{asked}", editor.prefix),
             editor.call.clone(),
             eukhe_shell::visible(&format!("{verb} {}", real.path().display())),

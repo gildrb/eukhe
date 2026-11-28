@@ -9,6 +9,7 @@ use hmac::{Hmac, Mac};
 use sha2::{Digest, Sha256};
 
 use super::client_config::AwsCredentials;
+use crate::utils::text::join_with;
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -205,11 +206,12 @@ pub(crate) fn sign_request(request: &mut SignableRequest<'_>, scope: &SigningSco
         .map(|(name, _)| name.as_str())
         .collect::<Vec<_>>()
         .join(";");
-    let header_lines = canonical
-        .iter()
-        .map(|(name, value)| format!("{name}:{value}"))
-        .collect::<Vec<_>>()
-        .join("\n");
+    let header_lines = join_with(
+        "\n",
+        canonical
+            .iter()
+            .map(|(name, value)| format!("{name}:{value}")),
+    );
     let canonical_request = format!(
         "{}\n{}\n\n{header_lines}\n\n{signed_headers}\n{payload_hash}",
         request.method,

@@ -9,6 +9,7 @@
 //! the dock shows, and runs the cancel through `workflow_cancel`.
 
 use eukhe_types::workflow::{WorkflowAgentStatus, WorkflowRunSnapshot, WorkflowRunState};
+use serde::Deserialize;
 use serde_json::Value;
 
 use crate::keybindings::KeybindingsManager;
@@ -29,7 +30,7 @@ pub fn parse_workflow_runs(data: &Value) -> Option<Vec<WorkflowRunSnapshot>> {
     let runs = data.get("runs")?.as_array()?;
     Some(
         runs.iter()
-            .filter_map(|run| serde_json::from_value(run.clone()).ok())
+            .filter_map(|run| WorkflowRunSnapshot::deserialize(run).ok())
             .collect(),
     )
 }

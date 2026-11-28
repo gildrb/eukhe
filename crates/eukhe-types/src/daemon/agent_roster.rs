@@ -45,6 +45,82 @@ pub fn classify_agent_status(input: AgentStatusInput) -> AgentRosterStatus {
     }
 }
 
+/// The `activity` of a wire summary; any other label is idle.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum Activity {
+    Working,
+    #[serde(other)]
+    Other,
+}
+
+/// The `runtimeKind` of a wire summary; any other kind is top-level.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum RuntimeKind {
+    Subagent,
+    #[serde(other)]
+    Other,
+}
+
+impl RuntimeKind {
+    fn parse(kind: &str) -> Self {
+        match kind {
+            "subagent" => Self::Subagent,
+            _ => Self::Other,
+        }
+    }
+}
+
+impl Activity {
+    fn parse(activity: &str) -> Self {
+        match activity {
+            "working" => Self::Working,
+            _ => Self::Other,
+        }
+    }
+}
+
+/// The `lifecycle` of a wire summary.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum Lifecycle {
+    Archived,
+    #[serde(other)]
+    Other,
+}
+
+/// The `taskState` of a wire summary.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum TaskState {
+    Error,
+    Completed,
+    #[serde(other)]
+    Other,
+}
+
+/// The `workerState` of a wire summary.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum WorkerState {
+    Ready,
+    #[serde(other)]
+    Other,
+}
+
+/// One summary field as `T`; absent, null or another shape is `None`.
+fn field<'a, T: Deserialize<'a>>(summary: &'a Value, key: &str) -> Option<T> {
+    summary
+        .get(key)
+        .and_then(|value| T::deserialize(value).ok())
+}
+
+/// One boolean summary field; absent or another shape is false.
+fn flag(summary: &Value, key: &str) -> bool {
+    summary.get(key).and_then(Value::as_bool) == Some(true)
+}
+
 /// Classify one session summary (TS `classifySessionRosterStatus`): a
 /// resident session is busy when its activity is `working` or the session
 /// reports an active turn.
@@ -58,24 +134,22 @@ pub fn classify_session_roster_status(
     classify_agent_status(AgentStatusInput {
         resident,
         queued_child,
-        busy: activity == "working" || session_active,
+        busy: Activity::parse(activity) == Activity::Working || session_active,
     })
 }
 
 /// Classify a summary in its wire (JSON) form: `Value` in, status out.
+#[must_use]
 pub fn classify_summary_value(summary: &Value, queued_child: bool) -> AgentRosterStatus {
     let resident = summary
         .get("activeSessionId")
         .is_some_and(|id| !id.is_null() && id.as_str() != Some(""));
-    let activity = summary
-        .get("activity")
-        .and_then(Value::as_str)
-        .unwrap_or("idle");
-    let session_active = summary
-        .get("isSessionActive")
-        .and_then(Value::as_bool)
-        .unwrap_or(false);
-    classify_session_roster_status(resident, activity, session_active, queued_child)
+    let working = field(summary, "activity") == Some(Activity::Working);
+    classify_agent_status(AgentStatusInput {
+        resident,
+        queued_child,
+        busy: working || flag(summary, "isSessionActive"),
+    })
 }
 
 /// The roster agent id (TS `rosterAgentIdForSummary`): child ids are only
@@ -90,41 +164,44 @@ pub fn roster_agent_id(
     rlm_child_id: Option<&str>,
     parent_key: Option<&str>,
 ) -> String {
-    if runtime_kind == "subagent" {
-        if let Some(child_id) = rlm_child_id {
-            // No-session parents have no path (and no ledger edge); their
-            // live parent id still disambiguates.
-            return match parent_key {
-                Some(key) if !key.is_empty() => format!("{key}#{child_id}"),
-                _ => child_id.to_string(),
-            };
-        }
+    agent_id(
+        session_id,
+        RuntimeKind::parse(runtime_kind),
+        rlm_child_id,
+        parent_key,
+    )
+}
+
+fn agent_id(
+    session_id: &str,
+    runtime_kind: RuntimeKind,
+    rlm_child_id: Option<&str>,
+    parent_key: Option<&str>,
+) -> String {
+    match (runtime_kind, rlm_child_id) {
+        // No-session parents have no path (and no ledger edge); their live
+        // parent id still disambiguates.
+        (RuntimeKind::Subagent, Some(child_id)) => match parent_key {
+            Some(key) if !key.is_empty() => format!("{key}#{child_id}"),
+            _ => child_id.to_owned(),
+        },
+        (RuntimeKind::Subagent, None) | (RuntimeKind::Other, _) => session_id.to_owned(),
     }
-    session_id.to_string()
 }
 
 /// The roster agent id for a summary in its wire (JSON) form.
+#[must_use]
 pub fn roster_agent_id_for_summary(summary: &Value) -> String {
-    let session_id = summary
-        .get("sessionId")
-        .and_then(Value::as_str)
-        .unwrap_or_default();
-    let runtime_kind = summary
-        .get("runtimeKind")
-        .and_then(Value::as_str)
-        .unwrap_or("top-level");
-    let child_id = summary.get("rlmChildId").and_then(Value::as_str);
-    let parent_key = summary
-        .get("parentSessionPath")
-        .and_then(Value::as_str)
-        .filter(|path| !path.is_empty())
-        .or_else(|| {
-            summary
-                .get("parentActiveSessionId")
-                .and_then(Value::as_str)
-                .filter(|id| !id.is_empty())
-        });
-    roster_agent_id(session_id, runtime_kind, child_id, parent_key)
+    let session_id = field(summary, "sessionId").unwrap_or_default();
+    let runtime_kind = field(summary, "runtimeKind").unwrap_or(RuntimeKind::Other);
+    let non_empty = |key| field::<&str>(summary, key).filter(|text| !text.is_empty());
+    let parent_key = non_empty("parentSessionPath").or_else(|| non_empty("parentActiveSessionId"));
+    agent_id(
+        session_id,
+        runtime_kind,
+        field(summary, "rlmChildId"),
+        parent_key,
+    )
 }
 
 /// View-specific labels for the shared activity branch table below (TS
@@ -151,72 +228,63 @@ pub struct SessionActivityOptions {
 /// `statusLabel` and `lastHeardFromAt` stay with the caller: the agents
 /// view returns them before delegating, the sessions table gives them
 /// their own columns.
+#[must_use]
 pub fn session_activity_detail(summary: &Value, options: &SessionActivityOptions) -> String {
-    let str_field = |name: &str| summary.get(name).and_then(Value::as_str);
-    let active = |name: &str| summary.get(name).and_then(Value::as_bool) == Some(true);
+    activity_label(summary, options).to_owned()
+}
+
+fn activity_label<'a>(summary: &'a Value, options: &'a SessionActivityOptions) -> &'a str {
+    let active = |key: &str| flag(summary, key);
     // A non-ready worker cannot report fresh runtime flags; its state is
     // the row's story. A row already carrying the ledger mark keeps that
     // mark out of the activity (its surface shows it as the status).
-    if let Some(worker_state) = str_field("workerState") {
-        if str_field("statusLabel").is_none() && worker_state != "ready" {
-            return worker_state.to_string();
-        }
+    if let (Some(worker_state), Some(WorkerState::Other), None) = (
+        field::<&str>(summary, "workerState"),
+        field(summary, "workerState"),
+        field::<&str>(summary, "statusLabel"),
+    ) {
+        return worker_state;
     }
-    if summary
-        .get("isCompacting")
-        .and_then(Value::as_bool)
-        .unwrap_or(false)
-    {
-        return "compacting".to_string();
+    if active("isCompacting") {
+        return "compacting";
     }
-    if summary
-        .get("isStreaming")
-        .and_then(Value::as_bool)
-        .unwrap_or(false)
-    {
+    if active("isStreaming") {
         return if active("isRunningTools") {
             "running tools"
         } else {
             "thinking"
-        }
-        .to_string();
+        };
     }
     // Tool/bash activity classifies the session as running; the label must
     // agree with that classification instead of claiming it needs input.
     if active("isRunningTools") {
-        return "running tools".to_string();
+        return "running tools";
     }
     if active("isBashRunning") {
-        return "running bash".to_string();
+        return "running bash";
     }
     // The session's own turn ended, but its subagents still work: the
     // worker reports `activity: "working"` for it, and the label says why.
     if active("hasRunningSubagents") {
-        return "subagents running".to_string();
+        return "subagents running";
     }
-    if str_field("lifecycle") == Some("archived") {
-        return "archived".to_string();
+    if field(summary, "lifecycle") == Some(Lifecycle::Archived) {
+        return "archived";
     }
-    if summary
-        .get("hasActiveHeartbeat")
-        .and_then(Value::as_bool)
-        .unwrap_or(false)
-    {
-        return options.heartbeat_label.clone();
+    if active("hasActiveHeartbeat") {
+        return &options.heartbeat_label;
     }
-    if str_field("runtimeKind") == Some("subagent") && active("repliedSinceTask") {
-        return "replied".to_string();
+    if field(summary, "runtimeKind") == Some(RuntimeKind::Subagent) && active("repliedSinceTask") {
+        return "replied";
     }
-    if str_field("activity") == Some("working") {
-        return "working".to_string();
+    if field(summary, "activity") == Some(Activity::Working) {
+        return "working";
     }
-    if str_field("taskState") == Some("error") {
-        return "error".to_string();
+    match field(summary, "taskState") {
+        Some(TaskState::Error) => "error",
+        Some(TaskState::Completed) => "completed",
+        Some(TaskState::Other) | None => &options.idle_label,
     }
-    if str_field("taskState") == Some("completed") {
-        return "completed".to_string();
-    }
-    options.idle_label.clone()
 }
 
 /// The work in flight a session summary (wire form) reports, if any: a
@@ -226,7 +294,7 @@ pub fn session_activity_detail(summary: &Value, options: &SessionActivityOptions
 /// children, workflow runs). A field the summary lacks reports no work.
 #[must_use]
 pub fn summary_work(summary: &Value) -> Option<&'static str> {
-    let flag = |key: &str| summary.get(key).and_then(Value::as_bool) == Some(true);
+    let flag = |key: &str| flag(summary, key);
     let present = |key: &str| summary.get(key).is_some_and(|value| !value.is_null());
     if flag("isCompacting") {
         Some("a compaction")
@@ -238,7 +306,7 @@ pub fn summary_work(summary: &Value) -> Option<&'static str> {
         Some("a turn retrying its provider")
     } else if flag("isStreaming")
         || flag("isRunningTools")
-        || summary.get("activity").and_then(Value::as_str) == Some("working")
+        || field(summary, "activity") == Some(Activity::Working)
     {
         Some("a turn")
     } else if flag("hasRunningSubagents") {

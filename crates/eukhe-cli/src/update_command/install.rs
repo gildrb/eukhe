@@ -141,7 +141,7 @@ pub(super) fn classify(exe: &Path, places: &Places) -> InstallKind {
 
 /// The directory of the install's launcher.
 pub(super) fn launcher_dir(install: &Installer) -> &Path {
-    install.launcher.parent().unwrap_or(Path::new("/"))
+    install.launcher.parent().unwrap_or_else(|| Path::new("/"))
 }
 
 /// The installer's install that runs `exe`: its payload directory is named

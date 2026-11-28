@@ -313,7 +313,7 @@ fn abort_context(state: &mut ContextState) {
 fn ensure_operations(
     state: &mut ContextState,
     replacement_base: Option<&JsonValue>,
-) -> Result<Arc<Vec<Op>>, TrackerError> {
+) -> Result<Arc<[Op]>, TrackerError> {
     if let Some(ops) = &state.ops {
         return Ok(Arc::clone(ops));
     }
@@ -332,7 +332,7 @@ fn ensure_operations(
     } else {
         state.emit_operations()
     };
-    let ops = Arc::new(ops);
+    let ops: Arc<[Op]> = Arc::from(ops);
     state.ops = Some(Arc::clone(&ops));
     Ok(ops)
 }
@@ -444,7 +444,7 @@ impl Change {
             } else {
                 state.emit_operations()
             };
-            state.ops = Some(Arc::new(ops));
+            state.ops = Some(Arc::from(ops));
         }
         let result = materialize_prepared(&cell, &mut state, None);
         change.context = None;
@@ -488,7 +488,7 @@ struct PreparedInner {
     context: Arc<ContextCell>,
     base: JsonValue,
     value: JsonValue,
-    ops: Arc<Vec<Op>>,
+    ops: Arc<[Op]>,
     base_revision: u64,
 }
 
@@ -516,6 +516,11 @@ impl Prepared {
     #[must_use]
     pub fn ops(&self) -> &[Op] {
         &self.inner.ops
+    }
+
+    /// The shared op batch, for publishers that keep it.
+    pub(crate) fn shared_ops(&self) -> Arc<[Op]> {
+        Arc::clone(&self.inner.ops)
     }
 
     /// The tracker revision of `base`.

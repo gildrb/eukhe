@@ -452,7 +452,7 @@ impl SessionUi {
     }
 
     /// Re-read the hub's rows and show the roles.
-    fn show_model_roles(&mut self, view: &mut AgentView) {
+    fn show_model_roles(&self, view: &mut AgentView) {
         let rows = self.model_role_rows(view);
         if let Some(hub) = view.model_hub.as_mut() {
             hub.set_rows(rows);

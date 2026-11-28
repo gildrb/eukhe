@@ -389,7 +389,7 @@ impl Local {
             .chain(own.iter().flatten())
             .cloned()
             .collect();
-        let (crown, units) = refine_all(&self.crown(), &self.units, &named);
+        let (crown, units) = refine_all(self.crown(), &self.units, &named);
         let (left_mask, right_mask) = (mask(&units, &left), mask(&units, &right));
         let own_mask = match &own {
             Some(own) => mask(&units, own),

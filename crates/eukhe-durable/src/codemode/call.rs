@@ -1164,7 +1164,7 @@ impl CodemodeCall {
     }
 
     /// Run one live call; its result is journaled when it finishes.
-    fn launch(&mut self, call: CodemodeHostCall) {
+    fn launch(&self, call: CodemodeHostCall) {
         if self.stopped() {
             return;
         }

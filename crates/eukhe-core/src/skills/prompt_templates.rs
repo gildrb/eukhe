@@ -289,10 +289,10 @@ pub fn load_prompt_templates(options: &LoadPromptTemplatesOptions) -> LoadPrompt
                 Some(&project_prompts_dir.display().to_string()),
             );
         }
-        let base = if path.is_dir() {
-            path.to_path_buf()
+        let base: &Path = if path.is_dir() {
+            path
         } else {
-            path.parent().unwrap_or(path).to_path_buf()
+            path.parent().unwrap_or(path)
         };
         create_synthetic_source_info(
             &path.display().to_string(),

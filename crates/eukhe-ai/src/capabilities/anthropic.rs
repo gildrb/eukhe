@@ -8,10 +8,12 @@ use serde_json::json;
 use super::http::{api_key, count, header_source, send, unexpected, unversioned_root, Body, Call};
 use super::{ListedModel, TokenCount, WebSearchRequest, WebSearchResult, WebSource};
 use crate::api::anthropic_messages::params::build_params;
+use crate::api::anthropic_messages::tags::BlockType;
 use crate::api::anthropic_messages::{client_version, is_oauth_token, AnthropicOptions};
 use crate::api::classifier_shared::error;
 use crate::types::{Model, ProviderRequestOptions, StreamOptions};
 use crate::utils::diagnostics::Thrown;
+use crate::utils::wire_type::wire_type;
 
 const LABEL: &str = "Anthropic";
 
@@ -203,8 +205,8 @@ pub(crate) async fn web_search(
     let mut answer = String::new();
     let mut sources = Vec::new();
     for block in blocks {
-        match block.get("type").and_then(JsonValue::as_str) {
-            Some("text") => {
+        match wire_type(block) {
+            Some(BlockType::Text) => {
                 if let Some(text) = block.get("text").and_then(JsonValue::as_str) {
                     answer.push_str(text);
                 }
@@ -217,11 +219,12 @@ pub(crate) async fn web_search(
                     add_source(&mut sources, citation);
                 }
             }
-            Some("web_search_tool_result") => match block.get("content") {
+            Some(BlockType::WebSearchToolResult) => match block.get("content") {
                 Some(JsonValue::Array(results)) => {
-                    for result in results.iter().filter(|result| {
-                        result.get("type").and_then(JsonValue::as_str) == Some("web_search_result")
-                    }) {
+                    for result in results
+                        .iter()
+                        .filter(|result| wire_type(result) == Some(BlockType::WebSearchResult))
+                    {
                         add_source(&mut sources, result);
                     }
                 }
@@ -234,7 +237,18 @@ pub(crate) async fn web_search(
                 }
                 None => return Err(unexpected(LABEL, "web search result")),
             },
-            Some(_) | None => {}
+            Some(
+                BlockType::Image
+                | BlockType::Thinking
+                | BlockType::RedactedThinking
+                | BlockType::ToolUse
+                | BlockType::ToolResult
+                | BlockType::ToolAddition
+                | BlockType::ToolRemoval
+                | BlockType::Fallback
+                | BlockType::WebSearchResult,
+            )
+            | None => {}
         }
     }
     Ok(WebSearchResult { answer, sources })

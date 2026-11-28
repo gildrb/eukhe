@@ -518,7 +518,7 @@ pub fn realpath_if_present(path: &Path) -> Result<PathBuf> {
         let Ok(target) = fs::read_link(&current) else {
             return Ok(current);
         };
-        let parent = current.parent().unwrap_or(Path::new(""));
+        let parent = current.parent().unwrap_or_else(|| Path::new(""));
         current = fs::canonicalize(parent)
             .unwrap_or_else(|_| parent.to_path_buf())
             .join(target);
@@ -780,7 +780,7 @@ mod tests {
         let previous = std::env::current_dir().unwrap();
         std::env::set_current_dir(cwd.path()).unwrap();
         let relative = std::path::PathBuf::from("relative-agent");
-        let storage = FileSettingsStorage::new(cwd.path(), relative.clone());
+        let storage = FileSettingsStorage::new(cwd.path(), &relative);
         let written = storage.with_lock(SettingsScope::Global, &mut |current| {
             assert_eq!(current, None);
             Some(r#"{ "theme": "eukhe" }"#.to_string())

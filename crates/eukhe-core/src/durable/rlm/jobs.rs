@@ -92,7 +92,7 @@ where
 {
     let weak: Weak<RlmRuntime> = Arc::downgrade(runtime);
     Arc::new(move |call: HostCall| {
-        let weak = weak.clone();
+        let weak = Weak::clone(&weak);
         async move {
             let runtime = weak.upgrade().ok_or_else(|| {
                 anyhow::anyhow!("the session ended before the request could be served")

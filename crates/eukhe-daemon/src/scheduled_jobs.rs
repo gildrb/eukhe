@@ -573,7 +573,7 @@ impl Worker {
             let core = lock(&self.core);
             self.bind_store_artifact(&core);
             (
-                core.runtime_kind == "subagent",
+                core.runtime_kind == crate::worker::RuntimeKind::Subagent,
                 core.active_session_id.clone(),
             )
         };

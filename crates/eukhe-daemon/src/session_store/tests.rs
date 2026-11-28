@@ -939,7 +939,7 @@ fn append_cost_does_not_grow_with_the_store() {
     let mut large = SessionFile::create("/tmp", None, 0);
     for index in 0..30_000 {
         large.push_index(SessionEntry {
-            type_: "custom".to_string(),
+            type_: crate::session_store::EntryType::Custom,
             id: format!("{index:08x}"),
             parent_id: None,
             timestamp: "2026-09-28T00:00:00.000Z".to_string(),

@@ -23,6 +23,40 @@ const VERTEX_ADC_PATH: &str = "~/.config/gcloud/application_default_credentials.
 /// project and location env vars, which the implementation reads itself.
 struct VertexAuth;
 
+/// A login method of the select prompt.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AuthMethod {
+    ApiKey,
+    Adc,
+    ServiceAccount,
+}
+
+impl AuthMethod {
+    const ALL: [Self; 3] = [Self::ApiKey, Self::Adc, Self::ServiceAccount];
+
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::ApiKey => "api-key",
+            Self::Adc => "adc",
+            Self::ServiceAccount => "service-account",
+        }
+    }
+
+    const fn label(self) -> &'static str {
+        match self {
+            Self::ApiKey => "Google Cloud API key",
+            Self::Adc => "Application Default Credentials",
+            Self::ServiceAccount => "Service account credentials file",
+        }
+    }
+
+    fn parse(value: &str) -> Option<Self> {
+        Self::ALL
+            .into_iter()
+            .find(|method| method.as_str() == value)
+    }
+}
+
 fn text_prompt(message: &str) -> AuthPrompt {
     AuthPrompt::new(AuthPromptKind::Text {
         message: message.to_owned(),
@@ -46,18 +80,20 @@ impl ApiKeyAuth for VertexAuth {
             let method = interaction
                 .prompt(AuthPrompt::new(AuthPromptKind::Select {
                     message: "Select Google Vertex AI authentication method:".to_owned(),
-                    options: vec![
-                        AuthSelectOption::new("api-key", "Google Cloud API key"),
-                        AuthSelectOption::new("adc", "Application Default Credentials"),
-                        AuthSelectOption::new(
-                            "service-account",
-                            "Service account credentials file",
-                        ),
-                    ],
+                    options: AuthMethod::ALL
+                        .into_iter()
+                        .map(|method| AuthSelectOption::new(method.as_str(), method.label()))
+                        .collect(),
                 }))
                 .await?;
             interaction.signal.throw_if_aborted()?;
-            if method == "api-key" {
+            let Some(method) = AuthMethod::parse(&method) else {
+                return Err(ErrorObject::new(format!(
+                    "Unknown Google Vertex AI auth method: {method}"
+                ))
+                .thrown());
+            };
+            if method == AuthMethod::ApiKey {
                 let key = interaction
                     .prompt(AuthPrompt::new(AuthPromptKind::Secret {
                         message: "Enter Google Cloud API key".to_owned(),
@@ -66,14 +102,8 @@ impl ApiKeyAuth for VertexAuth {
                     .await?;
                 return Ok(ApiKeyCredential::with_key(key));
             }
-            if method != "adc" && method != "service-account" {
-                return Err(ErrorObject::new(format!(
-                    "Unknown Google Vertex AI auth method: {method}"
-                ))
-                .thrown());
-            }
             interaction.notify(AuthEvent::Info {
-                message: if method == "adc" {
+                message: if method == AuthMethod::Adc {
                     "Run `gcloud auth application-default login`, then provide the project and location."
                 } else {
                     "Provide a service account credentials file, project, and location."
@@ -91,7 +121,7 @@ impl ApiKeyAuth for VertexAuth {
             let location = interaction
                 .prompt(text_prompt("Enter Google Cloud location"))
                 .await?;
-            let credentials_path = if method == "service-account" {
+            let credentials_path = if method == AuthMethod::ServiceAccount {
                 Some(
                     interaction
                         .prompt(text_prompt("Enter service account credentials file path"))

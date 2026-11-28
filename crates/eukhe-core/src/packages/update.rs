@@ -111,7 +111,7 @@ impl PackageManager {
                         SourceScope::from(candidate.scope),
                         manager.cwd(),
                         manager.agent_dir(),
-                        npm_command.as_ref(),
+                        npm_command.as_deref(),
                     )
                 },
             )?;
@@ -119,7 +119,7 @@ impl PackageManager {
         Ok(())
     }
 
-    fn should_update_npm_source(&mut self, source: &NpmSource, scope: UserOrProject) -> bool {
+    fn should_update_npm_source(&self, source: &NpmSource, scope: UserOrProject) -> bool {
         let installed_path = self.npm_install_path(source, scope);
         let installed_version = if installed_path.exists() {
             npm::installed_npm_version(&installed_path)

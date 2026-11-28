@@ -143,26 +143,21 @@ pub(crate) async fn reap_predecessors(supervisor: &Arc<Supervisor>) {
     ));
     // Concurrent: a stuck target's bounded escalation must not serialize
     // the reap (a box of leftovers still boots in one escalation window).
-    let outcomes = futures::future::join_all(
-        targets
-            .iter()
-            .map(|target| async move {
-                let outcome = stop_target(target).await;
-                supervisor.log_line(&format!(
-                    "boot reap: {} pid {} (start id {:?}) - {:?}",
-                    match target.kind {
-                        ReapKind::Worker => "leftover worker",
-                        #[cfg(target_os = "linux")]
-                        ReapKind::Supervisor => "wedged supervisor",
-                    },
-                    target.pid,
-                    target.start_id,
-                    outcome
-                ));
-                (target.clone(), outcome)
-            })
-            .collect::<Vec<_>>(),
-    )
+    let outcomes = futures::future::join_all(targets.into_iter().map(|target| async move {
+        let outcome = stop_target(&target).await;
+        supervisor.log_line(&format!(
+            "boot reap: {} pid {} (start id {:?}) - {:?}",
+            match target.kind {
+                ReapKind::Worker => "leftover worker",
+                #[cfg(target_os = "linux")]
+                ReapKind::Supervisor => "wedged supervisor",
+            },
+            target.pid,
+            target.start_id,
+            outcome
+        ));
+        (target, outcome)
+    }))
     .await;
     // The dead workers' socket files leave with them (a killed process
     // cannot clean up after itself; the ids never repeat, so a stale
@@ -246,19 +241,14 @@ pub(crate) async fn reap_abandoned_workers(supervisor: &Arc<Supervisor>, worker_
         "give-up sweep: {} leftover process(es) of session worker {worker_id}",
         targets.len()
     ));
-    let outcomes = futures::future::join_all(
-        targets
-            .iter()
-            .map(|target| async move {
-                let outcome = stop_target(target).await;
-                supervisor.log_line(&format!(
-                    "give-up sweep: leftover worker pid {} (start id {:?}) of {worker_id} - {:?}",
-                    target.pid, target.start_id, outcome
-                ));
-                (target.clone(), outcome)
-            })
-            .collect::<Vec<_>>(),
-    )
+    let outcomes = futures::future::join_all(targets.into_iter().map(|target| async move {
+        let outcome = stop_target(&target).await;
+        supervisor.log_line(&format!(
+            "give-up sweep: leftover worker pid {} (start id {:?}) of {worker_id} - {:?}",
+            target.pid, target.start_id, outcome
+        ));
+        (target, outcome)
+    }))
     .await;
     // The reaped leftovers' endpoint files leave with them (the same
     // deterministic-name gate the boot reap applies).
@@ -672,8 +662,8 @@ pub(crate) fn is_our_worker_socket(path: &str, supervisor_socket: &Path) -> bool
     let Some(name) = Path::new(path).file_name().and_then(|name| name.to_str()) else {
         return false;
     };
-    normalize_socket_spelling(Path::new(path).parent().unwrap_or(Path::new("")))
-        == normalize_socket_spelling(supervisor_socket.parent().unwrap_or(Path::new("")))
+    normalize_socket_spelling(Path::new(path).parent().unwrap_or_else(|| Path::new("")))
+        == normalize_socket_spelling(supervisor_socket.parent().unwrap_or_else(|| Path::new("")))
         && name.starts_with(&crate::platform::worker_socket_prefix(supervisor_socket))
         && Path::new(name).extension().is_some_and(|ext| ext == "sock")
 }

@@ -113,7 +113,7 @@ async fn the_connection_state_carries_the_loop() {
     assert!(armed.success, "/loop 3 failed: {armed:?}");
     let announced = loop {
         let frame = frames.recv().await.expect("the event pump stays open");
-        if frame.outbound_type != "session_event" {
+        if frame.outbound_type != crate::worker::OutboundType::SessionEvent {
             continue;
         }
         let payload: Value = serde_json::from_slice(&frame.payload).expect("frame json");

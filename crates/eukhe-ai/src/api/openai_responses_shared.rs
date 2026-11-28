@@ -5,6 +5,7 @@
 //! Input items and tools are the exact wire objects as [`JsonValue`]s.
 
 mod stream;
+pub(crate) mod tags;
 
 use eukhe_bend::rules::model_facts;
 use eukhe_types::pi_ai::TextSignaturePhase;

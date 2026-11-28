@@ -33,9 +33,9 @@ pub struct BrowseSummary {
 pub async fn write_browse_page(dir: &Path, out: &Path) -> anyhow::Result<BrowseSummary> {
     let live = super::service::live_parts(dir).await;
     let (store, chat, problems) = load(dir)?;
-    let parts: Vec<Part> = match &live {
+    let parts: std::borrow::Cow<'_, [Part]> = match &live {
         Some(parts) => parts.iter().map(|(l, i)| Part { l: *l, i: *i }).collect(),
-        None => chat.view().parts().to_vec(),
+        None => std::borrow::Cow::Borrowed(chat.view().parts()),
     };
     let date_of = |id: u64| chat.message(id).map_or("", |meta| meta.date.as_str());
     let span = |part: Part| {
@@ -81,7 +81,7 @@ pub async fn write_browse_page(dir: &Path, out: &Path) -> anyhow::Result<BrowseS
     html.push_str(
         "<h2>View</h2><table><tr><th>line</th><th>time span</th><th>bytes</th><th>text</th></tr>",
     );
-    for part in &parts {
+    for part in parts.iter() {
         let text = line_text(*part, chat.nodes());
         let _ = write!(
             html,
@@ -181,14 +181,14 @@ pub struct ReadView {
 pub async fn read_view(dir: &Path) -> anyhow::Result<ReadView> {
     let live = super::service::live_parts(dir).await;
     let (_store, chat, _problems) = load(dir)?;
-    let parts: Vec<Part> = match &live {
+    let parts: std::borrow::Cow<'_, [Part]> = match &live {
         Some(parts) => parts.iter().map(|(l, i)| Part { l: *l, i: *i }).collect(),
-        None => chat.view().parts().to_vec(),
+        None => std::borrow::Cow::Borrowed(chat.view().parts()),
     };
     let mut text = String::from("<chat>\n");
     let mut view_bytes = 0;
     let mut first_unbuilt = chat.total();
-    for part in &parts {
+    for part in parts.iter() {
         let summary = line_text(*part, chat.nodes());
         if chat.nodes().node_text(*part).is_none() {
             first_unbuilt = first_unbuilt.min(part.start());

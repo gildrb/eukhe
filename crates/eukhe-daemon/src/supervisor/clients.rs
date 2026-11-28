@@ -817,8 +817,8 @@ impl Supervisor {
                         command,
                         &client_id,
                         attached,
-                        command_id,
-                        type_name,
+                        &command_id,
+                        &type_name,
                         Some(stream),
                     )
                     .await;
@@ -1092,8 +1092,8 @@ impl Supervisor {
                         command,
                         &client_id,
                         attached,
-                        command_id.clone(),
-                        type_name.clone(),
+                        &command_id,
+                        &type_name,
                         Some(stream),
                     )
                     .await;
@@ -1141,8 +1141,8 @@ impl Supervisor {
                         command,
                         &client_id,
                         attached,
-                        command_id,
-                        type_name,
+                        &command_id,
+                        &type_name,
                         Some(stream),
                     )
                     .await;
@@ -1281,8 +1281,8 @@ impl Supervisor {
                     command,
                     &client_id,
                     attached,
-                    command_id,
-                    type_name,
+                    &command_id,
+                    &type_name,
                     Some(stream),
                 )
                 .await

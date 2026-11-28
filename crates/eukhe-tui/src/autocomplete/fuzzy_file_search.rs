@@ -160,7 +160,10 @@ fn walk_directory(
                 if regex.is_some_and(|regex| !regex.is_match(&target)) {
                     return WalkState::Continue;
                 }
-                let relative = entry.path().strip_prefix(walk_base).unwrap_or(entry.path());
+                let relative = entry
+                    .path()
+                    .strip_prefix(walk_base)
+                    .unwrap_or_else(|_| entry.path());
                 let path = to_display_path(&relative.to_string_lossy());
                 let is_directory = file_type.is_dir();
                 let path = if is_directory {

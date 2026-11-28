@@ -5,6 +5,7 @@
 //! backends the in-process transport does not host (TS `rpc-mode.ts`
 //! cases; the daemon-attached transport serves them for real).
 
+use crate::types::{message_role, BlockKind, MessageRole};
 use std::path::Path;
 use std::sync::Arc;
 
@@ -389,16 +390,14 @@ fn message_stats(messages: &[Value]) -> Value {
     let mut cost = 0.0;
     let usage_field = |usage: &Value, key: &str| usage.get(key).and_then(Value::as_u64);
     for message in messages {
-        match message.get("role").and_then(Value::as_str) {
-            Some("user") => user_messages += 1,
-            Some("assistant") => {
+        match message_role(message) {
+            Some(MessageRole::User) => user_messages += 1,
+            Some(MessageRole::Assistant) => {
                 assistant_messages += 1;
                 if let Some(blocks) = message.get("content").and_then(Value::as_array) {
                     tool_calls += blocks
                         .iter()
-                        .filter(|block| {
-                            block.get("type").and_then(Value::as_str) == Some("toolCall")
-                        })
+                        .filter(|block| BlockKind::of(block) == BlockKind::ToolCall)
                         .map(|_| 1)
                         .sum::<u64>();
                 }
@@ -414,8 +413,8 @@ fn message_stats(messages: &[Value]) -> Value {
                         .unwrap_or_default();
                 }
             }
-            Some("toolResult") => tool_results += 1,
-            _ => {}
+            Some(MessageRole::ToolResult) => tool_results += 1,
+            Some(MessageRole::Custom | MessageRole::Other) | None => {}
         }
     }
     json!({

@@ -19,9 +19,8 @@ fn set(id: &str, value: Value) -> Set {
 /// An in-memory store with a global `settings.json` and cfg files.
 fn storage(settings: &str, cfgs: &[(SettingsScope, &str, &str)]) -> Arc<dyn SettingsStorage> {
     let storage: Arc<dyn SettingsStorage> = Arc::new(InMemorySettingsStorage::default());
-    let settings = settings.to_string();
     storage
-        .with_lock(SettingsScope::Global, &mut |_| Some(settings.clone()))
+        .with_lock(SettingsScope::Global, &mut |_| Some(settings.to_string()))
         .expect("settings.json");
     for (scope, name, content) in cfgs {
         storage

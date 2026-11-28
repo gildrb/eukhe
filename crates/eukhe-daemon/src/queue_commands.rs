@@ -61,6 +61,14 @@ enum Mutation {
     },
 }
 
+/// A mutation's outcome (wire `status`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "lowercase")]
+enum MutationStatus {
+    Applied,
+    Rejected,
+}
+
 impl Mutation {
     fn parse(mutation: &Value) -> Result<Self, UnknownMutationType> {
         match mutation.get("type").and_then(Value::as_str) {
@@ -147,7 +155,7 @@ impl Worker {
             Ok(status) => status,
             Err(error) => return response_failure(None, COMMAND, &error.to_string(), None),
         };
-        if status == "applied" {
+        if status == MutationStatus::Applied {
             self.emit_action_update();
         }
         response_success(None, COMMAND, Some(json!({ "status": status })))
@@ -160,35 +168,26 @@ impl Worker {
         index: usize,
         expected: &str,
         mutation: Mutation,
-    ) -> SessionResult<&'static str> {
+    ) -> SessionResult<MutationStatus> {
         // The queue as the client saw it: inbox inputs, then the
         // withdrawn ones (suspended and held keep their membership).
-        let (inbox, withdrawn) = {
+        let mut queue: Vec<(Origin, QueuedInput)> = {
             let core = self
                 .core
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
-            (
-                core.view
-                    .as_ref()
-                    .map(|view| view.inbox.clone())
-                    .unwrap_or_default(),
-                core.suspended
-                    .iter()
-                    .cloned()
-                    .chain(core.held.iter().cloned())
-                    .collect::<Vec<QueuedInput>>(),
-            )
+            core.view
+                .iter()
+                .flat_map(|view| view.inbox.iter())
+                .map(|input| (Origin::Inbox, input.clone()))
+                .chain(
+                    core.suspended
+                        .iter()
+                        .chain(core.held.iter())
+                        .map(|input| (Origin::Withdrawn, input.clone())),
+                )
+                .collect()
         };
-        let mut queue: Vec<(Origin, QueuedInput)> = inbox
-            .into_iter()
-            .map(|input| (Origin::Inbox, input))
-            .chain(
-                withdrawn
-                    .into_iter()
-                    .map(|input| (Origin::Withdrawn, input)),
-            )
-            .collect();
         let positions: Vec<usize> = queue
             .iter()
             .enumerate()
@@ -196,10 +195,10 @@ impl Worker {
             .map(|(position, _)| position)
             .collect();
         let Some(&position) = positions.get(index) else {
-            return Ok("rejected");
+            return Ok(MutationStatus::Rejected);
         };
         if queue[position].1.text != expected {
-            return Ok("rejected");
+            return Ok(MutationStatus::Rejected);
         }
         let original = queue.clone();
         match mutation {
@@ -212,10 +211,10 @@ impl Worker {
                     .and_then(|index| index.checked_add(direction))
                     .and_then(|target| usize::try_from(target).ok());
                 let Some(&other) = target.and_then(|target| positions.get(target)) else {
-                    return Ok("rejected");
+                    return Ok(MutationStatus::Rejected);
                 };
                 if direction == 0 {
-                    return Ok("rejected");
+                    return Ok(MutationStatus::Rejected);
                 }
                 queue.swap(position, other);
             }
@@ -265,7 +264,7 @@ impl Worker {
         hosted: &HostedSession,
         original: &[(Origin, QueuedInput)],
         next: Vec<(Origin, QueuedInput)>,
-    ) -> SessionResult<&'static str> {
+    ) -> SessionResult<MutationStatus> {
         let unchanged = original
             .iter()
             .zip(&next)
@@ -315,7 +314,7 @@ impl Worker {
                         (state, ())
                     })
                     .await?;
-                    return Ok("rejected");
+                    return Ok(MutationStatus::Rejected);
                 }
             }
         }
@@ -364,7 +363,7 @@ impl Worker {
         };
         set_withdrawn(hosted, &self.core, &self.events, state).await?;
         kill_point("message", "finished");
-        Ok("applied")
+        Ok(MutationStatus::Applied)
     }
 
     /// `resume_queue`: the inputs an abort suspended are admitted again;

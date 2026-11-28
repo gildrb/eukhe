@@ -177,6 +177,11 @@ impl McpConnectionStore {
         records
     }
 
+    /// The records keyed by connectionId.
+    pub(crate) fn by_id(&self) -> &HashMap<String, McpConnectionRecord> {
+        &self.records
+    }
+
     /// One record by connectionId.
     pub fn get(&self, connection_id: &str) -> Option<&McpConnectionRecord> {
         self.records.get(connection_id)
@@ -219,7 +224,7 @@ impl McpConnectionStore {
                 Some(existing) => existing.attempt_id.is_none() && still_current,
             };
             committed = commit;
-            commit.then(|| config::Edit::Set(connection_id.clone(), record.clone()))
+            commit.then(|| config::Edit::Set(connection_id, record.clone()))
         })?;
         Ok(committed)
     }
@@ -256,7 +261,8 @@ impl McpConnectionStore {
             DiskRead::Parsed(records) => (Some(records), None),
             DiskRead::Broken(reason) => (None, Some(reason)),
         };
-        let edit = change(records.as_ref().unwrap_or(&HashMap::new()));
+        let none = HashMap::new();
+        let edit = change(records.as_ref().unwrap_or(&none));
         let written = edit.map(|edit| {
             let read = match (records, &broken) {
                 (_, Some(_)) => config::Read::Broken,

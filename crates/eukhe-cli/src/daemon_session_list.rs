@@ -8,42 +8,44 @@ use std::time::{SystemTime, UNIX_EPOCH};
 /// 12-char display id, mirroring `DISPLAY_ID_LENGTH`.
 const DISPLAY_ID_LENGTH: usize = 12;
 
-/// Display order for the status column.
-const LIST_STATUS_ORDER: [&str; 3] = ["working", "idle", "archived"];
-
-/// A validated session summary row ready for the table.
-#[derive(Debug, Clone, PartialEq)]
-pub(crate) struct SessionSummary {
-    id: String,
-    session_id: String,
-    session_name: Option<String>,
-    lifecycle: String,
-    activity: String,
-    modified: Option<String>,
-    model: Option<(String, String)>,
-    message_count: u64,
-    attached_clients: u64,
-    active_session_id: Option<String>,
+/// The status column, in display order: `archived` by lifecycle, else
+/// working/idle by activity.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum ListStatus {
+    Working,
+    Idle,
+    Archived,
 }
 
-impl SessionSummary {
-    /// The derived list status: `archived` by lifecycle, else working/idle.
-    fn list_status(&self) -> &str {
-        if self.lifecycle == "archived" {
-            "archived"
-        } else if self.activity == "working" {
-            "working"
-        } else {
-            "idle"
+impl ListStatus {
+    fn of(lifecycle: &str, activity: &str) -> Self {
+        match (lifecycle, activity) {
+            ("archived", _) => Self::Archived,
+            (_, "working") => Self::Working,
+            _ => Self::Idle,
         }
     }
 
-    fn list_status_order(&self) -> usize {
-        LIST_STATUS_ORDER
-            .iter()
-            .position(|status| *status == self.list_status())
-            .unwrap_or(LIST_STATUS_ORDER.len())
+    fn label(self) -> &'static str {
+        match self {
+            Self::Working => "working",
+            Self::Idle => "idle",
+            Self::Archived => "archived",
+        }
     }
+}
+
+/// A validated session summary row ready for the table, borrowed from the
+/// daemon's reply.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct SessionSummary<'a> {
+    id: &'a str,
+    session_name: Option<&'a str>,
+    status: ListStatus,
+    modified: Option<&'a str>,
+    model: Option<(&'a str, &'a str)>,
+    message_count: u64,
+    attached_clients: u64,
 }
 
 /// `isSessionSummary`: a structural guard so malformed daemon rows fall back
@@ -93,26 +95,26 @@ fn is_live_session_summary(value: &Value) -> bool {
     is_session_summary(value) && string_field(value, "activeSessionId").is_some()
 }
 
-fn session_summary_from_value(value: &Value) -> Option<SessionSummary> {
+fn session_summary_from_value(value: &Value) -> Option<SessionSummary<'_>> {
     if !is_session_summary(value) {
         return None;
     }
     let model = value.get("model").and_then(|model| {
-        let provider = model.get("provider")?.as_str()?.to_string();
-        let id = model.get("id")?.as_str()?.to_string();
+        let provider = model.get("provider")?.as_str()?;
+        let id = model.get("id")?.as_str()?;
         Some((provider, id))
     });
     Some(SessionSummary {
-        id: string_field(value, "id")?.to_string(),
-        session_id: string_field(value, "sessionId")?.to_string(),
-        session_name: string_field(value, "sessionName").map(str::to_string),
-        lifecycle: string_field(value, "lifecycle")?.to_string(),
-        activity: string_field(value, "activity")?.to_string(),
-        modified: string_field(value, "modified").map(str::to_string),
+        id: string_field(value, "id")?,
+        session_name: string_field(value, "sessionName"),
+        status: ListStatus::of(
+            string_field(value, "lifecycle")?,
+            string_field(value, "activity")?,
+        ),
+        modified: string_field(value, "modified"),
         model,
         message_count: number_field(value, "messageCount")? as u64,
         attached_clients: number_field(value, "attachedClients")? as u64,
-        active_session_id: string_field(value, "activeSessionId").map(str::to_string),
     })
 }
 
@@ -129,10 +131,10 @@ pub(crate) fn validated_session_values(data: &Value) -> Option<Vec<&Value>> {
 
 /// `getSessionSummaries`: `Some(rows)` when every row validates, else `None`
 /// so the caller prints raw JSON like the TS client.
-pub(crate) fn get_session_summaries(data: &Value) -> Option<Vec<SessionSummary>> {
+pub(crate) fn get_session_summaries(data: &Value) -> Option<Vec<SessionSummary<'_>>> {
     validated_session_values(data)?
-        .iter()
-        .map(|session| session_summary_from_value(session))
+        .into_iter()
+        .map(session_summary_from_value)
         .collect()
 }
 
@@ -184,21 +186,20 @@ const LIST_HEADERS: [&str; 7] = [
 
 /// The fixed-column table, mirroring `formatSessionListTable` (colors are
 /// TTY-only in TS; this output is color-free like TS piped output).
-pub(crate) fn format_session_list_table(sessions: &[SessionSummary]) -> String {
+pub(crate) fn format_session_list_table(sessions: &[SessionSummary<'_>]) -> String {
     let now = now_ms();
-    let mut sorted: Vec<&SessionSummary> = sessions.iter().collect();
-    sorted.sort_by_key(|session| session.list_status_order());
+    let mut sorted: Vec<&SessionSummary<'_>> = sessions.iter().collect();
+    sorted.sort_by_key(|session| session.status);
     let rows: Vec<[String; 7]> = sorted
         .iter()
         .map(|session| {
             [
-                crate::sanitize::line(&session.session_name.clone().unwrap_or_default()),
-                format_session_display_id(&session.id),
-                session.list_status().to_string(),
-                format_session_age(session.modified.as_deref(), now),
+                crate::sanitize::line(session.session_name.unwrap_or_default()),
+                format_session_display_id(session.id),
+                session.status.label().to_owned(),
+                format_session_age(session.modified, now),
                 session
                     .model
-                    .as_ref()
                     .map(|(provider, id)| format!("{provider}/{id}"))
                     .unwrap_or_default(),
                 session.message_count.to_string(),
@@ -408,7 +409,8 @@ mod tests {
 
     #[test]
     fn table_matches_captured_ts_golden_shape() {
-        let sessions = get_session_summaries(&json!({ "sessions": [summary()] })).unwrap();
+        let data = json!({ "sessions": [summary()] });
+        let sessions = get_session_summaries(&data).unwrap();
         let table = format_session_list_table(&sessions);
         let lines: Vec<&str> = table.lines().collect();
         assert_eq!(
@@ -431,8 +433,8 @@ mod tests {
         archived["lifecycle"] = json!("archived");
         let mut working = summary();
         working["activity"] = json!("working");
-        let sessions =
-            get_session_summaries(&json!({ "sessions": [archived, working, summary()] })).unwrap();
+        let data = json!({ "sessions": [archived, working, summary()] });
+        let sessions = get_session_summaries(&data).unwrap();
         let table = format_session_list_table(&sessions);
         let lines: Vec<&str> = table.lines().collect();
         assert!(lines[1].contains("working"), "{lines:?}");

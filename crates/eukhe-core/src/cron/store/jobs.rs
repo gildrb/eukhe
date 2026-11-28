@@ -728,7 +728,7 @@ mod tests {
                         },
                     })
                     .collect(),
-                ..created.clone()
+                ..created
             }
         );
 
@@ -760,7 +760,7 @@ mod tests {
                         ..job.clone()
                     })
                     .collect(),
-                ..claimed.clone()
+                ..claimed
             }
         );
 
@@ -806,7 +806,7 @@ mod tests {
                     .filter(|dispatch| dispatch.job_id == b.id)
                     .cloned()
                     .collect(),
-                ..rolled.clone()
+                ..rolled
             }
         );
 
@@ -832,7 +832,7 @@ mod tests {
                     })
                     .collect(),
                 dispatches: Vec::new(),
-                ..own_cleared.clone()
+                ..own_cleared
             }
         );
 

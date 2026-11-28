@@ -244,10 +244,12 @@ pub(super) async fn complete_child_display(session_dir: PathBuf, child_id: Strin
         let Some(mut display) = crate::rlm_ledger::read_rlm_subagent_display(&session_dir) else {
             return Ok(());
         };
-        if display.child_id != child_id || display.status != "running" {
+        if display.child_id != child_id
+            || display.status != crate::rlm_ledger::DisplayStatus::Running
+        {
             return Ok(());
         }
-        display.status = "completed".to_string();
+        display.status = crate::rlm_ledger::DisplayStatus::Completed;
         crate::rlm_ledger::write_rlm_subagent_display(&display).map(|_| ())
     })
     .await

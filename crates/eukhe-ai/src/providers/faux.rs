@@ -9,6 +9,7 @@
 //! Event `partial` values are snapshots at emission time; TS shares one live
 //! object across events (a JS aliasing artifact with no Rust equivalent).
 
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fmt;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -35,7 +36,7 @@ use crate::utils::event_stream::AssistantMessageEventStream;
 use crate::utils::js::utf16_len;
 use crate::utils::now_ms;
 use crate::utils::sleep::timer_duration;
-use crate::utils::text::get_system_message_text;
+use crate::utils::text::{get_system_message_text, join_with};
 
 const DEFAULT_API: &str = "faux";
 const DEFAULT_PROVIDER: &str = "faux";
@@ -316,70 +317,65 @@ fn json_stringify<T: serde::Serialize>(value: &T) -> String {
         .unwrap_or_default()
 }
 
-fn user_block_to_text(block: &UserContentBlock) -> String {
+fn user_block_to_text(block: &UserContentBlock) -> Cow<'_, str> {
     match block {
-        UserContentBlock::Text(text) => text.text.clone(),
-        UserContentBlock::Image(image) => {
-            format!("[image:{}:{}]", image.mime_type, utf16_len(&image.data))
-        }
+        UserContentBlock::Text(text) => Cow::Borrowed(&text.text),
+        UserContentBlock::Image(image) => Cow::Owned(format!(
+            "[image:{}:{}]",
+            image.mime_type,
+            utf16_len(&image.data)
+        )),
     }
+}
+
+/// `parts.join("\n")` ([`join_with`]).
+fn join_lines<S: AsRef<str>>(parts: impl IntoIterator<Item = S>) -> String {
+    join_with("\n", parts)
 }
 
 fn content_to_text(content: &UserContent) -> String {
     match content {
         UserContent::Text(text) => text.clone(),
-        UserContent::Blocks(blocks) => blocks
-            .iter()
-            .map(user_block_to_text)
-            .collect::<Vec<_>>()
-            .join("\n"),
+        UserContent::Blocks(blocks) => join_lines(blocks.iter().map(user_block_to_text)),
     }
 }
 
 fn assistant_content_to_text(content: &[AssistantContentBlock]) -> String {
-    content
-        .iter()
-        .map(|block| match block {
-            AssistantContentBlock::Text(text) => text.text.clone(),
-            AssistantContentBlock::Thinking(thinking) => thinking.thinking.clone(),
-            AssistantContentBlock::ToolCall(call) => {
-                format!("{}:{}", call.name, json_stringify(&call.arguments))
-            }
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
+    join_lines(content.iter().map(|block| match block {
+        AssistantContentBlock::Text(text) => Cow::Borrowed(text.text.as_str()),
+        AssistantContentBlock::Thinking(thinking) => Cow::Borrowed(thinking.thinking.as_str()),
+        AssistantContentBlock::ToolCall(call) => {
+            Cow::Owned(format!("{}:{}", call.name, json_stringify(&call.arguments)))
+        }
+    }))
 }
 
 fn message_to_text(message: &Message) -> String {
     match message {
         Message::System(system) => {
-            let mut parts = vec![get_system_message_text(system)];
-            parts.extend(
-                system
-                    .tools_removed
-                    .iter()
-                    .flatten()
-                    .map(|tool| format!("tool-:{}", json_stringify(tool))),
-            );
-            parts.extend(
-                system
-                    .tools_added
-                    .iter()
-                    .flatten()
-                    .map(|tool| format!("tool+:{}", json_stringify(tool))),
-            );
-            parts
-                .into_iter()
-                .filter(|part| !part.is_empty())
-                .collect::<Vec<_>>()
-                .join("\n")
+            let removed = system
+                .tools_removed
+                .iter()
+                .flatten()
+                .map(|tool| format!("tool-:{}", json_stringify(tool)));
+            let added = system
+                .tools_added
+                .iter()
+                .flatten()
+                .map(|tool| format!("tool+:{}", json_stringify(tool)));
+            join_lines(
+                std::iter::once(get_system_message_text(system))
+                    .chain(removed)
+                    .chain(added)
+                    .filter(|part| !part.is_empty()),
+            )
         }
         Message::User(user) => content_to_text(&user.content),
         Message::Assistant(assistant) => assistant_content_to_text(&assistant.content),
-        Message::ToolResult(result) => std::iter::once(result.tool_name.clone())
-            .chain(result.content.iter().map(user_block_to_text))
-            .collect::<Vec<_>>()
-            .join("\n"),
+        Message::ToolResult(result) => join_lines(
+            std::iter::once(Cow::Borrowed(result.tool_name.as_str()))
+                .chain(result.content.iter().map(user_block_to_text)),
+        ),
     }
 }
 
@@ -405,25 +401,26 @@ fn with_usage(
     prompt_cache: &Mutex<HashMap<String, String>>,
 ) -> AssistantMessage {
     let tokenizer = message_tokenizer(&message);
-    let prompt = context
-        .messages()
-        .iter()
-        .map(|message| format!("{}:{}", message.role(), message_to_text(message)))
-        .collect::<Vec<_>>()
-        .join("\n\n");
+    let prompt = join_with(
+        "\n\n",
+        context
+            .messages()
+            .iter()
+            .map(|message| format!("{}:{}", message.role(), message_to_text(message))),
+    );
     let prompt_tokens = tokenizer.count_text(&prompt);
     let output_tokens = tokenizer.count_text(&assistant_content_to_text(&message.content));
     let mut input = prompt_tokens;
     let mut cache_read = 0;
     let mut cache_write = 0;
     let session_id = options
-        .and_then(|options| options.session_id.clone())
+        .and_then(|options| options.session_id.as_deref())
         .filter(|id| !id.is_empty());
 
     if let Some(session_id) = session_id {
         if options.and_then(|options| options.cache_retention) != Some(CacheRetention::None) {
             let mut cache = prompt_cache.lock().unwrap_or_else(PoisonError::into_inner);
-            match cache.get(&session_id) {
+            match cache.get(session_id) {
                 Some(previous_prompt) => {
                     let (cached, uncached) =
                         prompt.split_at(common_prefix_len(previous_prompt, &prompt));
@@ -433,7 +430,7 @@ fn with_usage(
                 }
                 None => cache_write = prompt_tokens,
             }
-            cache.insert(session_id, prompt);
+            cache.insert(session_id.to_owned(), prompt);
         }
     }
 

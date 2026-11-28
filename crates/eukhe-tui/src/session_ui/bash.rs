@@ -295,12 +295,13 @@ impl SessionUi {
                 // settled, started, or left): the running rows' duration
                 // ticks every poll and never clear anything. The
                 // unrelated dock repaints never clear it either.
-                let row_signature = |data: &Value| -> Vec<(String, String, Option<i64>)> {
-                    crate::bash_view::parse_bash_activities(data)
-                        .into_iter()
-                        .map(|row| (row.id, row.status, row.exit_code))
-                        .collect()
-                };
+                let row_signature =
+                    |data: &Value| -> Vec<(String, crate::bash_view::BashStatus, Option<i64>)> {
+                        crate::bash_view::parse_bash_activities(data)
+                            .into_iter()
+                            .map(|row| (row.id, row.status, row.exit_code))
+                            .collect()
+                    };
                 let rows_settled = row_signature(&self.bash_activities) != row_signature(&data);
                 self.bash_activities = data;
                 if rows_settled {
@@ -570,7 +571,7 @@ impl SessionUi {
     /// appends to the active surface -- the pane's row for a side run, the
     /// mounted card's output otherwise. Discarded runs swallow their
     /// chunks.
-    pub(super) fn apply_bash_output(&mut self, chunk: &str, view: &mut AgentView) {
+    pub(super) fn apply_bash_output(&self, chunk: &str, view: &mut AgentView) {
         if self.side_bash_discarded.is_some() {
             return;
         }

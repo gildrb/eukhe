@@ -808,15 +808,8 @@ impl Supervisor {
             }
         }
         // No passive job managed: the live worker owns the heartbeat.
-        self.route_client_command(
-            command,
-            client_id,
-            attached,
-            command_id.to_string(),
-            type_name.to_string(),
-            None,
-        )
-        .await
+        self.route_client_command(command, client_id, attached, command_id, type_name, None)
+            .await
     }
 
     /// `cron_add` (TS supervisor arm): forward to the resolved worker and
@@ -870,14 +863,7 @@ impl Supervisor {
             }
         );
         let outcome = self
-            .route_client_command(
-                command,
-                client_id,
-                attached,
-                command_id.to_string(),
-                type_name.to_string(),
-                None,
-            )
+            .route_client_command(command, client_id, attached, command_id, type_name, None)
             .await;
         if !promote {
             return outcome;

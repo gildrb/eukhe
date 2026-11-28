@@ -39,9 +39,7 @@ pub(crate) use undo::diff_scope;
 
 mod connection;
 
-pub(crate) use connection::{
-    AuthOutcome, ConnectionSink, EventPump, OutboundFrame, CRON_CHANGED_FRAME,
-};
+pub(crate) use connection::{AuthOutcome, ConnectionSink, EventPump, OutboundFrame, OutboundType};
 
 mod create;
 mod interrupted_run;
@@ -67,7 +65,7 @@ pub use env::{
     WORKER_SUPERVISOR_LOST_EXIT_MS_ENV, WORKER_SUPERVISOR_SOCKET_ENV, WORKER_TOKEN_ENV,
 };
 use serde_json::Map;
-pub(crate) use session_core::SessionCore;
+pub(crate) use session_core::{RuntimeKind, SessionCore};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;

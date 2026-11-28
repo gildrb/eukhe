@@ -178,7 +178,7 @@ impl DaemonLink {
             .get("protocol")
             .cloned()
             .and_then(|p| serde_json::from_value::<DaemonProtocolInfo>(p).ok())
-            .unwrap_or(DaemonProtocolInfo {
+            .unwrap_or_else(|| DaemonProtocolInfo {
                 name: DAEMON_PROTOCOL_NAME.to_string(),
                 version: DAEMON_PROTOCOL_VERSION,
             });
@@ -655,6 +655,27 @@ pub async fn run_daemon_attached_acp_mode(options: DaemonAcpOptions) -> anyhow::
     Ok(0)
 }
 
+/// The session event types the ACP bridge acts on beyond the update
+/// mapping.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AcpEventKind {
+    RlmChildUpdate,
+    /// A run that can restore a failover model or clamp a level
+    /// (`agent_end`, `auto_retry_start`, `auto_retry_end`).
+    ConfigRefresh,
+    Other,
+}
+
+impl AcpEventKind {
+    fn of(event: &Value) -> Self {
+        match event.get("type").and_then(Value::as_str) {
+            Some("rlm_child_update") => Self::RlmChildUpdate,
+            Some("agent_end" | "auto_retry_start" | "auto_retry_end") => Self::ConfigRefresh,
+            Some(_) | None => Self::Other,
+        }
+    }
+}
+
 /// One daemon session event: published as ACP updates on the hosted
 /// session it belongs to; its answer and stop reason recorded for the turn.
 async fn on_session_event(
@@ -662,8 +683,8 @@ async fn on_session_event(
     link: &Arc<DaemonLink>,
     state: &Arc<Mutex<DaemonAcpState>>,
 ) {
-    let event = frame.get("event").cloned().unwrap_or(Value::Null);
-    let event_type = event.get("type").and_then(Value::as_str);
+    let event = frame.get("event").unwrap_or(&Value::Null);
+    let event_kind = AcpEventKind::of(event);
     // The picker refresh triggers (TS refreshes on `agent_end`,
     // `auto_retry_start`, and `auto_retry_end` — the runs that can restore
     // a failover model or clamp a level): captured under the guard,
@@ -676,13 +697,13 @@ async fn on_session_event(
         }) else {
             return;
         };
-        if let Some(stop) = wire_events::assistant_stop(&event) {
+        if let Some(stop) = wire_events::assistant_stop(event) {
             current.assistant_stop_reason = stop.stop_reason;
         }
-        if let Some(answer) = wire_events::assistant_answer(&event) {
+        if let Some(answer) = wire_events::assistant_answer(event) {
             current.turn_answer = Some(answer);
         }
-        if event_type == Some("rlm_child_update") {
+        if event_kind == AcpEventKind::RlmChildUpdate {
             if let Some(id) = event
                 .get("child")
                 .and_then(|child| child.get("id"))
@@ -692,7 +713,7 @@ async fn on_session_event(
             }
         }
         let turn_id = current.producer.active_prompt_turn().await;
-        for update in wire_events::wire_updates(&event, &mut current.mapping) {
+        for update in wire_events::wire_updates(event, &mut current.mapping) {
             let _ = current
                 .producer
                 .publish(&update, turn_id, EukheEventPhase::Event, None)
@@ -704,10 +725,7 @@ async fn on_session_event(
             current.daemon_active_session_id.clone(),
         )
     };
-    if matches!(
-        event_type,
-        Some("agent_end" | "auto_retry_start" | "auto_retry_end")
-    ) {
+    if event_kind == AcpEventKind::ConfigRefresh {
         let link = Arc::clone(link);
         tokio::spawn(async move {
             // Serialized like every config operation (TS `enqueueConfig`);

@@ -17,6 +17,7 @@ use crate::theme::{Theme, ThemeColor};
 use crate::{Line, Span};
 
 use serde_json::Value;
+use std::borrow::Cow;
 
 mod rows;
 
@@ -408,8 +409,7 @@ impl McpView {
             // Rows carry their status flush right (TS inline `MenuRow`
             // trailing meta): the honest state vocabulary.
             let (color, status) = row.status_text();
-            let status = status.as_str();
-            let trailing = vec![(color, status)];
+            let trailing = vec![(color, status.as_ref())];
             lines.push(trailing_menu_row(
                 theme, width, primary, &trailing, selected,
             ));
@@ -457,14 +457,14 @@ impl McpView {
                     .filtered
                     .get(self.selected)
                     .and_then(|index| self.rows.get(*index))
-                    .cloned()
                 {
                     // TS `secondaryText ?? statusText`: the detail falls
                     // back to the row's status when the entry carries no
                     // copy; the shared menu grammar's detail_row
                     // truncates and pads the line.
                     let text = flatten_to_single_line(
-                        &row.detail_text().unwrap_or_else(|| row.status_text().1),
+                        &row.detail_text()
+                            .map_or_else(|| row.status_text().1, Cow::Borrowed),
                     );
                     let line = vec![theme.fg_span(ThemeColor::Muted, format!(" {text}"))];
                     lines.push(crate::menu_panel::detail_row(theme, width, &line));

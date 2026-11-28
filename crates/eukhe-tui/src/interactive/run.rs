@@ -296,9 +296,9 @@ async fn run_interactive_surface(
     // default only matches when the launch directory is the session cwd --
     // the attach flows pass the session's own cwd, and the completion
     // menu must browse the directory the user sees.
-    view.editor.set_autocomplete_provider(Box::new(
+    view.editor.set_autocomplete_provider(
         crate::autocomplete::CombinedAutocompleteProvider::from_registry(options.cwd.clone()),
-    ));
+    );
     // The effective binds (user `binds.cfg` over the TS
     // defaults) drive the editor, the pickers, and every hint the view
     // renders (TS `KeybindingsManager.create()` + `setKeybindings`).
@@ -1206,8 +1206,9 @@ async fn run_interactive_surface(
             // binary forever (the CI wedge family: a 30-45min job
             // budget with no failure row).
             headless_settle_pending = true;
-            let deadline = headless_settle_deadline
-                .get_or_insert(Instant::now() + Duration::from_millis(HEADLESS_SETTLE_TIMEOUT_MS));
+            let deadline = headless_settle_deadline.get_or_insert_with(|| {
+                Instant::now() + Duration::from_millis(HEADLESS_SETTLE_TIMEOUT_MS)
+            });
             if Instant::now() >= *deadline {
                 anyhow::bail!(
                     "the headless run's settle did not complete within {}ms of the plan's completion: {}",

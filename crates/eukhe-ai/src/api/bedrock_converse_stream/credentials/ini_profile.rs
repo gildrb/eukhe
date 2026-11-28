@@ -204,7 +204,10 @@ fn resolve_profile_data<'a>(
     async move {
         let data = profiles.get(profile_name);
         if !visited.is_empty() && is_static_creds_profile(data) {
-            return Ok(static_credentials(data.unwrap_or(&IniSection::default())));
+            return Ok(match data {
+                Some(data) => static_credentials(data),
+                None => static_credentials(&IniSection::default()),
+            });
         }
         if assume_role_recursive_call || is_assume_role_profile(data) {
             return resolve_assume_role_credentials(resolution, profile_name, profiles, &visited)

@@ -329,8 +329,7 @@ async fn truncate<W: OutputFiles>(
     let max_units = limits.max_bytes as u64 / 4;
     let max_lines = i64::try_from(limits.max_lines).unwrap_or(i64::MAX);
     let line_budget = (max_lines - LINE_MARGIN).div_euclid(2);
-    let lines: Vec<&str> = combined.split('\n').collect();
-    let line_count = i64::try_from(lines.len()).unwrap_or(i64::MAX);
+    let line_count = i64::try_from(combined.split('\n').count()).unwrap_or(i64::MAX);
     if (length as u64) <= max_units
         && line_count <= 2 * line_budget
         && tokenizer.check_token_budget(&[&combined], max_tokens).fits

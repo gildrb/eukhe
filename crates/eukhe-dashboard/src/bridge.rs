@@ -21,7 +21,7 @@ use eukhe_types::daemon::{
     StreamingBehavior,
 };
 use eukhe_types::effects::{
-    ledger_text, run_report_text, RanEffectsReply, RunReport, UnknownEffect, UnknownEffectsReply,
+    ledger_text, run_report_text, RanEffectsReply, RunReport, UnknownEffectsReply,
 };
 use eukhe_types::undo::{diff_text, undo_text, TurnDiffReply, UndoReply};
 use futures::{Sink, SinkExt, Stream, StreamExt};
@@ -31,7 +31,7 @@ use tokio::sync::{mpsc, watch};
 use tokio::task::JoinSet;
 use tokio_tungstenite::tungstenite::{self, Message};
 
-use crate::command_policy::{verdict, Verdict};
+use crate::command_policy::{verdict, wire_name, Verdict};
 use crate::pairing::{self, Disk, Gate};
 use crate::protocol::{ClientFrame, EventCursor, ExportFormat, PromptMode, Request, ServerFrame};
 use crate::DashboardConfig;
@@ -496,25 +496,29 @@ impl Tab {
             }
             Request::Run { mut command } => {
                 let active_session_id = self.bound()?;
-                let kind = command
-                    .get("type")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default()
-                    .to_string();
                 // The bridge numbers the daemon's requests and owns the
                 // session the command addresses.
                 command.remove("id");
-                let mut addressed = command.clone();
-                addressed.insert("activeSessionId".to_string(), json!(active_session_id));
-                let read = |fields: Map<String, Value>| {
-                    serde_json::from_value::<DaemonCommand>(Value::Object(fields))
-                        .with_context(|| format!("read the {kind:?} command"))
+                command.insert("activeSessionId".to_string(), json!(active_session_id));
+                let read = |fields: &Map<String, Value>| {
+                    DaemonCommand::deserialize(fields).with_context(|| {
+                        let kind = fields
+                            .get("type")
+                            .and_then(Value::as_str)
+                            .unwrap_or_default();
+                        format!("read the {kind:?} command")
+                    })
                 };
-                let addressed = read(addressed)?;
+                let addressed = read(&command)?;
+                let kind = wire_name(&addressed);
                 match verdict(&addressed) {
                     Verdict::Bound => {
+                        let reply = TextReply::of(&addressed);
                         let data = self.client.request_ok(addressed).await?;
-                        with_text(&kind, data).map(Answer::Data)
+                        match reply {
+                            Some(reply) => with_text(reply, data).map(Answer::Data),
+                            None => Ok(Answer::Data(data)),
+                        }
                     }
                     // A catalog command names its sessions itself: with no
                     // session id the supervisor answers for every session
@@ -522,7 +526,7 @@ impl Tab {
                     Verdict::Catalog => {
                         command.remove("activeSessionId");
                         self.client
-                            .request_ok(read(command)?)
+                            .request_ok(read(&command)?)
                             .await
                             .map(Answer::Data)
                     }
@@ -977,37 +981,68 @@ fn report_text(event: &SessionEvent) -> Option<String> {
     })
 }
 
-/// A reply the tab shows as text (`/effects`, `/undo`, `/diff`) gets
-/// `text`: the words every surface shows. Any other reply goes as it came.
-fn with_text(kind: &str, data: Value) -> anyhow::Result<Value> {
-    let read = |what: &str| format!("read the {what} reply");
-    let text = match kind {
-        "get_ran_effects" => {
-            let reply: RanEffectsReply =
-                serde_json::from_value(data.clone()).with_context(|| read(kind))?;
+/// The replies the tab shows as text (`/effects`, `/undo`, `/diff`).
+#[derive(Debug, Clone, Copy)]
+enum TextReply {
+    RanEffects,
+    UnknownEffects,
+    Undo,
+    TurnDiff,
+}
+
+impl TextReply {
+    fn of(command: &DaemonCommand) -> Option<Self> {
+        if matches!(command, DaemonCommand::GetRanEffects { .. }) {
+            Some(Self::RanEffects)
+        } else if matches!(command, DaemonCommand::GetUnknownEffects { .. }) {
+            Some(Self::UnknownEffects)
+        } else if matches!(command, DaemonCommand::UndoTurn { .. }) {
+            Some(Self::Undo)
+        } else if matches!(command, DaemonCommand::GetTurnDiff { .. }) {
+            Some(Self::TurnDiff)
+        } else {
+            None
+        }
+    }
+
+    fn kind(self) -> &'static str {
+        match self {
+            Self::RanEffects => "get_ran_effects",
+            Self::UnknownEffects => "get_unknown_effects",
+            Self::Undo => "undo_turn",
+            Self::TurnDiff => "get_turn_diff",
+        }
+    }
+}
+
+/// `data` with `text`: the words every surface shows for `reply`.
+fn with_text(reply: TextReply, data: Value) -> anyhow::Result<Value> {
+    let kind = reply.kind();
+    let read = || format!("read the {kind} reply");
+    let text = match reply {
+        TextReply::RanEffects => {
+            let reply = RanEffectsReply::deserialize(&data).with_context(read)?;
             ledger_text(&reply.effects)
         }
-        "get_unknown_effects" => {
-            let reply: UnknownEffectsReply =
-                serde_json::from_value(data.clone()).with_context(|| read(kind))?;
-            reply
-                .effects
-                .iter()
-                .map(UnknownEffect::line)
-                .collect::<Vec<_>>()
-                .join("\n")
+        TextReply::UnknownEffects => {
+            let reply = UnknownEffectsReply::deserialize(&data).with_context(read)?;
+            let mut text = String::new();
+            for (index, effect) in reply.effects.iter().enumerate() {
+                if index > 0 {
+                    text.push('\n');
+                }
+                text.push_str(&effect.line());
+            }
+            text
         }
-        "undo_turn" => {
-            let reply: UndoReply =
-                serde_json::from_value(data.clone()).with_context(|| read(kind))?;
+        TextReply::Undo => {
+            let reply = UndoReply::deserialize(&data).with_context(read)?;
             undo_text(&reply).trim_end().to_owned()
         }
-        "get_turn_diff" => {
-            let reply: TurnDiffReply =
-                serde_json::from_value(data.clone()).with_context(|| read(kind))?;
+        TextReply::TurnDiff => {
+            let reply = TurnDiffReply::deserialize(&data).with_context(read)?;
             diff_text(&reply).trim_end().to_owned()
         }
-        _ => return Ok(data),
     };
     let Value::Object(mut fields) = data else {
         anyhow::bail!("the {kind} reply is not an object");

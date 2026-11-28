@@ -32,8 +32,10 @@ pub(crate) mod test_support;
 pub mod text;
 pub mod transcript;
 pub mod typebox_helpers;
+pub(crate) mod utf8_stream;
 pub mod uuid;
 pub mod validation;
+pub(crate) mod wire_type;
 
 /// `Date.now()`: Unix time in milliseconds.
 pub(crate) fn now_ms() -> u64 {

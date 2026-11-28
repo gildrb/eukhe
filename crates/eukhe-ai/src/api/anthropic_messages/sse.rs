@@ -4,8 +4,10 @@
 use eukhe_chord::context::AbortSignal;
 use eukhe_types::pi_ai::JsonValue;
 
+use super::tags::EventType;
 use crate::utils::diagnostics::{ErrorObject, Thrown};
 use crate::utils::json_parse::parse_json_with_repair;
+use crate::utils::wire_type::{parse_tag, wire_type};
 
 /// One decoded server-sent event (TS `ServerSentEvent`).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -22,15 +24,6 @@ struct SseDecoderState {
     data: Vec<String>,
     raw: Vec<String>,
 }
-
-const ANTHROPIC_MESSAGE_EVENTS: [&str; 6] = [
-    "message_start",
-    "message_delta",
-    "message_stop",
-    "content_block_start",
-    "content_block_delta",
-    "content_block_stop",
-];
 
 fn flush_sse_event(state: &mut SseDecoderState) -> Option<ServerSentEvent> {
     // TS `!state.event`: an empty event name counts as absent.
@@ -54,13 +47,8 @@ fn decode_sse_line(line: &str, state: &mut SseDecoderState) -> Option<ServerSent
     if line.starts_with(':') {
         return None;
     }
-    let (field_name, mut value) = match line.find(':') {
-        None => (line, ""),
-        Some(index) => (&line[..index], &line[index + 1..]),
-    };
-    if let Some(rest) = value.strip_prefix(' ') {
-        value = rest;
-    }
+    let (field_name, value) = line.split_once(':').unwrap_or((line, ""));
+    let value = value.strip_prefix(' ').unwrap_or(value);
     match field_name {
         "event" => state.event = Some(value.to_owned()),
         "data" => state.data.push(value.to_owned()),
@@ -220,18 +208,31 @@ impl AnthropicEvents {
     /// The next parsed message event; `None` at the end of the body.
     pub(crate) async fn next(&mut self) -> Result<Option<JsonValue>, EventStreamError> {
         while let Some(sse) = self.next_sse().await? {
-            if sse.event.as_deref() == Some("error") {
-                return Err(EventStreamError::SseError(sse.data));
-            }
-            if !ANTHROPIC_MESSAGE_EVENTS.contains(&sse.event.as_deref().unwrap_or("")) {
-                continue;
+            match sse.event.as_deref().and_then(parse_tag) {
+                Some(EventType::Error) => return Err(EventStreamError::SseError(sse.data)),
+                None => continue,
+                Some(
+                    EventType::MessageStart
+                    | EventType::MessageDelta
+                    | EventType::MessageStop
+                    | EventType::ContentBlockStart
+                    | EventType::ContentBlockDelta
+                    | EventType::ContentBlockStop,
+                ) => {}
             }
             match parse_json_with_repair(&sse.data) {
                 Ok(event) => {
-                    match event.get("type").and_then(JsonValue::as_str) {
-                        Some("message_start") => self.saw_message_start = true,
-                        Some("message_stop") => self.saw_message_end = true,
-                        _ => {}
+                    match wire_type(&event) {
+                        Some(EventType::MessageStart) => self.saw_message_start = true,
+                        Some(EventType::MessageStop) => self.saw_message_end = true,
+                        Some(
+                            EventType::MessageDelta
+                            | EventType::ContentBlockStart
+                            | EventType::ContentBlockDelta
+                            | EventType::ContentBlockStop
+                            | EventType::Error,
+                        )
+                        | None => {}
                     }
                     return Ok(Some(event));
                 }

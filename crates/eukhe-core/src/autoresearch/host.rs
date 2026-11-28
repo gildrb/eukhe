@@ -98,7 +98,7 @@ pub(crate) fn register_host_requests(deps: &Arc<HostDeps>) {
         deps.host_requests.register(
             name,
             Arc::new(move |call: HostCall| {
-                let weak = weak.clone();
+                let weak = Weak::clone(&weak);
                 async move {
                     let deps = weak
                         .upgrade()
@@ -139,8 +139,11 @@ async fn handle(deps: &Arc<HostDeps>, request: Request, call: HostCall) -> anyho
             lab.flag(run, reason).await?
         }
         Request::Notes => {
-            lab.notes(optional_text(data, "body")?, optional_text(data, "idea")?)
-                .await?
+            lab.notes(
+                optional_text(data, "body")?.map(str::to_owned),
+                optional_text(data, "idea")?.map(str::to_owned),
+            )
+            .await?
         }
         Request::State => lab.state().await?,
     };
@@ -203,17 +206,17 @@ fn continuation() -> AgentAutonomousConfig {
     }
 }
 
-fn text(data: &Value, key: &str) -> anyhow::Result<String> {
+fn text<'a>(data: &'a Value, key: &str) -> anyhow::Result<&'a str> {
     match data.get(key).and_then(Value::as_str) {
-        Some(value) => Ok(value.to_owned()),
+        Some(value) => Ok(value),
         None => bail!("autoresearch: `{key}` must be a string"),
     }
 }
 
-fn optional_text(data: &Value, key: &str) -> anyhow::Result<Option<String>> {
+fn optional_text<'a>(data: &'a Value, key: &str) -> anyhow::Result<Option<&'a str>> {
     match data.get(key) {
         None | Some(Value::Null) => Ok(None),
-        Some(Value::String(value)) => Ok(Some(value.clone())),
+        Some(Value::String(value)) => Ok(Some(value)),
         Some(_) => bail!("autoresearch: `{key}` must be a string or None"),
     }
 }
@@ -242,11 +245,11 @@ fn run_id(value: &Value, key: &str) -> anyhow::Result<u32> {
 
 fn init_args(data: &Value) -> anyhow::Result<InitArgs> {
     Ok(InitArgs {
-        name: text(data, "name")?,
-        metric: text(data, "metric")?,
-        goal: optional_text(data, "goal")?,
-        unit: optional_text(data, "unit")?.unwrap_or_default(),
-        direction: match optional_text(data, "direction")?.as_deref() {
+        name: text(data, "name")?.to_owned(),
+        metric: text(data, "metric")?.to_owned(),
+        goal: optional_text(data, "goal")?.map(str::to_owned),
+        unit: optional_text(data, "unit")?.unwrap_or_default().to_owned(),
+        direction: match optional_text(data, "direction")? {
             None | Some("lower") => Direction::Lower,
             Some("higher") => Direction::Higher,
             Some(other) => {
@@ -269,7 +272,7 @@ fn init_args(data: &Value) -> anyhow::Result<InitArgs> {
 }
 
 fn log_args(data: &Value) -> anyhow::Result<LogArgs> {
-    let status = match text(data, "status")?.as_str() {
+    let status = match text(data, "status")? {
         "keep" => Status::Keep,
         "discard" => Status::Discard,
         "crash" => Status::Crash,
@@ -285,8 +288,8 @@ fn log_args(data: &Value) -> anyhow::Result<LogArgs> {
     };
     Ok(LogArgs {
         status,
-        description: text(data, "description")?,
-        justification: optional_text(data, "justification")?,
+        description: text(data, "description")?.to_owned(),
+        justification: optional_text(data, "justification")?.map(str::to_owned),
         flags,
     })
 }
@@ -295,5 +298,5 @@ fn flag(data: &Value) -> anyhow::Result<(u32, String)> {
     let run = data
         .get("run")
         .context("autoresearch: a flag needs `run`")?;
-    Ok((run_id(run, "run")?, text(data, "reason")?))
+    Ok((run_id(run, "run")?, text(data, "reason")?.to_owned()))
 }

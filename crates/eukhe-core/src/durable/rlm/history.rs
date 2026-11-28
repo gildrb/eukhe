@@ -81,7 +81,7 @@ where
     let weak: Weak<RlmRuntime> = Arc::downgrade(runtime);
     let answer = Arc::new(answer);
     Arc::new(move |call: HostCall| {
-        let weak = weak.clone();
+        let weak = Weak::clone(&weak);
         let answer = Arc::clone(&answer);
         async move {
             let runtime = weak
@@ -241,7 +241,7 @@ fn project(entry: &EntryRecord) -> anyhow::Result<Value> {
     let mut fields = Map::new();
     let mut timestamp = None;
     for message in entry.model.as_deref().unwrap_or_default() {
-        timestamp.get_or_insert(message.timestamp());
+        timestamp.get_or_insert_with(|| message.timestamp());
         match message {
             Message::System(_) => {}
             Message::User(user) => user_text(&user.content, &mut texts),

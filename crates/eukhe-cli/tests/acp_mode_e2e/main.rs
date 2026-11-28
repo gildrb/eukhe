@@ -155,7 +155,7 @@ impl AcpChild {
 
     /// Read frames until the request `id` answers; returns the answer with
     /// the notifications seen before it, in order.
-    fn wait_response(&mut self, id: u64, timeout: Duration) -> (Value, Vec<Value>) {
+    fn wait_response(&self, id: u64, timeout: Duration) -> (Value, Vec<Value>) {
         let deadline = Instant::now() + timeout;
         let mut notifications = Vec::new();
         loop {
@@ -187,7 +187,7 @@ impl AcpChild {
     /// Read frames until one matches — the predicate readiness signal,
     /// never a timer. The frames before it are dropped.
     fn wait_frame(
-        &mut self,
+        &self,
         timeout: Duration,
         mut frame_matches: impl FnMut(&Value) -> bool,
     ) -> Value {
@@ -212,7 +212,7 @@ impl AcpChild {
     /// Read frames until one `sessionUpdate` of `kind` arrives — the
     /// observed-event readiness signal, never a timer. The frames
     /// before it are dropped.
-    fn wait_update(&mut self, kind: &str, timeout: Duration) {
+    fn wait_update(&self, kind: &str, timeout: Duration) {
         self.wait_frame(timeout, |frame| {
             frame["params"]["update"]["sessionUpdate"] == kind
         });
@@ -397,7 +397,7 @@ fn update_meta(frame: &Value) -> &Value {
 /// the commands a prompt may start with (`available_commands_update`),
 /// then the context window in use (`usage_update`). Nothing else comes
 /// between the answer and them.
-fn wait_session_start(client: &mut AcpChild) {
+fn wait_session_start(client: &AcpChild) {
     let mut seen = Vec::new();
     client.wait_frame(TIMEOUT, |frame| {
         let kind = frame["params"]["update"]["sessionUpdate"]

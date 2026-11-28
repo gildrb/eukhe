@@ -19,12 +19,16 @@
 //! [`own_usage_summary_of`] serves it over a pathless store's in-memory
 //! entries, so the live row and the saved row publish one number.
 
+use std::borrow::Cow;
 use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
 
 use eukhe_types::ai::{Usage, UsageCost};
 use eukhe_types::JsNumber;
+
+use crate::session_store::EntryType;
+use crate::types::MessageRole;
 use serde::{Deserialize, Serialize};
 
 /// TS `SessionUsageSummary` (`sessionUsageSummaryFrom`): the token/cost
@@ -294,8 +298,13 @@ impl UsageScan {
 
     /// TS `foldSessionScanLine`: the raw assistant usage keyed by entry id.
     /// Only an assistant row with a usage block lands in the map.
-    pub(crate) fn fold_message(&mut self, id: &str, role: Option<&str>, usage: Option<Usage>) {
-        if role != Some("assistant") {
+    pub(crate) fn fold_message(
+        &mut self,
+        id: &str,
+        role: Option<MessageRole>,
+        usage: Option<Usage>,
+    ) {
+        if role != Some(MessageRole::Assistant) {
             return;
         }
         if let Some(usage) = usage {
@@ -361,17 +370,17 @@ impl UsageScan {
 /// fields, so unknown (and large) content is skipped by serde.
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct ScanEntry {
+struct ScanEntry<'a> {
     #[serde(rename = "type", default)]
-    type_: String,
-    #[serde(default)]
-    id: String,
-    #[serde(default)]
-    message: Option<ScanMessage>,
+    type_: EntryType,
+    #[serde(borrow, default)]
+    id: Cow<'a, str>,
+    #[serde(borrow, default)]
+    message: Option<ScanMessage<'a>>,
     #[serde(default)]
     usage: Option<ScanUsage>,
-    #[serde(default)]
-    target_id: Option<String>,
+    #[serde(borrow, default)]
+    target_id: Option<Cow<'a, str>>,
     #[serde(default)]
     child_usage: Option<ScanUsage>,
     #[serde(default)]
@@ -380,33 +389,45 @@ struct ScanEntry {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct ScanMessage {
-    #[serde(default)]
-    role: Option<String>,
+struct ScanMessage<'a> {
+    #[serde(borrow, default)]
+    role: Option<Cow<'a, str>>,
     #[serde(default)]
     usage: Option<ScanUsage>,
 }
 
-impl ScanEntry {
+impl ScanEntry<'_> {
     /// The standalone scanner's dispatch: fold this parsed entry into a
     /// scan (the same fold the listing scan drives).
     fn fold_into(&self, scan: &mut UsageScan) {
-        match self.type_.as_str() {
-            "message" => {
+        match self.type_ {
+            EntryType::Message => {
                 let (role, usage) = self.message.as_ref().map_or((None, None), |message| {
-                    (message.role.as_deref(), message.usage.map(Usage::from))
+                    (
+                        message.role.as_deref().map(MessageRole::parse),
+                        message.usage.map(Usage::from),
+                    )
                 });
                 scan.fold_message(&self.id, role, usage);
             }
-            "child_usage_attributed" => scan.fold_child_attribution(
+            EntryType::ChildUsageAttributed => scan.fold_child_attribution(
                 self.target_id.as_deref(),
                 self.child_usage.map(Usage::from),
                 self.aggregate_usage.map(Usage::from),
             ),
-            "compaction" | "branch_summary" => {
+            EntryType::Compaction | EntryType::BranchSummary => {
                 scan.fold_summarization(self.usage.map(Usage::from));
             }
-            _ => {}
+            EntryType::Session
+            | EntryType::CustomMessage
+            | EntryType::Custom
+            | EntryType::ModelChange
+            | EntryType::ThinkingLevelChange
+            | EntryType::ServiceTierChange
+            | EntryType::SessionInfo
+            | EntryType::SessionState
+            | EntryType::Label
+            | EntryType::Other(_) => {}
         }
     }
 }
@@ -471,7 +492,8 @@ mod tests {
     fn scan_summary(lines: &[Value]) -> Option<SessionUsageSummary> {
         let mut scan = UsageScan::default();
         for line in lines {
-            let entry: ScanEntry = serde_json::from_value(line.clone()).unwrap();
+            let text = line.to_string();
+            let entry: ScanEntry = serde_json::from_str(&text).unwrap();
             entry.fold_into(&mut scan);
         }
         scan.summary()

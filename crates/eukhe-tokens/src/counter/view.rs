@@ -6,7 +6,42 @@ use std::borrow::Cow;
 
 use eukhe_types::session::AgentMessage;
 use eukhe_types::{ai, pi_ai};
+use serde::Deserialize;
 use serde_json::Value;
+
+/// The `role` of a wire message row.
+#[derive(Clone, Copy, Deserialize)]
+#[serde(rename_all = "camelCase")]
+enum WireRole {
+    Assistant,
+    User,
+    Developer,
+    Custom,
+    HookMessage,
+    ToolResult,
+    BashExecution,
+    BranchSummary,
+    CompactionSummary,
+    #[serde(other)]
+    Other,
+}
+
+/// The `type` of a wire content block.
+#[derive(Clone, Copy, Deserialize)]
+#[serde(rename_all = "camelCase")]
+enum WireBlock {
+    Text,
+    Image,
+    Thinking,
+    ToolCall,
+    #[serde(other)]
+    Other,
+}
+
+/// `value[key]` as `T`; absent or another shape is `None`.
+fn wire_field<'a, T: Deserialize<'a>>(value: &'a Value, key: &str) -> Option<T> {
+    value.get(key).and_then(|field| T::deserialize(field).ok())
+}
 
 /// One countable part of a message.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -121,28 +156,28 @@ impl<'a> MessageParts<'a> {
     #[must_use]
     pub fn from_wire(message: &'a Value) -> Self {
         let text = |key: &str| message.get(key).and_then(Value::as_str);
-        match text("role").unwrap_or_default() {
-            "assistant" => Self::Assistant(wire_assistant(message)),
-            "user" | "developer" | "custom" | "hookMessage" | "toolResult" => {
-                Self::Plain(match message.get("content") {
-                    Some(Value::String(content)) => vec![Part::Text(content)],
-                    Some(Value::Array(blocks)) => {
-                        blocks.iter().filter_map(wire_user_block).collect()
-                    }
-                    Some(_) | None => Vec::new(),
-                })
-            }
-            "bashExecution" => Self::Plain(
+        match wire_field(message, "role").unwrap_or(WireRole::Other) {
+            WireRole::Assistant => Self::Assistant(wire_assistant(message)),
+            WireRole::User
+            | WireRole::Developer
+            | WireRole::Custom
+            | WireRole::HookMessage
+            | WireRole::ToolResult => Self::Plain(match message.get("content") {
+                Some(Value::String(content)) => vec![Part::Text(content)],
+                Some(Value::Array(blocks)) => blocks.iter().filter_map(wire_user_block).collect(),
+                Some(_) | None => Vec::new(),
+            }),
+            WireRole::BashExecution => Self::Plain(
                 [text("command"), text("output")]
                     .into_iter()
                     .flatten()
                     .map(Part::Text)
                     .collect(),
             ),
-            "branchSummary" | "compactionSummary" => {
+            WireRole::BranchSummary | WireRole::CompactionSummary => {
                 Self::Plain(text("summary").map(Part::Text).into_iter().collect())
             }
-            _ => Self::Plain(Vec::new()),
+            WireRole::Other => Self::Plain(Vec::new()),
         }
     }
 }
@@ -221,11 +256,11 @@ pub fn ai_assistant(assistant: &ai::AssistantMessage) -> AssistantTurn<'_> {
 /// A text or image block of user, custom or tool-result wire content.
 fn wire_user_block(block: &Value) -> Option<Part<'_>> {
     let field = |key: &str| block.get(key).and_then(Value::as_str);
-    match field("type") {
-        Some("image") => field("data").map(Part::Image),
-        // Earlier builds persisted text blocks without a `type` tag.
-        Some("text") | None => field("text").map(Part::Text),
-        Some(_) => None,
+    match block.get("type").map(WireBlock::deserialize) {
+        Some(Ok(WireBlock::Image)) => field("data").map(Part::Image),
+        // Earlier builds persisted text blocks without a (string) `type` tag.
+        Some(Ok(WireBlock::Text) | Err(_)) | None => field("text").map(Part::Text),
+        Some(Ok(WireBlock::Thinking | WireBlock::ToolCall | WireBlock::Other)) => None,
     }
 }
 
@@ -241,7 +276,10 @@ fn wire_assistant(message: &Value) -> AssistantTurn<'_> {
         api: text("api"),
         provider: text("provider"),
         model: text("model"),
-        dropped: matches!(text("stopReason"), "aborted" | "error"),
+        dropped: matches!(
+            wire_field(message, "stopReason"),
+            Some(ai::StopReason::Aborted | ai::StopReason::Error)
+        ),
         output: usage_field("output").unwrap_or(0),
         reasoning: usage_field("reasoning"),
         parts: message
@@ -251,20 +289,20 @@ fn wire_assistant(message: &Value) -> AssistantTurn<'_> {
             .flatten()
             .filter_map(|block| {
                 let field = |key: &str| block.get(key).and_then(Value::as_str);
-                match field("type")? {
-                    "text" => field("text").map(Part::Text),
-                    "thinking" => Some(Part::Thinking {
+                match wire_field(block, "type")? {
+                    WireBlock::Text => field("text").map(Part::Text),
+                    WireBlock::Thinking => Some(Part::Thinking {
                         text: field("thinking").unwrap_or_default(),
                         signature: field("thinkingSignature"),
                         redacted: block.get("redacted").and_then(Value::as_bool) == Some(true),
                     }),
-                    "toolCall" => Some(Part::ToolCall {
+                    WireBlock::ToolCall => Some(Part::ToolCall {
                         name: field("name").unwrap_or_default(),
                         arguments: block
                             .get("arguments")
                             .map_or(Cow::Borrowed("null"), arguments_json),
                     }),
-                    _ => None,
+                    WireBlock::Image | WireBlock::Other => None,
                 }
             })
             .collect(),

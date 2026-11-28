@@ -85,8 +85,8 @@ impl Autoresearch {
     /// failure.
     pub(crate) async fn init(&self, args: InitArgs) -> anyhow::Result<Reply> {
         let workspace = Workspace::of(&self.cwd).await?;
-        let goal_hint = args.goal.clone().unwrap_or_else(|| args.name.clone());
-        let branch = ensure_branch(&workspace, Some(&goal_hint), &today()?).await?;
+        let goal_hint = args.goal.as_deref().unwrap_or(&args.name);
+        let branch = ensure_branch(&workspace, Some(goal_hint), &today()?).await?;
         let mut session = self.session().await?;
         let previous = session.opened()?.lab.snapshot()?.config;
         let goal = args
@@ -94,7 +94,7 @@ impl Autoresearch {
             .or_else(|| previous.map(|config| config.goal))
             .unwrap_or_else(|| args.name.clone());
         let config = Config {
-            name: args.name.clone(),
+            name: args.name,
             goal: goal.clone(),
             metric: args.metric,
             unit: args.unit,
@@ -253,7 +253,7 @@ impl Autoresearch {
                 let name = snapshot
                     .config
                     .as_ref()
-                    .map_or_else(String::new, |config| config.metric.clone());
+                    .map_or("", |config| config.metric.as_str());
                 let value = row
                     .and_then(|row| row.metric.as_ref())
                     .map_or_else(|| "null".to_owned(), ToString::to_string);

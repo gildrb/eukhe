@@ -53,9 +53,9 @@ fn authorization_server_metadata_urls(issuer: &Url) -> Vec<String> {
         return Vec::new();
     }
     let path = if issuer.path() == "/" {
-        String::new()
+        ""
     } else {
-        issuer.path().trim_end_matches('/').to_string()
+        issuer.path().trim_end_matches('/')
     };
     vec![
         format!(
@@ -243,9 +243,9 @@ fn resource_metadata(
 /// The RFC 9728 well-known location for one resource.
 fn resource_metadata_url(resource: &Url) -> String {
     let path = if resource.path() == "/" {
-        String::new()
+        ""
     } else {
-        resource.path().to_string()
+        resource.path()
     };
     let mut url = format!(
         "{}/.well-known/oauth-protected-resource{path}",
@@ -339,7 +339,7 @@ async fn try_protected_resource_metadata(
         Err(_) => None,
     };
     let candidate = match &header_url {
-        Some(pointer) => validated_https_url(pointer, "resource_metadata")?.to_string(),
+        Some(pointer) => String::from(validated_https_url(pointer, "resource_metadata")?),
         None => resource_metadata_url(resource_url),
     };
     let request = OAuthHttpRequest {

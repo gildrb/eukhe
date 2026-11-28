@@ -369,7 +369,7 @@ impl WorkerPane {
             return;
         };
         if let Some(ChatEntry::Tool(card)) = self.view.chat.get_mut(index) {
-            card.result = Some(ToolResultView::new(&card.name, result, is_error));
+            card.result = Some(ToolResultView::new(card.name.as_str(), result, is_error));
             card.result_partial = partial;
             if !partial {
                 card.ended_at = Some(std::time::Instant::now());

@@ -45,7 +45,7 @@ pub(super) fn spawn_collect_hold_tool(
                 let handle = spawn(HostCall {
                     data: json!({ "prompt": PROMPT, "kwargs": {} }),
                     cell_source_code: None,
-                    call: Some(api.clone()),
+                    call: Some(std::sync::Arc::clone(&api)),
                     signal: None,
                 })
                 .await
@@ -77,7 +77,7 @@ pub(super) fn spawn_collect_hold_tool(
                             let read = collect(HostCall {
                                 data: targets.clone(),
                                 cell_source_code: None,
-                                call: Some(api.clone()),
+                                call: Some(std::sync::Arc::clone(&api)),
                                 signal: None,
                             })
                             .await

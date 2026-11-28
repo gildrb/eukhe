@@ -24,6 +24,40 @@ use crate::utils::diagnostics::{ErrorObject, Thrown};
 /// ambient AWS credentials without copying them into pi's credential store.
 struct BedrockAuth;
 
+/// A login method of the select prompt.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AuthMethod {
+    BearerToken,
+    AwsProfile,
+    CredentialChain,
+}
+
+impl AuthMethod {
+    const ALL: [Self; 3] = [Self::BearerToken, Self::AwsProfile, Self::CredentialChain];
+
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::BearerToken => "bearer-token",
+            Self::AwsProfile => "aws-profile",
+            Self::CredentialChain => "credential-chain",
+        }
+    }
+
+    const fn label(self) -> &'static str {
+        match self {
+            Self::BearerToken => "Bearer token",
+            Self::AwsProfile => "AWS profile",
+            Self::CredentialChain => "Existing AWS credential chain",
+        }
+    }
+
+    fn parse(value: &str) -> Option<Self> {
+        Self::ALL
+            .into_iter()
+            .find(|method| method.as_str() == value)
+    }
+}
+
 fn text_prompt(message: &str) -> AuthPrompt {
     AuthPrompt::new(AuthPromptKind::Text {
         message: message.to_owned(),
@@ -55,15 +89,15 @@ impl ApiKeyAuth for BedrockAuth {
             let method = interaction
                 .prompt(AuthPrompt::new(AuthPromptKind::Select {
                     message: "Select Amazon Bedrock authentication method:".to_owned(),
-                    options: vec![
-                        AuthSelectOption::new("bearer-token", "Bearer token"),
-                        AuthSelectOption::new("aws-profile", "AWS profile"),
-                        AuthSelectOption::new("credential-chain", "Existing AWS credential chain"),
-                    ],
+                    options: AuthMethod::ALL
+                        .into_iter()
+                        .map(|method| AuthSelectOption::new(method.as_str(), method.label()))
+                        .collect(),
                 }))
                 .await?;
             interaction.signal.throw_if_aborted()?;
-            if method == "bearer-token" {
+            let parsed = AuthMethod::parse(&method);
+            if parsed == Some(AuthMethod::BearerToken) {
                 let key = interaction
                     .prompt(AuthPrompt::new(AuthPromptKind::Secret {
                         message: "Enter Amazon Bedrock bearer token".to_owned(),
@@ -81,7 +115,7 @@ impl ApiKeyAuth for BedrockAuth {
                     label: Some("AWS credential provider chain".to_owned()),
                 }]),
             });
-            if method == "aws-profile" {
+            if parsed == Some(AuthMethod::AwsProfile) {
                 let profile = interaction
                     .prompt(text_prompt("Enter AWS profile name"))
                     .await?;
@@ -90,7 +124,7 @@ impl ApiKeyAuth for BedrockAuth {
                     ..ApiKeyCredential::default()
                 });
             }
-            if method != "credential-chain" {
+            if parsed != Some(AuthMethod::CredentialChain) {
                 return Err(ErrorObject::new(format!(
                     "Unknown Amazon Bedrock auth method: {method}"
                 ))

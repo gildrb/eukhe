@@ -1,6 +1,7 @@
 //! Generation-certified active session windows. Cold reads scan metadata to root;
 //! warm reads touch only the canonical header and the retained transcript suffix.
 //! JSONL remains authoritative; historical consumers explicitly hydrate.
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::io::{self, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
@@ -64,20 +65,115 @@ impl ReverseLines {
     }
 }
 
+/// The row `type`s the walk tells apart; every other type is `Other`.
+#[derive(Deserialize, Clone, Copy, PartialEq, Eq, Hash)]
+#[serde(rename_all = "snake_case")]
+enum EntryKind {
+    Session,
+    Message,
+    Compaction,
+    ModelChange,
+    ThinkingLevelChange,
+    ServiceTierChange,
+    SessionInfo,
+    SessionState,
+    AgentStatus,
+    GitState,
+    ChildUsageAttributed,
+    Custom,
+    #[serde(other)]
+    Other,
+}
+
+impl EntryKind {
+    /// Rows that only set the session's model, thinking level or tier.
+    fn is_setting(self) -> bool {
+        matches!(
+            self,
+            Self::ModelChange | Self::ThinkingLevelChange | Self::ServiceTierChange
+        )
+    }
+}
+
+/// The `customType`s the walk tells apart.
+#[derive(Deserialize, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+enum CustomKind {
+    ProviderQuotaPark,
+    ProviderQuotaResume,
+    /// [`crate::session::ANTHROPIC_WARNING_SHOWN_CUSTOM_TYPE`].
+    AnthropicSubscriptionWarningShown,
+    #[serde(other)]
+    Other,
+}
+
+impl CustomKind {
+    fn is_quota(self) -> bool {
+        matches!(self, Self::ProviderQuotaPark | Self::ProviderQuotaResume)
+    }
+}
+
+#[derive(Deserialize, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+enum Role {
+    User,
+    Assistant,
+    ToolResult,
+    #[serde(other)]
+    Other,
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct Envelope {
+struct Envelope<'a> {
     #[serde(rename = "type")]
-    kind: String,
-    id: Option<String>,
+    kind: EntryKind,
+    #[serde(borrow)]
+    id: Option<Cow<'a, str>>,
     parent_id: Option<String>,
     message: Option<MessageMetadata>,
-    custom_type: Option<String>,
+    custom_type: Option<CustomKind>,
+}
+
+/// A retained metadata row's fields the keep filter reads.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct MetadataRow<'a> {
+    #[serde(rename = "type")]
+    kind: EntryKind,
+    #[serde(borrow, default)]
+    target_id: Option<TextOrOther<'a>>,
+    custom_type: Option<CustomKind>,
+}
+
+/// A field read only when it is a string; any other JSON value is kept
+/// apart instead of failing the row.
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum TextOrOther<'a> {
+    Text(#[serde(borrow)] Cow<'a, str>),
+    Other(serde::de::IgnoredAny),
+}
+
+/// A child-usage attribution row's target and aggregate.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AttributionRow<'a> {
+    #[serde(borrow)]
+    target_id: Option<Cow<'a, str>>,
+    aggregate_usage: Option<serde_json::Value>,
+}
+
+/// The newest row of each kind the keep filter retains.
+#[derive(PartialEq, Eq, Hash)]
+enum LatestKey<'a> {
+    Kind(EntryKind),
+    Attribution(Cow<'a, str>),
 }
 
 #[derive(Deserialize)]
 struct MessageMetadata {
-    role: String,
+    role: Role,
     provider: Option<String>,
     model: Option<String>,
     usage: Option<serde_json::Value>,
@@ -118,7 +214,15 @@ impl<'de> Deserialize<'de> for MessageContentMetadata {
 #[derive(Deserialize)]
 struct ContentMetadata {
     #[serde(rename = "type")]
-    kind: String,
+    kind: BlockKind,
+}
+
+#[derive(Deserialize, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+enum BlockKind {
+    ToolCall,
+    #[serde(other)]
+    Other,
 }
 
 /// Whole-branch accounting older than the retained suffix.
@@ -285,7 +389,7 @@ impl WindowedSessionStore {
             let Ok(meta) = serde_json::from_str::<Envelope>(text) else {
                 return Ok(None);
             };
-            if meta.kind == "session" {
+            if meta.kind == EntryKind::Session {
                 if reader.position != 0
                     || reader
                         .pending
@@ -297,46 +401,38 @@ impl WindowedSessionStore {
                 header = serde_json::from_slice::<FileEntry>(&line).ok();
                 break;
             }
-            if !matches!(
-                meta.kind.as_str(),
-                "model_change" | "thinking_level_change" | "service_tier_change"
-            ) {
+            if !meta.kind.is_setting() {
                 non_bootstrap = true;
             }
-            if meta.kind == "compaction" {
+            if meta.kind == EntryKind::Compaction {
                 compaction_count += 1;
             }
-            if meta.kind == "message" {
+            if meta.kind == EntryKind::Message {
                 message_count += 1;
                 if meta
                     .message
                     .as_ref()
-                    .is_some_and(|message| message.role == "user")
+                    .is_some_and(|message| message.role == Role::User)
                 {
                     first_user_line = Some(line.clone());
                 }
             } else if window_done
                 && (matches!(
-                    meta.kind.as_str(),
-                    "session_info"
-                        | "session_state"
-                        | "agent_status"
-                        | "git_state"
-                        | "child_usage_attributed"
-                ) || matches!(
-                    (meta.kind.as_str(), meta.custom_type.as_deref()),
-                    (
-                        "custom",
-                        Some("provider_quota_park" | "provider_quota_resume")
-                    )
-                ))
+                    meta.kind,
+                    EntryKind::SessionInfo
+                        | EntryKind::SessionState
+                        | EntryKind::AgentStatus
+                        | EntryKind::GitState
+                        | EntryKind::ChildUsageAttributed
+                ) || (meta.kind == EntryKind::Custom
+                    && meta.custom_type.is_some_and(CustomKind::is_quota)))
             {
                 metadata_entries.push(
                     String::from_utf8(line.clone())
                         .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?,
                 );
             }
-            if meta.kind == "child_usage_attributed" {
+            if meta.kind == EntryKind::ChildUsageAttributed {
                 // Capture the aggregate wherever the row sits (retained or
                 // discarded region): an attribution targeting an older-path
                 // assistant is dropped from the retained metadata (its target
@@ -345,21 +441,17 @@ impl WindowedSessionStore {
                 // newest-first, so the FIRST aggregate seen per target is the
                 // last in file order — the cumulative aggregate the TS fold
                 // ends with.
-                if let Ok(value) = serde_json::from_str::<serde_json::Value>(text) {
-                    if let Some(target) = value.get("targetId").and_then(serde_json::Value::as_str)
-                    {
-                        // A malformed aggregate (null, a scalar) must not
-                        // replace a valid row usage with zeros — the session
-                        // store fold skips non-objects the same way.
-                        if let Some(aggregate) = value
-                            .get("aggregateUsage")
-                            .filter(|aggregate| aggregate.is_object())
-                        {
-                            older_aggregates
-                                .entry(target.to_owned())
-                                .or_insert_with(|| OlderPathUsage::from_usage(aggregate));
-                        }
-                    }
+                if let Ok(AttributionRow {
+                    target_id: Some(target),
+                    // A malformed aggregate (null, a scalar) must not
+                    // replace a valid row usage with zeros — the session
+                    // store fold skips non-objects the same way.
+                    aggregate_usage: Some(aggregate @ serde_json::Value::Object(_)),
+                }) = serde_json::from_str::<AttributionRow>(text)
+                {
+                    older_aggregates
+                        .entry(target.into_owned())
+                        .or_insert_with(|| OlderPathUsage::from_usage(&aggregate));
                 }
             }
             let Some(id) = meta.id.as_deref() else {
@@ -374,20 +466,20 @@ impl WindowedSessionStore {
             }
             let on_path = expected.as_deref() == Some(id);
             if on_path {
-                if window_done && meta.kind == "message" {
+                if window_done && meta.kind == EntryKind::Message {
                     if let Some(message) = &meta.message {
                         older_path_stats.total_messages += 1;
-                        match message.role.as_str() {
-                            "user" => older_path_stats.user_messages += 1,
-                            "toolResult" => older_path_stats.tool_results += 1,
-                            "assistant" => {
+                        match message.role {
+                            Role::User => older_path_stats.user_messages += 1,
+                            Role::ToolResult => older_path_stats.tool_results += 1,
+                            Role::Assistant => {
                                 older_path_stats.assistant_messages += 1;
                                 if let Some(MessageContentMetadata::Blocks(blocks)) =
                                     &message.content
                                 {
                                     older_path_stats.tool_calls += blocks
                                         .iter()
-                                        .filter(|block| block.kind == "toolCall")
+                                        .filter(|block| block.kind == BlockKind::ToolCall)
                                         .count()
                                         as u64;
                                 }
@@ -408,32 +500,29 @@ impl WindowedSessionStore {
                                         .unwrap_or_default(),
                                 ));
                             }
-                            _ => {}
+                            Role::Other => {}
                         }
                     }
                 }
-                expected.clone_from(&meta.parent_id);
+                expected = meta.parent_id;
                 if let Some(message) = meta
                     .message
-                    .as_ref()
-                    .filter(|message| message.role == "assistant" && model.is_none())
+                    .filter(|message| message.role == Role::Assistant && model.is_none())
                 {
-                    let (Some(provider), Some(name)) = (&message.provider, &message.model) else {
+                    let (Some(provider), Some(name)) = (message.provider, message.model) else {
                         return Ok(None);
                     };
-                    model = Some((provider.clone(), name.clone()));
+                    model = Some((provider, name));
                 }
             }
             // Parse only retained bodies and sparse setting records from the
             // older ancestry. Serde ignores old content without allocating it.
             let entry = if !window_done
                 || (on_path
-                    && (matches!(
-                        meta.kind.as_str(),
-                        "model_change" | "thinking_level_change" | "service_tier_change"
-                    ) || (!anthropic_warning_shown
-                        && meta.custom_type.as_deref()
-                            == Some(crate::session::ANTHROPIC_WARNING_SHOWN_CUSTOM_TYPE))))
+                    && (meta.kind.is_setting()
+                        || (!anthropic_warning_shown
+                            && meta.custom_type
+                                == Some(CustomKind::AnthropicSubscriptionWarningShown))))
             {
                 match serde_json::from_slice::<FileEntry>(&line) {
                     Ok(entry) => Some(entry),
@@ -505,31 +594,34 @@ impl WindowedSessionStore {
         let mut latest = std::collections::HashMap::new();
         let mut keep = HashSet::new();
         for (index, row) in metadata_entries.iter().enumerate() {
-            let value: serde_json::Value = serde_json::from_str(row)?;
-            let kind = value["type"].as_str().unwrap_or("");
-            match kind {
-                "session_info" | "session_state" | "git_state" => {
-                    latest.insert(kind.to_owned(), index);
+            let row: MetadataRow = serde_json::from_str(row)?;
+            match row.kind {
+                kind @ (EntryKind::SessionInfo | EntryKind::SessionState | EntryKind::GitState) => {
+                    latest.insert(LatestKey::Kind(kind), index);
                 }
-                "child_usage_attributed"
-                    if value["targetId"]
-                        .as_str()
-                        .is_some_and(|id| retained_ids.contains(id)) =>
-                {
-                    latest.insert(format!("attribution:{}", value["targetId"]), index);
+                EntryKind::ChildUsageAttributed => {
+                    if let Some(TextOrOther::Text(target)) = row.target_id {
+                        if retained_ids.contains(target.as_ref()) {
+                            latest.insert(LatestKey::Attribution(target), index);
+                        }
+                    }
                 }
                 // The quota-park chain is scanned newest-first with resume
                 // entries ending episodes, so every park/resume row must
                 // survive the keep filter (not just the newest of a kind).
-                "custom"
-                    if matches!(
-                        value["customType"].as_str(),
-                        Some("provider_quota_park" | "provider_quota_resume")
-                    ) =>
-                {
-                    keep.insert(index);
+                EntryKind::Custom => {
+                    if row.custom_type.is_some_and(CustomKind::is_quota) {
+                        keep.insert(index);
+                    }
                 }
-                _ => {}
+                EntryKind::Session
+                | EntryKind::Message
+                | EntryKind::Compaction
+                | EntryKind::ModelChange
+                | EntryKind::ThinkingLevelChange
+                | EntryKind::ServiceTierChange
+                | EntryKind::AgentStatus
+                | EntryKind::Other => {}
             }
         }
         keep.extend(latest.into_values());

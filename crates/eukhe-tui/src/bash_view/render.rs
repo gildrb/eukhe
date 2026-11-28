@@ -38,7 +38,7 @@ impl Columns {
         // word (menu_panel::status_dot).
         let status = activities
             .iter()
-            .map(|activity| str_width(&activity.status) + 2)
+            .map(|activity| str_width(activity.status.as_str()) + 2)
             .chain([str_width("Status")])
             .max()
             .unwrap_or(0);
@@ -119,7 +119,7 @@ impl Columns {
             ),
         );
         row.push(Span::raw("  "));
-        let (dot, _) = status_dot(&activity.status);
+        let (dot, _) = status_dot(activity.status.as_str());
         row.push(theme.fg_span(
             status_color,
             plain_cell(&format!("{dot} {}", activity.status), self.status),
@@ -208,13 +208,13 @@ pub(super) fn metadata_row(theme: &Theme, width: usize, activity: &BashActivity)
     if !items.is_empty() {
         row.push(theme.fg_span(ThemeColor::Dim, crate::glyphs::SEP.to_string()));
     }
-    let (dot, _) = status_dot(&activity.status);
+    let (dot, _) = status_dot(activity.status.as_str());
     let status_word = if activity.running() {
         "running".to_string()
     } else {
         match activity.exit_code {
             Some(code) => format!("exit {code}"),
-            None => activity.status.clone(),
+            None => activity.status.as_str().to_string(),
         }
     };
     row.push(theme.fg_span(status_state_color(activity), format!("{dot} {status_word}")));

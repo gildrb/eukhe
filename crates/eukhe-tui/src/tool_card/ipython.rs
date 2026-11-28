@@ -224,10 +224,10 @@ fn job_part(card: &ToolCallCard, details: &IpythonDetails) -> Option<String> {
 pub fn waited_job(card: &ToolCallCard) -> Option<eukhe_types::daemon::WaitingJob> {
     let result = card.result.as_ref().filter(|_| card.result_partial)?;
     let details = IpythonDetails::parse(&result.details);
-    match (card.name.as_str(), details.status.as_deref()) {
-        ("python" | "ipython", Some("waiting")) => details.job,
-        _ => None,
+    if card.name.is_python() && details.status.as_deref() == Some("waiting") {
+        return details.job;
     }
+    None
 }
 
 /// A cell renders as bash when its executed `bash()` lines are at least

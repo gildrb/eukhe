@@ -264,7 +264,7 @@ fn custom_type(entry: &EntryRecord) -> String {
         .and_then(|data| {
             data.get("customType")
                 .and_then(serde_json::Value::as_str)
-                .map(str::to_string)
+                .map(str::to_owned)
         })
         .unwrap_or_default()
 }

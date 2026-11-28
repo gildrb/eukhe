@@ -12,7 +12,7 @@ use super::{
 impl SessionUi {
     /// Project the browse selection to the view: the dim header row above
     /// the editor (TS `getQueueSelectionHeader` reads the live selection).
-    pub(crate) fn sync_queue_selection(&mut self, view: &mut AgentView) {
+    pub(crate) fn sync_queue_selection(&self, view: &mut AgentView) {
         view.queue_selected = self.queue_selection.selected().cloned();
     }
 

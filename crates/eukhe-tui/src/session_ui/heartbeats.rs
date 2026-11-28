@@ -423,7 +423,7 @@ impl SessionUi {
 pub(super) fn paused_heartbeat_count(heartbeats: &[HeartbeatEntry]) -> usize {
     heartbeats
         .iter()
-        .filter(|entry| entry.job.status == "paused")
+        .filter(|entry| entry.job.status == crate::heartbeats_picker::JobStatus::Paused)
         .count()
 }
 

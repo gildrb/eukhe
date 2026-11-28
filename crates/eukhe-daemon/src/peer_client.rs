@@ -146,7 +146,12 @@ async fn request(
             .get("requestId")
             .and_then(Value::as_str)
             .is_some_and(|id| id == request_id)
-            && frame.header.get("outboundType").and_then(Value::as_str) == Some("response");
+            && frame
+                .header
+                .get("outboundType")
+                .and_then(Value::as_str)
+                .and_then(crate::worker::OutboundType::parse)
+                == Some(crate::worker::OutboundType::Response);
         if matches {
             let response: DaemonResponse =
                 serde_json::from_slice(&frame.payload).context("parse peer response")?;

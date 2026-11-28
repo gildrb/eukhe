@@ -22,6 +22,7 @@ mod events;
 mod federation;
 pub(crate) mod params;
 mod sse;
+pub(crate) mod tags;
 
 use std::sync::Arc;
 

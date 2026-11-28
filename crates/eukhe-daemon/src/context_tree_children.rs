@@ -32,6 +32,7 @@
 //! `handle_get_context_tree` serves the cached snapshot with the live
 //! roster overlaid.
 
+use crate::types::{message_role, BlockKind, MessageRole};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
@@ -41,7 +42,7 @@ use eukhe_core::models::ModelRegistry;
 use eukhe_tokens::{ModelRef, Tokenizer};
 
 use crate::session_stats::store_context_usage;
-use crate::session_store::SessionFile;
+use crate::session_store::{EntryType, SessionFile};
 use crate::state_getters::ContextMeter;
 
 /// Label cap (TS `compactLabel`'s default).
@@ -214,7 +215,7 @@ fn newest_session_files(dir: &Path) -> Vec<PathBuf> {
 /// `readUserMessageText` + `compactLabel`).
 fn branch_user_label(entry: &crate::session_store::SessionEntry) -> Option<String> {
     let message = entry.fields.get("message")?;
-    if message.get("role").and_then(Value::as_str) != Some("user") {
+    if message_role(message) != Some(MessageRole::User) {
         return None;
     }
     let text = match message.get("content") {
@@ -223,7 +224,7 @@ fn branch_user_label(entry: &crate::session_store::SessionEntry) -> Option<Strin
             blocks
                 .iter()
                 .filter_map(|block| {
-                    (block.get("type").and_then(Value::as_str) == Some("text"))
+                    (BlockKind::of(block) == BlockKind::Text)
                         .then(|| block.get("text").and_then(Value::as_str))
                         .flatten()
                         .map(str::to_string)
@@ -257,7 +258,7 @@ fn status_from_branch(branch: &[&crate::session_store::SessionEntry]) -> &'stati
         let Some(message) = entry.fields.get("message") else {
             continue;
         };
-        if message.get("role").and_then(Value::as_str) != Some("assistant") {
+        if message_role(message) != Some(MessageRole::Assistant) {
             continue;
         }
         return match message.get("stopReason").and_then(Value::as_str) {
@@ -273,7 +274,7 @@ fn status_from_branch(branch: &[&crate::session_store::SessionEntry]) -> &'stati
 /// wins).
 fn branch_model(branch: &[&crate::session_store::SessionEntry]) -> Option<(String, String)> {
     branch.iter().rev().find_map(|entry| {
-        (entry.type_ == "model_change").then(|| {
+        (entry.type_ == EntryType::ModelChange).then(|| {
             let provider = entry
                 .fields
                 .get("provider")

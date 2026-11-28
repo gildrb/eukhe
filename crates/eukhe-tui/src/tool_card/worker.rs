@@ -23,7 +23,7 @@ pub fn render(card: &ToolCallCard, frame: usize, theme: &Theme, width: usize) ->
     let kind = forward.as_ref().map_or_else(
         || {
             string_arg(&card.args, "kind")
-                .unwrap_or(if card.name == "worker_assign" {
+                .unwrap_or(if card.name == crate::tool_card::ToolName::WorkerAssign {
                     "task"
                 } else {
                     ""
@@ -52,7 +52,7 @@ pub fn render(card: &ToolCallCard, frame: usize, theme: &Theme, width: usize) ->
     };
     let mut rows = vec![SummaryRow {
         status,
-        name: &card.name,
+        name: card.name.as_str(),
         argument,
         results: Vec::new(),
         duration: duration(card),
@@ -102,7 +102,7 @@ mod tests {
     fn a_forward_card_shows_the_users_words_and_the_note_at_every_detail() {
         let card = ToolCallCard {
             id: "c1".to_string(),
-            name: "worker_forward".to_string(),
+            name: crate::tool_card::ToolName::WorkerForward,
             args: json!({"kind": "redirect", "note": "stop the refactor"}),
             started: true,
             result: Some(ToolResultView {

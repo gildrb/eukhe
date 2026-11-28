@@ -407,11 +407,11 @@ pub(crate) fn recover_interrupted_in_state(
 ///
 /// Returns an error when a lock stays held (contention) or cannot be made.
 fn lock_states(paths: &[PathBuf]) -> anyhow::Result<Vec<LockDir>> {
-    let mut unique: Vec<PathBuf> = paths.to_vec();
+    let mut unique: Vec<&PathBuf> = paths.iter().collect();
     unique.sort();
     unique.dedup();
     let mut guards = Vec::with_capacity(unique.len());
-    for path in &unique {
+    for path in unique {
         if let Some(parent) = path.parent() {
             let _ = std::fs::create_dir_all(parent);
         }

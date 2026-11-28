@@ -3,6 +3,8 @@
 //! add/subtract folds, and the own/total + by-model attribution computations;
 //! the unit battery rides inline.
 use super::{json, ModelRegistry, Value};
+use crate::session_store::EntryType;
+use crate::types::{message_role, MessageRole};
 use eukhe_durable::harness::usage::{add_usage as add_ledger_usage, UsageState};
 use eukhe_types::pi_ai::Usage;
 
@@ -122,19 +124,23 @@ pub(crate) fn compute_own_and_total_usage(
     all_entries: &[crate::session_store::SessionEntry],
 ) -> (Value, Value) {
     let mut total = empty_usage();
-    let mut branch_assistant_ids = std::collections::HashSet::new();
+    let mut branch_assistant_ids: std::collections::HashSet<&str> =
+        std::collections::HashSet::new();
     for entry in branch {
-        if entry.type_ == "message" {
+        if entry.type_ == EntryType::Message {
             let Some(message) = entry.fields.get("message") else {
                 continue;
             };
-            if message.get("role").and_then(Value::as_str) == Some("assistant") {
-                branch_assistant_ids.insert(entry.id.clone());
+            if message_role(message) == Some(MessageRole::Assistant) {
+                branch_assistant_ids.insert(entry.id.as_str());
                 if let Some(usage) = message.get("usage") {
                     add_usage(&mut total, usage);
                 }
             }
-        } else if matches!(entry.type_.as_str(), "compaction" | "branch_summary") {
+        } else if matches!(
+            entry.type_,
+            EntryType::Compaction | EntryType::BranchSummary
+        ) {
             if let Some(usage) = entry.fields.get("usage") {
                 add_usage(&mut total, usage);
             }
@@ -142,7 +148,7 @@ pub(crate) fn compute_own_and_total_usage(
     }
     let mut own = total.clone();
     for entry in all_entries {
-        if entry.type_ != "child_usage_attributed" {
+        if entry.type_ != EntryType::ChildUsageAttributed {
             continue;
         }
         let Some(target_id) = entry.fields.get("targetId").and_then(Value::as_str) else {
@@ -219,8 +225,8 @@ pub(crate) fn compute_own_usage_by_model(
             Some(at)
         };
     for entry in branch {
-        let usage = match entry.type_.as_str() {
-            "model_change" => {
+        let usage = match &entry.type_ {
+            EntryType::ModelChange => {
                 let provider = entry
                     .fields
                     .get("provider")
@@ -235,11 +241,11 @@ pub(crate) fn compute_own_usage_by_model(
                     .then(|| (provider.to_string(), model_id.to_string()));
                 continue;
             }
-            "message" => {
+            EntryType::Message => {
                 let Some(message) = entry.fields.get("message") else {
                     continue;
                 };
-                if message.get("role").and_then(Value::as_str) != Some("assistant") {
+                if message_role(message) != Some(MessageRole::Assistant) {
                     continue;
                 }
                 let usage = message.get("usage");
@@ -261,7 +267,7 @@ pub(crate) fn compute_own_usage_by_model(
                     .unwrap_or_default();
                 let key = (!provider.is_empty() && !model_id.is_empty())
                     .then(|| (provider.to_string(), model_id.to_string()))
-                    .or(current.clone());
+                    .or_else(|| current.clone());
                 match bucket_for(key, &mut buckets) {
                     Some(at) => {
                         add_usage(&mut buckets[at], usage.expect("checked"));
@@ -271,8 +277,17 @@ pub(crate) fn compute_own_usage_by_model(
                 }
                 continue;
             }
-            "compaction" | "branch_summary" => entry.fields.get("usage"),
-            _ => continue,
+            EntryType::Compaction | EntryType::BranchSummary => entry.fields.get("usage"),
+            EntryType::Session
+            | EntryType::CustomMessage
+            | EntryType::Custom
+            | EntryType::ThinkingLevelChange
+            | EntryType::ServiceTierChange
+            | EntryType::SessionInfo
+            | EntryType::SessionState
+            | EntryType::Label
+            | EntryType::ChildUsageAttributed
+            | EntryType::Other(_) => continue,
         };
         if let Some(usage) = usage {
             // A row that records the model its summary call served on
@@ -295,7 +310,7 @@ pub(crate) fn compute_own_usage_by_model(
         return None;
     }
     for entry in all_entries {
-        if entry.type_ != "child_usage_attributed" {
+        if entry.type_ != EntryType::ChildUsageAttributed {
             continue;
         }
         let Some(target_id) = entry.fields.get("targetId").and_then(Value::as_str) else {
@@ -374,7 +389,7 @@ mod usage_tests {
             },
         });
         let entry = |value: &Value, id: &str| crate::session_store::SessionEntry {
-            type_: value["type"].as_str().expect("type").to_string(),
+            type_: value["type"].as_str().expect("type").into(),
             id: id.to_string(),
             parent_id: None,
             timestamp: "2024-01-01T00:00:00.000Z".to_string(),
@@ -423,7 +438,7 @@ mod usage_tests {
     #[test]
     fn branch_summary_usage_bills_on_the_row_recorded_auxiliary_model() {
         let entry = |value: &Value, id: &str| crate::session_store::SessionEntry {
-            type_: value["type"].as_str().expect("type").to_string(),
+            type_: value["type"].as_str().expect("type").into(),
             id: id.to_string(),
             parent_id: None,
             timestamp: "2024-01-01T00:00:00.000Z".to_string(),
@@ -489,7 +504,7 @@ mod usage_tests {
     #[test]
     fn window_seed_resolves_rows_before_the_first_model_change() {
         let entry = |value: &Value, id: &str| crate::session_store::SessionEntry {
-            type_: value["type"].as_str().expect("type").to_string(),
+            type_: value["type"].as_str().expect("type").into(),
             id: id.to_string(),
             parent_id: None,
             timestamp: "2024-01-01T00:00:00.000Z".to_string(),

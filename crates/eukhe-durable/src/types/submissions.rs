@@ -234,7 +234,7 @@ fn serialize_submission<S: Serializer>(
     name: &'static str,
     id: Option<SubmissionId>,
     conversation_id: ConversationId,
-    request_id: Option<&String>,
+    request_id: Option<&str>,
     state: &SubmissionState,
 ) -> Result<S::Ok, S::Error> {
     let entry = state.entry();
@@ -274,7 +274,7 @@ impl Serialize for SubmissionRecord {
             "SubmissionRecord",
             Some(self.id),
             self.conversation_id,
-            self.request_id.as_ref(),
+            self.request_id.as_deref(),
             &self.state,
         )
     }
@@ -287,7 +287,7 @@ impl Serialize for SubmissionCreate {
             "SubmissionCreate",
             None,
             self.conversation_id,
-            self.request_id.as_ref(),
+            self.request_id.as_deref(),
             &self.state,
         )
     }

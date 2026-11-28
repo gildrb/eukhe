@@ -17,6 +17,7 @@ pub(crate) mod test_support;
 #[cfg(test)]
 mod tests;
 
+use std::borrow::Cow;
 use std::future::Future;
 use std::sync::Arc;
 
@@ -118,20 +119,20 @@ pub fn resolve_google_thinking_level(
     let mapped: Option<Option<&str>> = thinking_level_map(model)
         .and_then(|map| map.get(&ModelThinkingLevel::from(level)))
         .map(Option::as_deref);
-    let resolved = match mapped {
-        Some(Some(value)) => value.to_lowercase(),
-        Some(None) | None => level.as_str().to_owned(),
+    let resolved: Cow<'_, str> = match mapped {
+        Some(Some(value)) => Cow::Owned(value.to_lowercase()),
+        Some(None) | None => Cow::Borrowed(level.as_str()),
     };
-    match resolved.as_str() {
+    match resolved.as_ref() {
         "minimal" => Ok(ResolvedGoogleThinkingLevel::Minimal),
         "low" => Ok(ResolvedGoogleThinkingLevel::Low),
         "medium" => Ok(ResolvedGoogleThinkingLevel::Medium),
         "high" => Ok(ResolvedGoogleThinkingLevel::High),
         _ => {
             let mapped = match mapped {
-                Some(Some(value)) => value.to_owned(),
-                Some(None) => "null".to_owned(),
-                None => "undefined".to_owned(),
+                Some(Some(value)) => value,
+                Some(None) => "null",
+                None => "undefined",
             };
             Err(ErrorObject::new(format!(
                 "Unsupported Google thinking level mapping for {}/{}: {} -> {mapped}",

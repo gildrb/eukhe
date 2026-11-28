@@ -14,6 +14,7 @@ use eukhe_tui::width::truncate_to_width;
 use eukhe_types::daemon::agent_roster::{
     classify_summary_value, session_activity_detail, AgentRosterStatus, SessionActivityOptions,
 };
+use serde::Deserialize;
 use serde_json::Value;
 
 use crate::daemon_session_list::{
@@ -59,22 +60,56 @@ pub(crate) fn format_sessions_table(sessions: &[&Value], now_ms: u64) -> String 
 /// (TS `sessionsSortKey`); the sort is stable so equal-key rows keep their
 /// roster order.
 fn sessions_sort_key(summary: &Value) -> u8 {
-    let status_label = string_field(summary, "statusLabel");
-    let worker_state = string_field(summary, "workerState");
-    let roster = sessions_roster_status(summary);
-    if status_label == Some("failed") || worker_state == Some("failed") {
+    let label = LedgerMark::of(string_field(summary, "statusLabel"));
+    let worker = LedgerMark::of(string_field(summary, "workerState"));
+    let roster = sessions_roster_rank(summary);
+    if label == LedgerMark::Failed || worker == LedgerMark::Failed {
         return 0;
     }
-    if status_label == Some("recovering") || worker_state == Some("recovering") {
+    if label == LedgerMark::Recovering || worker == LedgerMark::Recovering {
         return 1;
     }
-    if status_label == Some("queued") || roster == "running" {
+    if label == LedgerMark::Queued || roster == Some(AgentRosterStatus::Running) {
         return 2;
     }
-    if roster == "idle" {
+    if roster == Some(AgentRosterStatus::Idle) {
         return 3;
     }
     4
+}
+
+/// The exceptional ledger marks a row's `statusLabel` or `workerState`
+/// may carry.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LedgerMark {
+    Failed,
+    Recovering,
+    Queued,
+    /// Any other word, or none.
+    Other,
+}
+
+impl LedgerMark {
+    fn of(word: Option<&str>) -> Self {
+        match word {
+            Some("failed") => Self::Failed,
+            Some("recovering") => Self::Recovering,
+            Some("queued") => Self::Queued,
+            Some(_) | None => Self::Other,
+        }
+    }
+}
+
+/// The roster status a row sorts by: the wire's when it carries one (a
+/// word this build does not know is `None`), else the shared formula.
+fn sessions_roster_rank(summary: &Value) -> Option<AgentRosterStatus> {
+    match summary
+        .get("rosterStatus")
+        .filter(|status| status.is_string())
+    {
+        Some(status) => AgentRosterStatus::deserialize(status).ok(),
+        None => Some(classify_summary_value(summary, false)),
+    }
 }
 
 /// The roster status of one row (TS `sessionRosterStatus`): the ledger's
@@ -134,8 +169,8 @@ fn session_name_cell(summary: &Value) -> String {
 /// The error column (TS `sessionErrorCell`): the worker failure mark or the
 /// model fallback notice; rows that report neither keep the cell empty.
 fn session_error_cell(summary: &Value) -> Option<String> {
-    if string_field(summary, "statusLabel") == Some("failed")
-        || string_field(summary, "workerState") == Some("failed")
+    if LedgerMark::of(string_field(summary, "statusLabel")) == LedgerMark::Failed
+        || LedgerMark::of(string_field(summary, "workerState")) == LedgerMark::Failed
     {
         return Some("worker failed".to_string());
     }

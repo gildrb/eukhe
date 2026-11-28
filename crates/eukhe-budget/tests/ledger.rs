@@ -1305,6 +1305,7 @@ fn agents_that_reserve_at_once_never_hold_more_than_the_budget() {
     let root = at(dir.path(), "root");
     root.open_root(cost_only(1_000)).unwrap();
     at(dir.path(), "kid").join("root").unwrap();
+    #[allow(clippy::needless_collect)] // spawn every worker before joining any
     let workers: Vec<_> = ["root", "kid", "root", "kid", "root", "kid", "root", "kid"]
         .into_iter()
         .map(|agent| {

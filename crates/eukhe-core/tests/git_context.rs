@@ -303,9 +303,7 @@ fn git_state_entries_stay_out_of_llm_context() {
     let mut manager = session_at_head(repo.path(), sessions.path());
     commit(repo.path(), "second");
     manager.record_git_state_if_changed(capture_git_context(repo.path()).unwrap());
-    let context = eukhe_core::session::build_session_context(
-        &manager.get_entries(),
-        manager.get_leaf_id().map(str::to_string).as_deref(),
-    );
+    let context =
+        eukhe_core::session::build_session_context(&manager.get_entries(), manager.get_leaf_id());
     assert!(context.messages.is_empty());
 }

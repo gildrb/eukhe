@@ -263,7 +263,7 @@ impl Supervisor {
             // An admission that vanished before the route: the prompt
             // routes through the generic path (TS `admission undefined`).
             return self
-                .route_client_command(command, client_id, attached, command_id, type_name, None)
+                .route_client_command(command, client_id, attached, &command_id, &type_name, None)
                 .await;
         };
         let timeout = client_route_timeout(command);

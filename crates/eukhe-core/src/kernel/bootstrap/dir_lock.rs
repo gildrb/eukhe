@@ -240,7 +240,7 @@ fn seen_at(lock_path: &Path) -> Seen {
 }
 
 pub(crate) fn try_acquire_dir_lock(lock_path: &Path) -> anyhow::Result<DirLockAttempt> {
-    std::fs::create_dir_all(lock_path.parent().unwrap_or(Path::new("/")))?;
+    std::fs::create_dir_all(lock_path.parent().unwrap_or_else(|| Path::new("/")))?;
     let token = format!("{}-{}", std::process::id(), uuid::Uuid::new_v4());
     let candidate = Candidate(lock_path.with_file_name(format!(
         "{}{CANDIDATE_INFIX}{token}",
@@ -292,7 +292,7 @@ pub(crate) async fn acquire_bootstrap_lock(venv: &Path) -> anyhow::Result<impl D
         venv.file_name().unwrap_or_default().to_string_lossy(),
         BOOTSTRAP_LOCK_NAME
     ));
-    std::fs::create_dir_all(lock_dir.parent().unwrap_or(Path::new("/")))?;
+    std::fs::create_dir_all(lock_dir.parent().unwrap_or_else(|| Path::new("/")))?;
     sweep_leftovers(&lock_dir);
     loop {
         match try_acquire_dir_lock(&lock_dir)? {

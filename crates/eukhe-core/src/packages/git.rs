@@ -62,7 +62,7 @@ pub fn install_git(
     scope: SourceScope,
     cwd: &Path,
     agent_dir: &Path,
-    npm_command: Option<&Vec<String>>,
+    npm_command: Option<&[String]>,
 ) -> Result<()> {
     let target_dir = git_install_path(source, scope, cwd, agent_dir)?;
     if target_dir.exists() {
@@ -95,11 +95,9 @@ pub fn install_git(
     let package_json = target_dir.join("package.json");
     if package_json.exists() {
         let (program, args) = npm::npm_command(npm_command);
-        let mut full_args = args;
-        full_args.extend(npm::git_dependency_install_args(npm_command));
         run_command(
-            &program,
-            &full_args.iter().map(String::as_str).collect::<Vec<_>>(),
+            program,
+            &npm::argv(args, npm::git_dependency_install_args(npm_command)),
             Some(&target_dir),
         )?;
     }
@@ -185,7 +183,7 @@ pub fn update_git(
     scope: SourceScope,
     cwd: &Path,
     agent_dir: &Path,
-    npm_command: Option<&Vec<String>>,
+    npm_command: Option<&[String]>,
 ) -> Result<()> {
     let target_dir = git_install_path(source, scope, cwd, agent_dir)?;
     if !target_dir.exists() {
@@ -230,11 +228,9 @@ pub fn update_git(
 
     if target_dir.join("package.json").exists() {
         let (program, args) = npm::npm_command(npm_command);
-        let mut full_args = args;
-        full_args.extend(npm::git_dependency_install_args(npm_command));
         run_command(
-            &program,
-            &full_args.iter().map(String::as_str).collect::<Vec<_>>(),
+            program,
+            &npm::argv(args, npm::git_dependency_install_args(npm_command)),
             Some(&target_dir),
         )?;
     }

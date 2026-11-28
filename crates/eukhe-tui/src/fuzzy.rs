@@ -105,7 +105,11 @@ fn match_query(query_lower: &[char], text_lower: &[char]) -> Option<f64> {
 
 /// Filter items by fuzzy match quality against their text, best-first.
 /// Space-separated query tokens must all match; ties keep input order.
-pub fn fuzzy_filter<T: Clone>(items: &[T], query: &str, get_text: impl Fn(&T) -> String) -> Vec<T> {
+pub fn fuzzy_filter<'s, T: Clone, S: AsRef<str>>(
+    items: &'s [T],
+    query: &str,
+    get_text: impl Fn(&'s T) -> S,
+) -> Vec<T> {
     let tokens: Vec<FuzzyQuery> = query
         .split_whitespace()
         .map(|token| FuzzyQuery::new(token.to_lowercase().chars().collect()))
@@ -115,7 +119,7 @@ pub fn fuzzy_filter<T: Clone>(items: &[T], query: &str, get_text: impl Fn(&T) ->
     }
     let mut scored: Vec<(T, f64)> = Vec::new();
     for item in items {
-        let text: Vec<char> = get_text(item).to_lowercase().chars().collect();
+        let text: Vec<char> = get_text(item).as_ref().to_lowercase().chars().collect();
         let mut total = 0.0f64;
         let mut all_match = true;
         for token in &tokens {

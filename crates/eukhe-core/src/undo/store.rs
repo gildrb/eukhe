@@ -269,7 +269,7 @@ impl Store {
                     None,
                 )
                 .await?;
-            let names = String::from_utf8_lossy(&refs).into_owned();
+            let names = String::from_utf8_lossy(&refs);
             let turn_of = |prefix: &str| {
                 names
                     .lines()
@@ -311,7 +311,8 @@ impl Store {
         let mut lost = BTreeMap::new();
         for entry in entries {
             let entry = entry?;
-            let name = entry.file_name().to_string_lossy().into_owned();
+            let file_name = entry.file_name();
+            let name = file_name.to_string_lossy();
             let reason = std::fs::read_to_string(entry.path())?;
             if name == UNREAD {
                 return Err(UndoError::Unread { reason });

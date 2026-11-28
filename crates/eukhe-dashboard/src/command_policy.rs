@@ -24,7 +24,7 @@ pub(crate) enum Verdict {
 /// core refuses every name it does not list.
 // One arm per daemon command: no decision, only the serde name.
 #[allow(clippy::too_many_lines)]
-fn wire_name(command: &DaemonCommand) -> &'static str {
+pub(crate) fn wire_name(command: &DaemonCommand) -> &'static str {
     match command {
         DaemonCommand::ListSavedSessions { .. } => "list_saved_sessions",
         DaemonCommand::RenameSavedSession { .. } => "rename_saved_session",

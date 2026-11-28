@@ -842,15 +842,8 @@ impl Supervisor {
                 }
                 // The live form forwards to the owning worker (TS rewrites
                 // the selector onto the resolved summary's ids).
-                self.route_client_command(
-                    command,
-                    client_id,
-                    attached,
-                    command_id.to_string(),
-                    type_name.to_string(),
-                    None,
-                )
-                .await
+                self.route_client_command(command, client_id, attached, command_id, type_name, None)
+                    .await
             })
             .await
         {

@@ -194,10 +194,6 @@ pub(crate) fn build_params(
     }))
 }
 
-/// Creates the SDK client for a request (TS `createClient...`).
-pub(crate) type CreateClient =
-    Box<dyn FnOnce(&Model, &GoogleRequestOptions) -> Result<GoogleGenAi, Thrown> + Send>;
-
 /// A failure of the stream body: a thrown error, or an error finish reason
 /// (kept apart for the eukhe stream-failure diagnostic).
 enum StreamError {
@@ -242,12 +238,15 @@ fn empty_output(kind: GoogleApiKind, model: &Model) -> AssistantMessage {
 }
 
 /// TS `stream(model, context, options)` of both Google modules.
+/// `create_client` creates the SDK client for a request (TS `createClient...`).
 pub(crate) fn run_google_stream(
     kind: GoogleApiKind,
     model: &Model,
     context: &TranscriptContext,
     options: Result<GoogleRequestOptions, Thrown>,
-    create_client: CreateClient,
+    create_client: impl FnOnce(&Model, &GoogleRequestOptions) -> Result<GoogleGenAi, Thrown>
+        + Send
+        + 'static,
 ) -> AssistantMessageEventStream {
     let stream = AssistantMessageEventStream::new();
     let normalized_context = collapse_system_messages(context.clone());
@@ -371,7 +370,7 @@ async fn run(
     model: &Model,
     context: &TranscriptContext,
     options: &GoogleRequestOptions,
-    create_client: CreateClient,
+    create_client: impl FnOnce(&Model, &GoogleRequestOptions) -> Result<GoogleGenAi, Thrown>,
     output: &mut AssistantMessage,
     stream: &AssistantMessageEventStream,
 ) -> Result<(), StreamError> {

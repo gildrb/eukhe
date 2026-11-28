@@ -1,6 +1,7 @@
 //! The dispatch surface: command routing, the getters, the queue and abort
 //! family, and the session close (`kill`, `rename`).
 
+use crate::types::{message_role, BlockKind, MessageRole};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -139,12 +140,18 @@ impl Worker {
             "set_service_tier" => self.handle_set_service_tier(payload).await,
             "set_transport" => self.handle_set_transport(payload).await,
             "set_steering_mode" => {
-                self.handle_set_queue_mode("set_steering_mode", payload)
-                    .await
+                self.handle_set_queue_mode(
+                    crate::setting_switches::QueueModeCommand::Steering,
+                    payload,
+                )
+                .await
             }
             "set_follow_up_mode" => {
-                self.handle_set_queue_mode("set_follow_up_mode", payload)
-                    .await
+                self.handle_set_queue_mode(
+                    crate::setting_switches::QueueModeCommand::FollowUp,
+                    payload,
+                )
+                .await
             }
             "set_auto_retry" => self.handle_set_auto_retry(payload).await,
             "cvar" => self.handle_cvar(payload).await,
@@ -521,20 +528,20 @@ impl Worker {
             .map(Arc::as_ref)
             .filter_map(entry_wire_message)
             .collect();
-        let count = |role: &str| {
+        let count = |role: MessageRole| {
             messages
                 .iter()
-                .filter(|message| crate::types::message_role(message) == Some(role))
+                .filter(|message| message_role(message) == Some(role))
                 .count()
         };
         let tool_calls: usize = messages
             .iter()
-            .filter(|message| crate::types::message_role(message) == Some("assistant"))
+            .filter(|message| message_role(message) == Some(MessageRole::Assistant))
             .filter_map(|message| message.get("content").and_then(Value::as_array))
             .map(|blocks| {
                 blocks
                     .iter()
-                    .filter(|block| block.get("type").and_then(Value::as_str) == Some("toolCall"))
+                    .filter(|block| BlockKind::of(block) == BlockKind::ToolCall)
                     .count()
             })
             .sum();
@@ -554,10 +561,10 @@ impl Worker {
         let mut stats = json!({
             "sessionFile": core.session_file(),
             "sessionId": core.session_id,
-            "userMessages": count("user"),
-            "assistantMessages": count("assistant"),
+            "userMessages": count(MessageRole::User),
+            "assistantMessages": count(MessageRole::Assistant),
             "toolCalls": tool_calls,
-            "toolResults": count("toolResult"),
+            "toolResults": count(MessageRole::ToolResult),
             "totalMessages": messages.len(),
             "tokens": {
                 "input": input,

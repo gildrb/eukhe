@@ -33,12 +33,11 @@ impl Editor {
             self.set_cursor_col(0);
         } else if self.cursor_line > 0 {
             self.push_undo_snapshot();
-            let current_line = self.lines[self.cursor_line].clone();
-            let previous_line = self.lines[self.cursor_line - 1].clone();
-            self.lines[self.cursor_line - 1] = format!("{previous_line}{current_line}");
-            self.lines.remove(self.cursor_line);
+            let joined_line = self.lines.remove(self.cursor_line);
             self.cursor_line -= 1;
-            self.set_cursor_col(previous_line.chars().count());
+            let previous_len = self.lines[self.cursor_line].chars().count();
+            self.lines[self.cursor_line].push_str(&joined_line);
+            self.set_cursor_col(previous_len);
         }
         self.emit(EditorEvent::Changed(self.get_text()));
         self.refresh_autocomplete_after_edit(true);
@@ -67,9 +66,8 @@ impl Editor {
             self.lines[self.cursor_line] = format!("{before}{after}");
         } else if self.cursor_line < self.lines.len() - 1 {
             self.push_undo_snapshot();
-            let next_line = self.lines[self.cursor_line + 1].clone();
-            self.lines[self.cursor_line] = format!("{current_line}{next_line}");
-            self.lines.remove(self.cursor_line + 1);
+            let next_line = self.lines.remove(self.cursor_line + 1);
+            self.lines[self.cursor_line].push_str(&next_line);
         }
         self.emit(EditorEvent::Changed(self.get_text()));
         self.refresh_autocomplete_after_edit(true);
@@ -106,11 +104,11 @@ impl Editor {
                 self.last_action.as_ref() == Some(&LastAction::Kill),
             );
             self.last_action = Some(LastAction::Kill);
-            let previous_line = self.lines[self.cursor_line - 1].clone();
-            self.lines[self.cursor_line - 1] = format!("{previous_line}{current_line}");
-            self.lines.remove(self.cursor_line);
+            let joined_line = self.lines.remove(self.cursor_line);
             self.cursor_line -= 1;
-            self.set_cursor_col(previous_line.chars().count());
+            let previous_len = self.lines[self.cursor_line].chars().count();
+            self.lines[self.cursor_line].push_str(&joined_line);
+            self.set_cursor_col(previous_len);
         }
         self.emit(EditorEvent::Changed(self.get_text()));
         self.refresh_autocomplete_after_edit(false);
@@ -142,9 +140,8 @@ impl Editor {
                 self.last_action.as_ref() == Some(&LastAction::Kill),
             );
             self.last_action = Some(LastAction::Kill);
-            let next_line = self.lines[self.cursor_line + 1].clone();
-            self.lines[self.cursor_line] = format!("{current_line}{next_line}");
-            self.lines.remove(self.cursor_line + 1);
+            let next_line = self.lines.remove(self.cursor_line + 1);
+            self.lines[self.cursor_line].push_str(&next_line);
         }
         self.emit(EditorEvent::Changed(self.get_text()));
         self.refresh_autocomplete_after_edit(false);
@@ -166,11 +163,11 @@ impl Editor {
                     self.last_action.as_ref() == Some(&LastAction::Kill),
                 );
                 self.last_action = Some(LastAction::Kill);
-                let previous_line = self.lines[self.cursor_line - 1].clone();
-                self.lines[self.cursor_line - 1] = format!("{previous_line}{current_line}");
-                self.lines.remove(self.cursor_line);
+                let joined_line = self.lines.remove(self.cursor_line);
                 self.cursor_line -= 1;
-                self.set_cursor_col(previous_line.chars().count());
+                let previous_len = self.lines[self.cursor_line].chars().count();
+                self.lines[self.cursor_line].push_str(&joined_line);
+                self.set_cursor_col(previous_len);
             }
         } else {
             self.push_undo_snapshot();
@@ -209,9 +206,8 @@ impl Editor {
                     self.last_action.as_ref() == Some(&LastAction::Kill),
                 );
                 self.last_action = Some(LastAction::Kill);
-                let next_line = self.lines[self.cursor_line + 1].clone();
-                self.lines[self.cursor_line] = format!("{current_line}{next_line}");
-                self.lines.remove(self.cursor_line + 1);
+                let next_line = self.lines.remove(self.cursor_line + 1);
+                self.lines[self.cursor_line].push_str(&next_line);
             }
         } else {
             self.push_undo_snapshot();

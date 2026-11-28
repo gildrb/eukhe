@@ -84,7 +84,7 @@ pub(crate) fn frame_roster_trigger(frame: &OutboundFrame) -> RosterTrigger {
         #[serde(rename = "type", borrow)]
         kind: &'a str,
     }
-    if frame.outbound_type != "session_event" {
+    if frame.outbound_type != crate::worker::OutboundType::SessionEvent {
         return RosterTrigger::Silent;
     }
     // The payload is parsed only for session-event frames, so a

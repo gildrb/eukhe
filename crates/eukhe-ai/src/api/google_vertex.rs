@@ -64,7 +64,7 @@ fn stream_with(
         model,
         context,
         options,
-        Box::new(|model, options| {
+        |model, options| {
             let headers = options.stream.request.headers.as_ref();
             // A Vertex API key when provided, else ADC with project and location.
             match resolve_api_key(options) {
@@ -77,7 +77,7 @@ fn stream_with(
                     options.stream.request.env.as_ref(),
                 ),
             }
-        }),
+        },
     )
 }
 

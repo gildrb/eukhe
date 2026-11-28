@@ -25,6 +25,7 @@ use eukhe_types::effects::{
     ledger_text, EffectResolution, RanEffect, RanEffectsReply, ResolvedEffectReply, UnknownEffect,
     UnknownEffectsReply,
 };
+use serde::Deserialize as _;
 use serde_json::{json, Value};
 use tokio::sync::mpsc::UnboundedReceiver;
 
@@ -195,12 +196,11 @@ pub(crate) async fn request(
     command: DaemonCommand,
     timeout_ms: u64,
 ) -> Result<DaemonResponse> {
-    let command_type = eukhe_daemon::protocol::command_type_name(&command).to_string();
-    let protocol: DaemonProtocolInfo = client
+    let command_type = eukhe_daemon::protocol::command_type_name(&command);
+    let protocol = client
         .hello()
         .get("protocol")
-        .cloned()
-        .and_then(|value| serde_json::from_value(value).ok())
+        .and_then(|value| DaemonProtocolInfo::deserialize(value).ok())
         .ok_or_else(|| anyhow!("invalid daemon hello"))?;
     if protocol.version < DAEMON_PROTOCOL_VERSION {
         bail!("The running Eukhe daemon does not support {command_type}.");

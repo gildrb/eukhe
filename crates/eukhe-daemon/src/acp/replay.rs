@@ -1,6 +1,7 @@
 //! `session/load`: a saved session's history as the `session/update`s a
 //! client rebuilds its view from, in the shapes a live turn streams.
 
+use crate::types::{message_role, BlockKind, MessageRole};
 use std::path::Path;
 
 use serde_json::Value;
@@ -21,16 +22,16 @@ pub(super) fn replay_updates(messages: &[Value], cwd: &Path) -> Vec<AcpSessionUp
 /// One history row's updates: a user message's text, an assistant
 /// message's text, thinking and tool calls, a tool result's end.
 fn message_updates(index: usize, message: &Value, cwd: &Path) -> Vec<AcpSessionUpdate> {
-    match message.get("role").and_then(Value::as_str) {
-        Some("user") => user_texts(message.get("content"))
+    match message_role(message) {
+        Some(MessageRole::User) => user_texts(message.get("content"))
             .into_iter()
             .map(|text| AcpSessionUpdate::UserMessageChunk {
                 content: TextBlock::new(text),
             })
             .collect(),
-        Some("assistant") => assistant_updates(index, message, cwd),
-        Some("toolResult") => tool_result_update(message).into_iter().collect(),
-        Some(_) | None => Vec::new(),
+        Some(MessageRole::Assistant) => assistant_updates(index, message, cwd),
+        Some(MessageRole::ToolResult) => tool_result_update(message).into_iter().collect(),
+        Some(MessageRole::Custom | MessageRole::Other) | None => Vec::new(),
     }
 }
 
@@ -40,7 +41,7 @@ fn user_texts(content: Option<&Value>) -> Vec<String> {
         Some(Value::String(text)) => vec![text.clone()],
         Some(Value::Array(blocks)) => blocks
             .iter()
-            .filter(|block| block.get("type").and_then(Value::as_str) == Some("text"))
+            .filter(|block| BlockKind::of(block) == BlockKind::Text)
             .filter_map(|block| block.get("text").and_then(Value::as_str))
             .map(str::to_string)
             .collect(),
@@ -70,16 +71,16 @@ fn assistant_block(message_id: &str, block: &Value, cwd: &Path) -> Option<AcpSes
             .filter(|text| !text.is_empty())
             .map(TextBlock::new)
     };
-    match block.get("type").and_then(Value::as_str) {
-        Some("text") => Some(AcpSessionUpdate::AgentMessageChunk {
+    match BlockKind::of(block) {
+        BlockKind::Text => Some(AcpSessionUpdate::AgentMessageChunk {
             message_id: message_id.to_string(),
             content: text("text")?,
         }),
-        Some("thinking") => Some(AcpSessionUpdate::AgentThoughtChunk {
+        BlockKind::Thinking => Some(AcpSessionUpdate::AgentThoughtChunk {
             message_id: message_id.to_string(),
             content: text("thinking")?,
         }),
-        Some("toolCall") => Some(AcpSessionUpdate::ToolCall(tool_call_start(
+        BlockKind::ToolCall => Some(AcpSessionUpdate::ToolCall(tool_call_start(
             block.get("id").and_then(Value::as_str)?.to_string(),
             block
                 .get("name")
@@ -88,7 +89,7 @@ fn assistant_block(message_id: &str, block: &Value, cwd: &Path) -> Option<AcpSes
             block.get("arguments").cloned().unwrap_or(Value::Null),
             cwd,
         ))),
-        Some(_) | None => None,
+        BlockKind::Image | BlockKind::Other => None,
     }
 }
 

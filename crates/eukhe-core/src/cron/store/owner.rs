@@ -13,22 +13,27 @@ use eukhe_types::platform::process::ProcessIdentity;
 
 use super::AgentCronDispatch;
 
-/// How a claim owner judges whether another process still runs.
-///
-/// Implementations answer from the platform (pid and start identity) or,
-/// in tests, from a simulated set of processes. A process that cannot be
-/// judged counts as alive: to take over a live claim is worse than to wait.
-pub(crate) trait OwnerLiveness: Send + Sync {
-    /// Whether the process `owner` still runs.
-    fn is_alive(&self, owner: &ProcessIdentity) -> bool;
+/// How a claim owner judges whether another process still runs: from the
+/// platform (pid and start identity) or, in tests, from a simulated set of
+/// dead pids. A process that cannot be judged counts as alive: to take over
+/// a live claim is worse than to wait.
+pub(crate) enum Liveness {
+    Platform,
+    /// A process is dead once its pid is in the shared set.
+    #[cfg(test)]
+    Simulated(Arc<Mutex<HashSet<u32>>>),
 }
 
-/// The liveness the platform reports.
-struct PlatformLiveness;
-
-impl OwnerLiveness for PlatformLiveness {
+impl Liveness {
     fn is_alive(&self, owner: &ProcessIdentity) -> bool {
-        owner.is_alive()
+        match self {
+            Self::Platform => owner.is_alive(),
+            #[cfg(test)]
+            Self::Simulated(dead) => !dead
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .contains(&owner.pid),
+        }
     }
 }
 
@@ -37,7 +42,7 @@ pub(crate) struct ClaimOwner {
     identity: ProcessIdentity,
     /// The ids of the dispatches this process runs now.
     running: Mutex<HashSet<String>>,
-    liveness: Box<dyn OwnerLiveness>,
+    liveness: Liveness,
 }
 
 /// The one owner of every store of this process: stores of one process
@@ -46,14 +51,14 @@ pub(crate) struct ClaimOwner {
 static THIS_PROCESS: LazyLock<Arc<ClaimOwner>> = LazyLock::new(|| {
     Arc::new(ClaimOwner::new(
         ProcessIdentity::current(),
-        Box::new(PlatformLiveness),
+        Liveness::Platform,
     ))
 });
 
 impl ClaimOwner {
     /// An owner with this identity that judges other owners with `liveness`.
     #[must_use]
-    pub(crate) fn new(identity: ProcessIdentity, liveness: Box<dyn OwnerLiveness>) -> Self {
+    pub(crate) fn new(identity: ProcessIdentity, liveness: Liveness) -> Self {
         Self {
             identity,
             running: Mutex::new(HashSet::new()),
@@ -128,22 +133,6 @@ impl Drop for RunningDispatch {
     }
 }
 
-/// Simulated processes for tests: a process is dead once its pid is in
-/// the shared set.
-#[cfg(test)]
-struct SimulatedLiveness(Arc<Mutex<HashSet<u32>>>);
-
-#[cfg(test)]
-impl OwnerLiveness for SimulatedLiveness {
-    fn is_alive(&self, owner: &ProcessIdentity) -> bool {
-        !self
-            .0
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .contains(&owner.pid)
-    }
-}
-
 #[cfg(test)]
 impl ClaimOwner {
     /// The simulated process `pid`, which sees the processes in `dead` as
@@ -154,7 +143,7 @@ impl ClaimOwner {
                 pid,
                 process_start_id: Some(format!("sim:{pid}")),
             },
-            Box::new(SimulatedLiveness(Arc::clone(dead))),
+            Liveness::Simulated(Arc::clone(dead)),
         ))
     }
 }

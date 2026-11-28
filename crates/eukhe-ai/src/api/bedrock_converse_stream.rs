@@ -67,6 +67,32 @@ use crate::utils::text::split_system_prompt;
 use crate::utils::transcript::{
     collapse_system_messages, get_current_tools, get_initial_system_message,
 };
+use crate::utils::wire_type::{parse_tag, wire_tag};
+
+/// A `ConverseStream` output member name.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+enum StreamMember {
+    MessageStart,
+    ContentBlockStart,
+    ContentBlockDelta,
+    ContentBlockStop,
+    MessageStop,
+    Metadata,
+    InternalServerException,
+    ModelStreamErrorException,
+    ValidationException,
+    ThrottlingException,
+    ServiceUnavailableException,
+}
+
+/// A `messageStart` event's `role`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+enum Role {
+    User,
+    Assistant,
+}
 
 /// How Claude's thinking content is returned (TS `BedrockThinkingDisplay`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -559,15 +585,25 @@ impl StreamRun<'_> {
                 on_event(&item.to_json(), self.model).await?;
             }
             let data = match item.value {
-                StreamValue::Exception(error, _) => match item.member.as_str() {
-                    "internalServerException"
-                    | "modelStreamErrorException"
-                    | "validationException"
-                    | "throttlingException"
-                    | "serviceUnavailableException" => {
+                StreamValue::Exception(error, _) => match parse_tag(&item.member) {
+                    Some(
+                        StreamMember::InternalServerException
+                        | StreamMember::ModelStreamErrorException
+                        | StreamMember::ValidationException
+                        | StreamMember::ThrottlingException
+                        | StreamMember::ServiceUnavailableException,
+                    ) => {
                         return Err(BedrockFailure::Sdk(error));
                     }
-                    _ => continue,
+                    Some(
+                        StreamMember::MessageStart
+                        | StreamMember::ContentBlockStart
+                        | StreamMember::ContentBlockDelta
+                        | StreamMember::ContentBlockStop
+                        | StreamMember::MessageStop
+                        | StreamMember::Metadata,
+                    )
+                    | None => continue,
                 },
                 StreamValue::Data(data) => data,
             };
@@ -576,9 +612,9 @@ impl StreamRun<'_> {
             }
             let empty = JsonObject::new();
             let event = data.as_object().unwrap_or(&empty);
-            match item.member.as_str() {
-                "messageStart" => {
-                    if event.get("role").and_then(JsonValue::as_str) != Some("assistant") {
+            match parse_tag(&item.member) {
+                Some(StreamMember::MessageStart) => {
+                    if wire_tag(&data, "role") != Some(Role::Assistant) {
                         return Err(error(
                             "Unexpected assistant message start but got user message start instead",
                         ));
@@ -587,19 +623,19 @@ impl StreamRun<'_> {
                         AssistantMessageEvent::Start { partial }
                     });
                 }
-                "contentBlockStart" => {
+                Some(StreamMember::ContentBlockStart) => {
                     self.blocks
                         .handle_content_block_start(event, &mut self.output, self.target);
                 }
-                "contentBlockDelta" => {
+                Some(StreamMember::ContentBlockDelta) => {
                     self.blocks
                         .handle_content_block_delta(event, &mut self.output, self.target);
                 }
-                "contentBlockStop" => {
+                Some(StreamMember::ContentBlockStop) => {
                     self.blocks
                         .handle_content_block_stop(event, &mut self.output, self.target);
                 }
-                "messageStop" => {
+                Some(StreamMember::MessageStop) => {
                     let raw = event
                         .get("stopReason")
                         .filter(|reason| !reason.is_null())
@@ -611,9 +647,18 @@ impl StreamRun<'_> {
                         self.output.error_message = Some(message);
                     }
                 }
-                "metadata" => handle_metadata(event, self.model, &mut self.output),
+                Some(StreamMember::Metadata) => {
+                    handle_metadata(event, self.model, &mut self.output);
+                }
                 // Exception members arrive as `StreamValue::Exception`.
-                _ => {}
+                Some(
+                    StreamMember::InternalServerException
+                    | StreamMember::ModelStreamErrorException
+                    | StreamMember::ValidationException
+                    | StreamMember::ThrottlingException
+                    | StreamMember::ServiceUnavailableException,
+                )
+                | None => {}
             }
         }
 
