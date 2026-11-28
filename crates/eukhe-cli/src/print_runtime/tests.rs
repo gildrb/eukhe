@@ -494,8 +494,7 @@ fn quota_step(reset_ms: u64) -> eukhe_ai::providers::faux::FauxResponseStep {
         message.stop_reason = eukhe_types::pi_ai::StopReason::Error;
         message.error_message = Some("429 rate limit".to_owned());
         message.diagnostics = Some(vec![eukhe_types::pi_ai::AssistantMessageDiagnostic {
-            kind: "provider_stream_failure".to_owned(),
-            timestamp: 0,
+            kind: eukhe_types::pi_ai::DiagnosticKind::parse("provider_stream_failure"),
             error: None,
             details: Some(details),
         }]);

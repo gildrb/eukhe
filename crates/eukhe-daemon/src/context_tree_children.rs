@@ -307,8 +307,8 @@ fn context_meter_of(
             window: model.context_window,
             tokenizer: Tokenizer::for_model(ModelRef {
                 id: &model.id,
-                provider: &model.provider,
-                api: &model.api,
+                provider: model.provider.as_str(),
+                api: model.api.as_str(),
             }),
         })
 }

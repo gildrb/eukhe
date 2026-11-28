@@ -199,13 +199,14 @@ pub async fn publish_config_options(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use eukhe_types::pi_ai::Api;
     use serde_json::json;
 
     fn model(provider: &str, id: &str, name: &str, reasoning: bool) -> Model {
         Model {
             id: id.to_string(),
             name: name.to_string(),
-            api: "faux".to_string(),
+            api: Api::parse("faux"),
             provider: provider.to_string(),
             base_url: "http://localhost:0".to_string(),
             reasoning,

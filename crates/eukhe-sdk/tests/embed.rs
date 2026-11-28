@@ -33,7 +33,7 @@ async fn a_host_opens_a_session_prompts_it_and_reads_its_events() {
         .await
         .unwrap()
         .into_iter()
-        .map(|model| (model.provider, model.id))
+        .map(|model| (model.provider.as_str().to_owned(), model.id))
         .collect();
     assert_eq!(listed, [("faux".to_owned(), model_id.clone())]);
 

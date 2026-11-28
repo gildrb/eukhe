@@ -133,7 +133,7 @@ pub(crate) async fn generate(
     let role = role_model(settings.cvars(), ModelRole::Auxiliary);
     let selector = AuxiliarySelector::of(
         role.selector.as_deref(),
-        &session_model.provider,
+        session_model.provider.as_str(),
         &session_model.id,
     );
     let available = match &selector {

@@ -311,7 +311,7 @@ pub(crate) async fn apply_model(
     main.configure(
         AgentChange {
             model: FieldChange::Set(ModelRef {
-                provider: model.provider.clone(),
+                provider: model.provider.as_str().to_owned(),
                 model_id: model.id.clone(),
             }),
             thinking_level: FieldChange::Set(level),
@@ -334,7 +334,7 @@ pub(crate) async fn apply_model(
         ModelSave::Chat => report_saved(
             deps,
             "the default model",
-            settings.set_default_model_and_provider(&model.provider, &model.id),
+            settings.set_default_model_and_provider(model.provider.as_str(), &model.id),
         ),
         ModelSave::Gateway => report_saved(
             deps,

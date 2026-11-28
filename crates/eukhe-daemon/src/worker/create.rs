@@ -20,6 +20,7 @@ use eukhe_core::durable::{
 use eukhe_durable::harness::types::{AgentChange, FieldChange};
 use eukhe_types::acceptance::AcceptanceSeed;
 use eukhe_types::daemon::agent_tree::TreePlace;
+use eukhe_types::daemon::DaemonServerCapability;
 use eukhe_types::daemon::SessionEvent;
 use eukhe_types::pi_ai::ModelThinkingLevel;
 use serde::Deserialize;
@@ -1221,7 +1222,9 @@ pub(super) fn active_session_id_of(payload: &[u8]) -> String {
         .unwrap_or_default()
 }
 
-pub(super) fn worker_server_capabilities(agent_dir: &std::path::Path) -> Vec<String> {
+pub(super) fn worker_server_capabilities(
+    agent_dir: &std::path::Path,
+) -> Vec<DaemonServerCapability> {
     // The factory lane advertises only while its opt-in gate reads enabled.
     crate::factory_activity::advertised_server_capabilities(agent_dir)
 }

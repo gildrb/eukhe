@@ -830,7 +830,9 @@ pub(crate) fn session_summary(
         model,
         model_fallback_message: None,
         accounts: std::collections::BTreeMap::new(),
-        runtime_kind: Some(core.runtime_kind.as_str().to_owned()),
+        runtime_kind: Some(eukhe_types::daemon::agent_roster::RuntimeKind::parse(
+            core.runtime_kind.as_str(),
+        )),
         unfinished_action_count: Some(0),
         anthropic_warning_shown: core.created.then_some(core.anthropic_warning_shown),
         workers: view

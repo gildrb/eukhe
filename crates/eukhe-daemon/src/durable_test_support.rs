@@ -73,7 +73,7 @@ impl Fixture {
     pub(crate) fn model(&self) -> ModelRef {
         let model = self.faux.get_model();
         ModelRef {
-            provider: model.provider,
+            provider: model.provider.as_str().to_owned(),
             model_id: model.id,
         }
     }

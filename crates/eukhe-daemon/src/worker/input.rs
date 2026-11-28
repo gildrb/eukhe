@@ -784,7 +784,7 @@ impl Worker {
                 "runtimeKind": summary
                     .runtime_kind
                     .clone()
-                    .unwrap_or_else(|| "top-level".to_string()),
+                    .unwrap_or(eukhe_types::daemon::agent_roster::RuntimeKind::TOP_LEVEL),
             });
             if let Some(name) = summary.session_name.filter(|name| !name.is_empty()) {
                 target["sessionName"] = json!(name);

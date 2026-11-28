@@ -238,8 +238,7 @@ fn context_usage(
             .take(branch.len() - compaction_index - 1)
             .filter_map(|entry| entry.fields.get("message"))
             .find_map(valid_assistant_usage);
-        let usable =
-            post_compaction_usage.is_some_and(|usage| calculate_context_tokens(&usage) > 0);
+        let usable = post_compaction_usage.is_some_and(|usage| calculate_context_tokens(usage) > 0);
         if !usable {
             return Some(json!({
                 "tokens": Value::Null,
@@ -263,7 +262,7 @@ fn context_usage(
     {
         Some(last_usage_index) => {
             let usage = valid_assistant_usage(messages[last_usage_index]).expect("checked");
-            calculate_context_tokens(&usage) + count(&messages[last_usage_index + 1..])
+            calculate_context_tokens(usage) + count(&messages[last_usage_index + 1..])
         }
         None => count(messages),
     };

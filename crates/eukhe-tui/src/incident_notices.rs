@@ -16,7 +16,7 @@
 use eukhe_bend::rules::shape::INCIDENT_RULES;
 use eukhe_types::incident::{
     collect_incident_events, collect_worker_pid_map, compute_incident_anomalies,
-    latest_incident_stall_timeout_by_subject, parse_incident_log_line, IncidentEvent,
+    latest_incident_stall_timeout_by_subject, parse_incident_log_line, EventClass, IncidentEvent,
     IncidentLogEntry, IncidentSeverity,
 };
 use std::collections::HashMap;
@@ -209,7 +209,7 @@ pub fn derive_incident_notices(entries: &[IncidentLogEntry], now_ms: i64) -> Vec
     events.sort_by_key(|event: &IncidentEvent| event.time_ms);
     let mut notices: Vec<IncidentNotice> = Vec::new();
     for event in &events {
-        if event.event_class == "worker-crash" {
+        if event.event_class == EventClass::WorkerCrash {
             // The subject already reads "worker <id>" ("worker" when the
             // id is unknown).
             notices.push(create_notice(
@@ -258,7 +258,9 @@ pub fn derive_incident_notices(entries: &[IncidentLogEntry], now_ms: i64) -> Vec
     // restart.
     let mut started_subjects: Vec<&str> = Vec::new();
     for event in &events {
-        if event.event_class != "supervisor-start" || event.severity != IncidentSeverity::Info {
+        if event.event_class != EventClass::SupervisorStart
+            || event.severity != IncidentSeverity::Info
+        {
             continue;
         }
         if started_subjects.contains(&event.subject.as_str()) {

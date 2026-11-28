@@ -53,7 +53,7 @@ pub(crate) async fn set_model(
     let model = available_models(session)
         .await?
         .into_iter()
-        .find(|candidate| candidate.provider == provider && candidate.id == model_id)
+        .find(|candidate| candidate.provider.as_str() == provider && candidate.id == model_id)
         .ok_or_else(|| RpcCommandError::ModelNotFound {
             provider: provider.to_string(),
             model_id: model_id.to_string(),
@@ -87,7 +87,7 @@ async fn apply_model_selection(
         .configure(
             AgentChange {
                 model: FieldChange::Set(ModelRef {
-                    provider: model.provider.clone(),
+                    provider: model.provider.as_str().to_owned(),
                     model_id: model.id.clone(),
                 }),
                 thinking_level: FieldChange::Set(level),
@@ -102,7 +102,7 @@ async fn apply_model_selection(
         runtime.reset_model_failover();
     }
     settings_for(session)
-        .set_default_model_and_provider(&model.provider, &model.id)
+        .set_default_model_and_provider(model.provider.as_str(), &model.id)
         .and_then(eukhe_core::settings::Persisted::applied)
         .map_err(|source| RpcCommandError::Settings { source })
 }
@@ -127,7 +127,7 @@ pub(crate) async fn cycle_model(state: &Arc<RpcState>) -> Result<ResponseData, R
     let index = current
         .and_then(|current| {
             available.iter().position(|model| {
-                model.provider == current.provider && model.id == current.model_id
+                model.provider.as_str() == current.provider && model.id == current.model_id
             })
         })
         .map_or(0, |index| (index + 1) % available.len());

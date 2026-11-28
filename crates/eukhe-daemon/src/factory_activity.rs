@@ -10,6 +10,8 @@
 use std::path::Path;
 
 use eukhe_chord::context::BACKGROUND_CONTEXT;
+use eukhe_types::daemon::DaemonServerCapability;
+
 use eukhe_core::durable::rlm::factory::FactoryActivityRequest;
 use eukhe_core::durable::rlm::kernel_factory_activity;
 use serde_json::Value;
@@ -34,10 +36,10 @@ pub(crate) fn factory_lane_enabled(agent_dir: &Path) -> bool {
 /// `factory_activity` lane while the factory stays disabled (the opt-in
 /// gate; the settings read is fresh per connection, so a `/factory on`
 /// toggle surfaces on the next client start).
-pub(crate) fn advertised_server_capabilities(agent_dir: &Path) -> Vec<String> {
+pub(crate) fn advertised_server_capabilities(agent_dir: &Path) -> Vec<DaemonServerCapability> {
     let mut capabilities = crate::protocol::default_server_capabilities();
     if !factory_lane_enabled(agent_dir) {
-        capabilities.retain(|capability| capability != "factory_activity");
+        capabilities.retain(|capability| *capability != DaemonServerCapability::FactoryActivity);
     }
     capabilities
 }
@@ -95,9 +97,7 @@ mod tests {
 
         let disabled = advertised_server_capabilities(&agent_dir);
         assert!(
-            !disabled
-                .iter()
-                .any(|capability| capability == "factory_activity"),
+            !disabled.contains(&DaemonServerCapability::FactoryActivity),
             "the default factory gate stays off: {disabled:?}"
         );
 
@@ -111,9 +111,7 @@ mod tests {
         .expect("write settings");
         let enabled = advertised_server_capabilities(&agent_dir);
         assert!(
-            enabled
-                .iter()
-                .any(|capability| capability == "factory_activity"),
+            enabled.contains(&DaemonServerCapability::FactoryActivity),
             "the enabled factory advertises its lane: {enabled:?}"
         );
 
@@ -127,9 +125,7 @@ mod tests {
         .expect("write settings");
         let disabled_again = advertised_server_capabilities(&agent_dir);
         assert!(
-            !disabled_again
-                .iter()
-                .any(|capability| capability == "factory_activity"),
+            !disabled_again.contains(&DaemonServerCapability::FactoryActivity),
             "the disabled factory lane leaves the advertisement: {disabled_again:?}"
         );
     }

@@ -28,7 +28,7 @@ fn assistant_node(id: &str, parent: Option<&str>, timestamp: &str) -> TreeNodeDa
             message: eukhe_types::session::AgentMessage::Assistant(
                 eukhe_types::ai::AssistantMessage {
                     content: vec![],
-                    api: "openai-completions".to_string(),
+                    api: eukhe_types::pi_ai::Api::parse("openai-completions"),
                     provider: "openai".to_string(),
                     model: "m".to_string(),
                     response_model: None,

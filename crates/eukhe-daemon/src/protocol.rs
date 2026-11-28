@@ -223,7 +223,7 @@ pub fn current_protocol_info() -> DaemonProtocolInfo {
 pub fn normalize_client_capabilities(capabilities: &[String]) -> Vec<String> {
     capabilities
         .iter()
-        .filter(|cap| supported_client_capabilities().contains(&cap.as_str()))
+        .filter(|cap| supported_client_capabilities().contains(&DaemonServerCapability::parse(cap)))
         .cloned()
         .collect()
 }
@@ -234,56 +234,53 @@ pub fn default_client_capabilities() -> Vec<String> {
 }
 
 #[must_use]
-pub fn supported_client_capabilities() -> &'static [&'static str] {
+pub fn supported_client_capabilities() -> &'static [DaemonServerCapability] {
     &[
-        "attach_snapshot",
-        "event_sequence",
-        "slim_attach",
-        "chunked_snapshot",
-        "client_owned_sessions",
-        "elide_snapshot_images",
+        DaemonServerCapability::AttachSnapshot,
+        DaemonServerCapability::EventSequence,
+        DaemonServerCapability::SlimAttach,
+        DaemonServerCapability::ChunkedSnapshot,
+        DaemonServerCapability::ClientOwnedSessions,
+        DaemonServerCapability::ElideSnapshotImages,
         // An editor attached through ACP: asked before each irreversible
         // effect (`editor_permission` frames).
-        crate::editor_permission::EDITOR_PERMISSION_CAPABILITY,
+        DaemonServerCapability::EditorPermission,
     ]
 }
 
+#[must_use]
 pub fn default_server_capabilities() -> Vec<DaemonServerCapability> {
     supported_client_capabilities()
-        .iter()
-        .map(std::string::ToString::to_string)
-        .chain(
-            [
-                "delete_rlm_subagent",
-                "heartbeat_catalog",
-                "heartbeat_management",
-                "model_catalog",
-                "side_question_transcript",
-                "transient_bash",
-                "kernel_bash_activity",
-                "factory_activity",
-                "workflow_activity",
-                "session_input_admission",
-                "prompt_admission_cancellation",
-                "owned_prompt_cancellation",
-                "queue_message_mutation",
-                "authoritative_child_roster",
-                "owned_session_recovery_context",
-                "rlm_quiescence_barrier",
-                "session_input_pause",
-                "acp_mcp_servers",
-                "abort_and_send_queued",
-                "agent_roster",
-                "direct_peer_transport",
-                eukhe_types::daemon::CHAT_VIEW_CAPABILITY,
-                eukhe_types::daemon::MEMORY_CAPABILITY,
-                eukhe_types::daemon::MEMORY_TREE_CAPABILITY,
-                eukhe_types::daemon::STATE_TREE_CAPABILITY,
-                eukhe_types::daemon::IDLE_SHUTDOWN_CAPABILITY,
-            ]
-            .iter()
-            .map(std::string::ToString::to_string),
-        )
+        .to_vec()
+        .into_iter()
+        .chain([
+            DaemonServerCapability::DeleteRlmSubagent,
+            DaemonServerCapability::HeartbeatCatalog,
+            DaemonServerCapability::HeartbeatManagement,
+            DaemonServerCapability::ModelCatalog,
+            DaemonServerCapability::SideQuestionTranscript,
+            DaemonServerCapability::TransientBash,
+            DaemonServerCapability::KernelBashActivity,
+            DaemonServerCapability::FactoryActivity,
+            DaemonServerCapability::WorkflowActivity,
+            DaemonServerCapability::SessionInputAdmission,
+            DaemonServerCapability::PromptAdmissionCancellation,
+            DaemonServerCapability::OwnedPromptCancellation,
+            DaemonServerCapability::QueueMessageMutation,
+            DaemonServerCapability::AuthoritativeChildRoster,
+            DaemonServerCapability::OwnedSessionRecoveryContext,
+            DaemonServerCapability::RlmQuiescenceBarrier,
+            DaemonServerCapability::SessionInputPause,
+            DaemonServerCapability::AcpMcpServers,
+            DaemonServerCapability::AbortAndSendQueued,
+            DaemonServerCapability::AgentRoster,
+            DaemonServerCapability::DirectPeerTransport,
+            DaemonServerCapability::parse(eukhe_types::daemon::CHAT_VIEW_CAPABILITY),
+            DaemonServerCapability::parse(eukhe_types::daemon::MEMORY_CAPABILITY),
+            DaemonServerCapability::parse(eukhe_types::daemon::MEMORY_TREE_CAPABILITY),
+            DaemonServerCapability::parse(eukhe_types::daemon::STATE_TREE_CAPABILITY),
+            DaemonServerCapability::parse(eukhe_types::daemon::IDLE_SHUTDOWN_CAPABILITY),
+        ])
         .collect()
 }
 
@@ -1253,7 +1250,7 @@ mod tests {
             assert_eq!(command_active_session_id(&parsed.command), Some("session"));
             assert!(eukhe_types::daemon::is_session_plane_daemon_command(kind));
         }
-        assert!(default_server_capabilities().contains(&"kernel_bash_activity".to_string()));
+        assert!(default_server_capabilities().contains(&DaemonServerCapability::KernelBashActivity));
     }
 
     #[test]
@@ -1334,7 +1331,7 @@ mod tests {
                 _ => panic!("expected FactoryActivity"),
             }
         }
-        assert!(default_server_capabilities().contains(&"factory_activity".to_string()));
+        assert!(default_server_capabilities().contains(&DaemonServerCapability::FactoryActivity));
     }
 
     #[test]

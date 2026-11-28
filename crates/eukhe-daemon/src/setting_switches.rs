@@ -97,7 +97,7 @@ fn cycle_candidates(
             let id = model.get("id")?.as_str()?;
             let candidate = available
                 .iter()
-                .find(|candidate| candidate.provider == provider && candidate.id == id)?;
+                .find(|candidate| candidate.provider.as_str() == provider && candidate.id == id)?;
             let level = entry
                 .get("thinkingLevel")
                 .and_then(Value::as_str)
@@ -169,7 +169,7 @@ impl Worker {
         let current_index = current
             .and_then(|current| {
                 candidates.iter().position(|(_, model)| {
-                    model.provider == current.provider && model.id == current.model_id
+                    model.provider.as_str() == current.provider && model.id == current.model_id
                 })
             })
             .unwrap_or(0);

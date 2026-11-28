@@ -1567,8 +1567,8 @@ fn update_frame(
 fn partial_output_tokens(partial: &AssistantMessage) -> u64 {
     let tokenizer = Tokenizer::for_model(ModelRef {
         id: &partial.model,
-        provider: &partial.provider,
-        api: &partial.api,
+        provider: partial.provider.as_str(),
+        api: partial.api.as_str(),
     });
     let parts: Vec<Part<'_>> = partial
         .content

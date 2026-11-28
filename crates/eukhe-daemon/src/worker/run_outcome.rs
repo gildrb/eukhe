@@ -32,7 +32,9 @@ use eukhe_core::durable::children::{
 use eukhe_core::durable::rlm::{kernel_background_jobs, kernel_job_progress};
 use eukhe_core::durable::workflow::unsettled_runs;
 use eukhe_types::input_origin::ChildFailure;
-use eukhe_types::pi_ai::{AssistantContentBlock, AssistantMessage, StopReason, StreamFailureKind};
+use eukhe_types::pi_ai::{
+    AssistantContentBlock, AssistantMessage, DiagnosticKind, StopReason, StreamFailureKind,
+};
 
 use super::session_core::SessionCore;
 use super::summary::{last_assistant, queued_inputs};
@@ -209,7 +211,9 @@ fn run_outcome(busy: bool, pending_jobs: u32, last: Option<&AssistantMessage>) -
                 .unwrap_or_default()
                 .iter()
                 .rev()
-                .filter(|diagnostic| diagnostic.kind == PROVIDER_STREAM_FAILURE)
+                .filter(|diagnostic| {
+                    diagnostic.kind == DiagnosticKind::parse(PROVIDER_STREAM_FAILURE)
+                })
                 .find_map(|diagnostic| {
                     StreamFailureKind::parse(diagnostic.details.as_ref()?.get("kind")?.as_str()?)
                 })
@@ -284,8 +288,7 @@ mod tests {
             json!({ "errorMessage": "401 OAuth access token has expired" }),
         );
         last.diagnostics = Some(vec![AssistantMessageDiagnostic {
-            kind: PROVIDER_STREAM_FAILURE.to_owned(),
-            timestamp: 1,
+            kind: DiagnosticKind::parse(PROVIDER_STREAM_FAILURE),
             error: None,
             details: Some(details),
         }]);

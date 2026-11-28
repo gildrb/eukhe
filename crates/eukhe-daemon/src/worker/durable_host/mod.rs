@@ -86,7 +86,7 @@ impl ScriptedModels {
         Ok(Self {
             models,
             model: ModelRequest {
-                provider: Some(model.provider.clone()),
+                provider: Some(model.provider.as_str().to_owned()),
                 pattern,
             },
             compactor: (chat_memory == Some(true)).then_some(model),

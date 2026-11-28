@@ -304,7 +304,10 @@ impl TranscriptFold {
         let timestamp = match message {
             Message::User(user) => user.timestamp,
             Message::Assistant(assistant) => {
-                self.model = Some((assistant.provider.clone(), assistant.model.clone()));
+                self.model = Some((
+                    assistant.provider.as_str().to_owned(),
+                    assistant.model.clone(),
+                ));
                 let usage = &assistant.usage;
                 self.input_tokens = self
                     .input_tokens
